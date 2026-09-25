@@ -42,6 +42,7 @@ fun SettingsScreen(viewModel: SettingsViewModel, modifier: Modifier = Modifier) 
     val rows by viewModel.modelRows.collectAsStateWithLifecycle()
     val hasKey by viewModel.hasCloudKey.collectAsStateWithLifecycle()
     val ledger by viewModel.ledgerEntries.collectAsStateWithLifecycle()
+    val vaultUses by viewModel.vaultUses.collectAsStateWithLifecycle()
     val message by viewModel.message.collectAsStateWithLifecycle()
     // Downloads show progress in a notification; they still run if the user declines this.
     val notifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
@@ -89,6 +90,23 @@ fun SettingsScreen(viewModel: SettingsViewModel, modifier: Modifier = Modifier) 
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(it, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
                 TextButton(onClick = viewModel::dismissMessage) { Text("OK") }
+            }
+        }
+
+        HorizontalDivider()
+        Section("Vault activity", "Every time a saved key was used, by which part of Anu, and for which site.")
+        if (vaultUses.isEmpty()) {
+            Text("No saved key has been used yet.", style = MaterialTheme.typography.bodyMedium)
+        } else {
+            vaultUses.forEach { use ->
+                Column {
+                    Text("${use.label} · ${time.format(use.at)}", style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        "used by ${use.caller} for ${use.host}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
         }
 

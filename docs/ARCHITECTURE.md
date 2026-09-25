@@ -1,6 +1,6 @@
 # Anu for Android: Architecture
 
-Version 0.7.0 · Draft · 2026-09-25
+Version 0.8.0 · Draft · 2026-09-25
 Status: proposed. OD-1 to OD-4 were resolved on 2026-09-25 (§16).
 Product intent lives in [VISION.md](VISION.md).
 
@@ -190,8 +190,8 @@ sequenceDiagram
 | `core:router` | Router stages, features, scorer, telemetry interface | **no** |
 | `core:memory` | Event log, entities, facts, profile, retrieval, memory pipeline | yes (WorkManager) |
 | `core:security` | `SecretRef`/`SecretUse` handles, PII detection, reversible redaction, egress gate, Privacy Ledger interface | **no** |
-| `core:vault` | Keystore + Tink vault store, host-bound HTTP injector (`withVault`) | yes |
-| `core:data` | Room database (SQLCipher), DAOs, DataStore | yes |
+| `core:vault` | Keystore + Tink vault store, host-bound HTTP injector (`withVault`), and the shared `KeystoreAead` primitive with its `KeyPolicy` | yes |
+| `core:data` | Room database on SQLCipher (ADR-024), DAOs, and the stores behind `TranscriptStore`, `PrivacyLedger` and `VaultAudit` | yes |
 | `core:device` | Device class, battery, thermal, memory and network state | yes |
 | `brain:litertlm` | Gemma E2B/E4B adapter; ModelManager (download, verify, load, residency) | yes |
 | `brain:gemini` | Gemini REST/SSE adapter; every request passes the egress gate | **no** (OkHttp) |
@@ -619,11 +619,23 @@ Recommend a **paid** Gemini tier for personal data. Google's terms for unpaid Ge
 
 | Store | Contents | Protection | Backup |
 |---|---|---|---|
-| Main database (Room + SQLCipher) | Events, entities, facts, episodes, profile versions, runs, approvals, audit, ledger, router telemetry | Key wrapped by Keystore | Excluded |
-| Vault store (separate file) | Vault items | Per-item Tink keys, auth-bound master key | Excluded |
+| Main database (Room + SQLCipher) | Now: transcripts (`messages`), Privacy Ledger (`ledger`), vault audit (`vault_audit`). Later: events, entities, facts, episodes, profile versions, runs, approvals, router telemetry | Database key wrapped by Keystore (ADR-024) | Excluded |
+| Vault store (separate files) | Vault items | Tink keyset per protection level, wrapped by Keystore master keys (§11) | Excluded |
 | Blob store | Large content (email bodies, attachments), cached for extraction | Tink streaming AEAD | Excluded |
-| DataStore | Non-sensitive preferences | None needed | Allowed |
+| Settings (`SharedPreferences`) | Non-sensitive values only, such as vault handles | None needed | Excluded |
 | Model files | `.litertlm` and embedding models | SHA-256 verified | Excluded (`noBackupFilesDir`) |
+
+**Database encryption (ADR-024)**
+
+- **Key.** 256 random bits, created on first launch, and stored only wrapped by the Keystore key `anu.data.db` in `noBackupFilesDir/db/key.bin`.
+  - The key uses `KeyPolicy.AfterFirstUnlock`: no user check. Background work such as Gmail sync and overnight consolidation must run while the phone is locked.
+  - At rest, the data is protected three ways: Android's credential-encrypted storage (unreadable until the first unlock after boot), SQLCipher, and a hardware-bound key. A copied database file, with or without `key.bin`, is unreadable on any other device.
+- **Opening.** SQLCipher gets the key in raw-key form (`x'…'`). The key is already random, so passphrase stretching is skipped and opening is faster.
+- **Location.** The database lives at `noBackupFilesDir/db/anu.db`. Backup and device transfer are excluded for all data (`data_extraction_rules.xml`).
+- **Schemas** are exported to `core/data/schemas` and committed, so every migration can be reviewed. Version 1 is the current schema.
+- **Tests.**
+  - JVM (Robolectric): the store logic runs against Room's real SQL, unencrypted.
+  - Device: `EncryptedDatabaseTest` checks that the file has no plain SQLite header and no canary text, and that a wrong key can't open it. It needs a device dedicated to Anu.
 
 Retention: raw connector content is kept for a configurable window, 90 days by default. Facts and profile persist until deleted.
 
@@ -740,6 +752,7 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 | 021 | 2026-09-25 | Vault: two Keystore protection levels (`USER_PRESENCE` and `DEVICE_UNLOCKED`), one Tink keyset per level, and associated data binding each item's hosts and callers; the injector is a network interceptor and redirects are off | Background features need API keys without a prompt, while logins need presence. Binding makes metadata tampering fail. Custom key headers aren't stripped on redirect |
 | 022 | 2026-09-25 | Gemini through REST/SSE with JSON Schema fields; Gemini's default sampling; model IDs from config (default `-latest` aliases) | Our schemas pass through unchanged. Gemini 3 advises against changing temperature. Hard-coded model IDs go stale |
 | 023 | 2026-09-25 | Manual dependency injection (`AppGraph`) instead of Hilt for now | A small graph; avoids annotation processing on the brand-new AGP 9 toolchain; one readable place where contracts meet implementations |
+| 024 | 2026-09-25 | Database: SQLCipher with a random 256-bit key wrapped by a Keystore key that has no user check (`AfterFirstUnlock`); raw-key format | Background work must read and write while the phone is locked. Credential-encrypted storage plus a hardware-bound key still protect data at rest. A random key needs no stretching |
 
 ### Component status
 
@@ -754,14 +767,15 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 | `brain:litertlm`: `LiteRtLmBrain`, `EngineHolder` | 1 | In progress. It builds and its JVM tests pass; real-model tests are written but blocked on a device |
 | ModelManager: pinned catalog, resumable verified download worker | 1 | Implemented, with 7 JVM tests (resume, restart, corrupted file deleted, catalog). The worker hasn't run on a device yet |
 | Residency: one model at a time (`OnDeviceBrains`) | 1 | Implemented. Not device-tested; thresholds come from S1 |
-| `core:security`: PII detection, redaction, `EgressGate`, in-memory ledger | 1 | Implemented, with 9 unit tests. The ledger isn't persisted yet (needs `core:data`) |
+| `core:security`: PII detection, redaction, `EgressGate`, ledger interface | 1 | Implemented, with 9 unit tests. The ledger is persisted by `core:data` |
 | `brain:gemini` | 1 | Implemented, with 6 unit tests against a fake server. Not verified against the live API (S8) |
 | Router v1: `core:router` stages A and B, and escalation | 1 | Implemented, with 13 unit tests. Not yet Verified: there's no router eval set yet (§15) |
 | Cascade (Stage C: validate, repair, escalate, consent stop) in `core:agent` | 1 | Implemented, with 9 unit tests using `ScriptedBrain` |
 | Direct tier (deterministic handlers) | 2 | Planned. Needs connectors |
 | `core:vault`: store, Keystore protector, `SecretInjector` | 1 | Implemented, with 10 JVM unit tests using an in-memory key stand-in. The Keystore path isn't run on a device yet. Recovery passphrase Planned |
 | Vault UI and biometric prompt (`feature:vault`) | 1 | Planned |
-| Encrypted database (`core:data`) | 1 | Planned |
+| Encrypted database (`core:data`): Room 2.8 + SQLCipher 4.19, key wrapping, transcript, ledger and audit stores | 1 | Implemented, with 8 JVM tests (Robolectric, unencrypted). Encryption at rest is checked by a device test that is written but not yet run. Room + KSP confirmed working with AGP 9.4.1 |
+| Persistence wired: chat history restored at launch, ledger persisted, vault activity shown in Settings | 1 | Implemented, with a ViewModel test for restore. Not yet run on a device |
 | Chat UI (`feature:home`): streaming, tier badge, Retry with Pro, cloud consent dialog, Stop | 1 | Implemented, with 7 ViewModel tests on the JVM. Not yet run on a device or emulator (ADR-016, dedicated devices only) |
 | `ChatSession` (transcript as the truth, consent resend, take back last) in `core:agent` | 1 | Implemented, with 4 unit tests |
 | Settings UI (`feature:settings`): models, Gemini key into the vault, Privacy Ledger | 1 | Implemented; not yet run on a device |
@@ -776,6 +790,12 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 
 ### Changelog
 
+- **0.8.0** (2026-09-25): encrypted persistence.
+  - New module `core:data`: Room on SQLCipher, with the key wrapped by Keystore (ADR-024).
+  - `KeystoreAead` and `KeyPolicy` extracted as a shared primitive in `core:vault`.
+  - `TranscriptStore` contract; the chat is persisted and restored.
+  - The Privacy Ledger and the vault audit are persisted, and vault activity is shown in Settings.
+  - Settings storage is excluded from backup too.
 - **0.7.0** (2026-09-25): an end-to-end Phase 1 app, not yet run on a device.
   - `ModelManager` with a pinned catalog and resumable, verified downloads.
   - Residency: one model at a time.

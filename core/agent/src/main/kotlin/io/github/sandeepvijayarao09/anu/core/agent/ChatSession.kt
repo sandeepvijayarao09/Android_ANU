@@ -14,22 +14,25 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
 /**
- * A plain chat conversation with no tools (Phase 1). It owns the transcript, which is the source of
- * truth (ADR-018). A turn joins the transcript only when the cascade completes, so a failed,
- * cancelled or consent-blocked turn leaves it unchanged.
+ * A plain chat conversation with no tools (Phase 1). Its transcript is persisted through [store] and
+ * is the source of truth (ADR-018). A turn is saved only when the cascade completes, so a failed,
+ * cancelled or consent-blocked turn leaves no trace.
  */
 class ChatSession(
     private val cascade: Cascade,
+    private val store: TranscriptStore = InMemoryTranscriptStore(),
     private val system: String = DEFAULT_SYSTEM,
 ) {
     private val lock = Mutex()
-    private val transcript = mutableListOf<ChatMessage>()
+    private var transcript: MutableList<ChatMessage>? = null
 
-    val messages: List<ChatMessage> get() = transcript.toList()
+    /** The saved conversation, loaded from [store] on first use. */
+    suspend fun history(): List<ChatMessage> = lock.withLock { loaded().toList() }
 
     /** Sends [text]. Use [pinned] for "Retry with Pro", and [cloudConsented] after the user approves cloud use. */
     fun send(text: String, device: DeviceState, pinned: Tier? = null, cloudConsented: Boolean = false): Flow<CascadeEvent> = flow {
         lock.withLock {
+            val transcript = loaded()
             val turn = transcript + ChatMessage.User(text)
             val route = RouteRequest(
                 text = text,
@@ -41,8 +44,9 @@ class ChatSession(
             )
             cascade.run(route, device, BrainRequest(system = system, transcript = turn)).collect { event ->
                 if (event is CascadeEvent.Completed) {
-                    transcript += ChatMessage.User(text)
-                    transcript += ChatMessage.Model(event.text, event.toolCalls)
+                    val exchange = listOf(ChatMessage.User(text), ChatMessage.Model(event.text, event.toolCalls))
+                    store.append(exchange)
+                    transcript += exchange
                 }
                 emit(event)
             }
@@ -51,12 +55,17 @@ class ChatSession(
 
     /** Removes the last exchange so it can be sent again, for example on a different tier. Returns its text. */
     suspend fun takeBackLast(): String? = lock.withLock {
+        val transcript = loaded()
         val userIndex = transcript.indexOfLast { it is ChatMessage.User }
         if (userIndex < 0) return null
         val text = (transcript[userIndex] as ChatMessage.User).text
+        store.truncate(userIndex)
         while (transcript.size > userIndex) transcript.removeAt(transcript.lastIndex)
         text
     }
+
+    /** Callers hold [lock]. */
+    private suspend fun loaded(): MutableList<ChatMessage> = transcript ?: store.load().toMutableList().also { transcript = it }
 
     companion object {
         const val DEFAULT_SYSTEM =

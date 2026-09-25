@@ -9,6 +9,7 @@ import io.github.sandeepvijayarao09.anu.core.model.OnDeviceModels
 import io.github.sandeepvijayarao09.anu.core.security.LedgerEntry
 import io.github.sandeepvijayarao09.anu.core.security.PrivacyLedger
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -17,6 +18,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import java.time.Instant
 
 /** The Gemini key as the settings screen sees it. The key goes straight into the vault and is never shown again (§11). */
 interface CloudKeySettings {
@@ -29,10 +31,14 @@ interface CloudKeySettings {
 
 data class ModelRow(val info: ModelInfo, val state: ModelState)
 
+/** One use of a vault secret, as the audit trail records it: never the value (§11). */
+data class VaultActivity(val label: String, val caller: String, val host: String, val at: Instant)
+
 class SettingsViewModel(
     private val models: OnDeviceModels,
     private val cloudKey: CloudKeySettings,
     ledger: PrivacyLedger,
+    vaultActivity: Flow<List<VaultActivity>>,
 ) : ViewModel() {
 
     // WorkManager doesn't emit when a file is deleted, so a delete bumps this to re-read the state.
@@ -47,6 +53,8 @@ class SettingsViewModel(
 
     val hasCloudKey: StateFlow<Boolean> = cloudKey.hasKey
     val ledgerEntries: StateFlow<List<LedgerEntry>> = ledger.entries
+    val vaultUses: StateFlow<List<VaultActivity>> =
+        vaultActivity.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     private val mutableMessage = MutableStateFlow<String?>(null)
     val message: StateFlow<String?> = mutableMessage.asStateFlow()

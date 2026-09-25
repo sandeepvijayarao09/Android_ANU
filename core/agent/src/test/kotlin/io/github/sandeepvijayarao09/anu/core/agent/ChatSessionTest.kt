@@ -29,7 +29,7 @@ class ChatSessionTest {
         session.send("Remind me later", device).toList()
         assertEquals(
             listOf(ChatMessage.User("Hello"), ChatMessage.Model("Hi!"), ChatMessage.User("Remind me later"), ChatMessage.Model("Sure.")),
-            session.messages,
+            session.history(),
         )
         assertEquals(3, base.requests[1].transcript.size)
     }
@@ -39,11 +39,11 @@ class ChatSessionTest {
         val cloudOnly = DeviceState(online = true, availableTiers = setOf(Tier.CLOUD))
         val blocked = session.send("Draft my resignation letter", cloudOnly).toList()
         assertTrue(blocked.single() is CascadeEvent.ConsentNeeded)
-        assertTrue(session.messages.isEmpty())
+        assertTrue(session.history().isEmpty())
 
         cloud.enqueue(Step.Reply("Here is a draft."))
         session.send("Draft my resignation letter", cloudOnly, cloudConsented = true).toList()
-        assertEquals(2, session.messages.size)
+        assertEquals(2, session.history().size)
     }
 
     @Test
@@ -54,7 +54,20 @@ class ChatSessionTest {
         val text = session.takeBackLast()!!
         val events = session.send(text, device, pinned = Tier.PRO).toList()
         assertEquals(Tier.PRO, (events.last() as CascadeEvent.Completed).tier)
-        assertEquals(listOf(ChatMessage.User("Explain tides"), ChatMessage.Model("better")), session.messages)
+        assertEquals(listOf(ChatMessage.User("Explain tides"), ChatMessage.Model("better")), session.history())
+    }
+
+    @Test
+    fun `a new session over the same store continues the saved conversation`() = runTest {
+        val store = InMemoryTranscriptStore()
+        val cascade = Cascade(Router(), BrainProvider { mapOf(Tier.BASE to base)[it] })
+        base.enqueue(Step.Reply("Noted."), Step.Reply("You said to buy milk."))
+        ChatSession(cascade, store).send("Remember to buy milk", device).toList()
+
+        val reopened = ChatSession(cascade, store)
+        assertEquals(2, reopened.history().size)
+        reopened.send("What did I say?", device).toList()
+        assertEquals(3, base.requests[1].transcript.size) // the saved exchange is sent as history
     }
 
     @Test

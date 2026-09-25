@@ -13,12 +13,15 @@ import io.github.sandeepvijayarao09.anu.brain.litertlm.OnDeviceBrains
 import io.github.sandeepvijayarao09.anu.core.agent.BrainProvider
 import io.github.sandeepvijayarao09.anu.core.agent.Cascade
 import io.github.sandeepvijayarao09.anu.core.agent.ChatSession
+import io.github.sandeepvijayarao09.anu.core.data.AnuDatabase
+import io.github.sandeepvijayarao09.anu.core.data.RoomPrivacyLedger
+import io.github.sandeepvijayarao09.anu.core.data.RoomTranscriptStore
+import io.github.sandeepvijayarao09.anu.core.data.RoomVaultAudit
 import io.github.sandeepvijayarao09.anu.core.model.BrainId
 import io.github.sandeepvijayarao09.anu.core.router.DeviceState
 import io.github.sandeepvijayarao09.anu.core.router.Router
 import io.github.sandeepvijayarao09.anu.core.router.Tier
 import io.github.sandeepvijayarao09.anu.core.security.EgressGate
-import io.github.sandeepvijayarao09.anu.core.security.InMemoryLedger
 import io.github.sandeepvijayarao09.anu.core.security.PrivacyLedger
 import io.github.sandeepvijayarao09.anu.core.security.SecretRef
 import io.github.sandeepvijayarao09.anu.core.vault.ItemType
@@ -28,12 +31,15 @@ import io.github.sandeepvijayarao09.anu.core.vault.Protection
 import io.github.sandeepvijayarao09.anu.core.vault.Vault
 import io.github.sandeepvijayarao09.anu.core.vault.withVault
 import io.github.sandeepvijayarao09.anu.feature.settings.CloudKeySettings
+import io.github.sandeepvijayarao09.anu.feature.settings.VaultActivity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
 import okhttp3.OkHttpClient
 import java.io.File
 
@@ -45,9 +51,15 @@ class AppGraph(context: Context) {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val prefs: SharedPreferences = context.getSharedPreferences("anu", Context.MODE_PRIVATE)
 
-    val vault = Vault(File(context.noBackupFilesDir, "vault"), KeystoreKeyProtector())
-    val ledger: PrivacyLedger = InMemoryLedger()
-    private val egress = EgressGate(ledger)
+    /** Encrypted with a Keystore-wrapped key (ADR-024). Chats, the Privacy Ledger and the vault audit live here. */
+    val db: AnuDatabase by lazy { AnuDatabase.open(context) }
+    private val vaultAudit by lazy { RoomVaultAudit(db.vaultAudit()) }
+
+    val vault = Vault(File(context.noBackupFilesDir, "vault"), KeystoreKeyProtector(), audit = { ref, caller, host, at ->
+        vaultAudit.used(ref, caller, host, at)
+    })
+    val ledger: PrivacyLedger by lazy { RoomPrivacyLedger(db.ledger(), scope) }
+    private val egress by lazy { EgressGate(ledger) }
 
     val models = ModelManager(context)
     val onDevice = OnDeviceBrains(models)
@@ -64,7 +76,15 @@ class AppGraph(context: Context) {
         }
     }
 
-    val chat = ChatSession(Cascade(Router(), brains))
+    val chat by lazy { ChatSession(Cascade(Router(), brains), RoomTranscriptStore(db.transcripts(), conversationId = "main")) }
+
+    /** Recent uses of vault secrets, with item labels, for the settings screen (§11). */
+    val vaultActivity: Flow<List<VaultActivity>> by lazy {
+        vaultAudit.recent().map { uses ->
+            val labels = vault.list().associate { it.id to it.label }
+            uses.map { VaultActivity(labels[it.itemId] ?: "Deleted item", it.caller, it.host, it.at) }
+        }
+    }
 
     private companion object {
         /** An alias, so the ID doesn't go stale (ADR-022). It becomes a setting once S8 confirms it. */

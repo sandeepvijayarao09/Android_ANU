@@ -20,7 +20,7 @@ android {
 dependencies {
     api(project(":core:security"))
     api(libs.okhttp)
-    implementation(libs.tink.android)
+    api(libs.tink.android) // KeystoreAead is a Tink Aead, used by core:data for the database key
     implementation(libs.kotlinx.coroutines.android)
 
     testImplementation(libs.junit)

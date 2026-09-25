@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.sandeepvijayarao09.anu.core.agent.CascadeEvent
 import io.github.sandeepvijayarao09.anu.core.agent.ChatSession
+import io.github.sandeepvijayarao09.anu.core.model.ChatMessage
 import io.github.sandeepvijayarao09.anu.core.router.DeviceState
 import io.github.sandeepvijayarao09.anu.core.router.Tier
 import kotlinx.coroutines.CancellationException
@@ -40,6 +41,25 @@ class ChatViewModel(private val session: ChatSession, private val device: () -> 
 
     private var running: Job? = null
     private var nextId = 0L
+
+    init {
+        // Restore the saved conversation (§14). Sending waits until it has loaded.
+        mutable.update { it.copy(busy = true) }
+        viewModelScope.launch {
+            try {
+                val restored = session.history().mapNotNull { message ->
+                    when (message) {
+                        is ChatMessage.User -> Bubble(nextId++, fromUser = true, text = message.text)
+                        is ChatMessage.Model -> message.text.takeIf(String::isNotEmpty)?.let { Bubble(nextId++, fromUser = false, text = it) }
+                        is ChatMessage.Tool -> null
+                    }
+                }
+                mutable.update { it.copy(bubbles = restored + it.bubbles) }
+            } finally {
+                mutable.update { it.copy(busy = false) }
+            }
+        }
+    }
 
     fun send(text: String) {
         val trimmed = text.trim()

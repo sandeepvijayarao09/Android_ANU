@@ -46,6 +46,7 @@ dependencies {
     implementation(project(":brain:litertlm"))
     implementation(project(":brain:gemini"))
     implementation(project(":core:vault"))
+    implementation(project(":core:data"))
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)

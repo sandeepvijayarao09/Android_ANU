@@ -59,4 +59,6 @@ export JAVA_HOME=/opt/homebrew/opt/openjdk@21
   - `-Pandroid.testInstrumentationRunnerArguments.backend=GPU` (or `GOOGLE_TENSOR`)
   - `...modelPath=/data/local/tmp/anu/models/<file>.litertlm`
 - These tests skip themselves when the model is missing.
+- The encryption-at-rest check needs no model: `./gradlew :core:data:connectedDebugAndroidTest`.
+- Changing an entity? Bump the `AnuDatabase` version, add a migration, and commit the new schema JSON in `core/data/schemas`.
 - **Use only devices dedicated to Anu.** The emulators `daykit_ai` and `daykit_shots` belong to another project. Never install on them, push to them, or run tests on them. If the only attached devices aren't Anu's, ask first.

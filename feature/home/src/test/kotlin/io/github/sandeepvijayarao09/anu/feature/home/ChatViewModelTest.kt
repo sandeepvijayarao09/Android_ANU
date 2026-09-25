@@ -3,6 +3,8 @@ package io.github.sandeepvijayarao09.anu.feature.home
 import io.github.sandeepvijayarao09.anu.core.agent.BrainProvider
 import io.github.sandeepvijayarao09.anu.core.agent.Cascade
 import io.github.sandeepvijayarao09.anu.core.agent.ChatSession
+import io.github.sandeepvijayarao09.anu.core.agent.InMemoryTranscriptStore
+import io.github.sandeepvijayarao09.anu.core.model.ChatMessage
 import io.github.sandeepvijayarao09.anu.core.model.BrainId
 import io.github.sandeepvijayarao09.anu.core.model.ScriptedBrain
 import io.github.sandeepvijayarao09.anu.core.model.ScriptedBrain.Step
@@ -103,6 +105,15 @@ class ChatViewModelTest {
         viewModel.send("Hi")
         assertTrue(bubbles.last().failed)
         assertTrue(bubbles.last().text.contains("Settings"))
+    }
+
+    @Test
+    fun `the saved conversation is shown when the screen opens`() {
+        val store = InMemoryTranscriptStore(listOf(ChatMessage.User("Remember milk"), ChatMessage.Model("Noted.")))
+        val brains = mapOf(Tier.BASE to base)
+        val reopened = ChatViewModel(ChatSession(Cascade(Router(), BrainProvider { brains[it] }), store), device = { device })
+        assertEquals(listOf("Remember milk", "Noted."), reopened.state.value.bubbles.map { it.text })
+        assertFalse(reopened.state.value.busy)
     }
 
     @Test
