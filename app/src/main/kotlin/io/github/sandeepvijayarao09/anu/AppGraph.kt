@@ -22,6 +22,13 @@ import io.github.sandeepvijayarao09.anu.connector.calendar.ListEventsTool
 import io.github.sandeepvijayarao09.anu.connector.calendar.ProviderCalendar
 import io.github.sandeepvijayarao09.anu.connector.contacts.FindContactTool
 import io.github.sandeepvijayarao09.anu.connector.contacts.ProviderContacts
+import io.github.sandeepvijayarao09.anu.connector.gmail.CreateDraftTool
+import io.github.sandeepvijayarao09.anu.connector.gmail.GetThreadTool
+import io.github.sandeepvijayarao09.anu.connector.gmail.GmailClient
+import io.github.sandeepvijayarao09.anu.connector.gmail.PlayServicesTokens
+import io.github.sandeepvijayarao09.anu.connector.gmail.SearchEmailTool
+import io.github.sandeepvijayarao09.anu.connector.gmail.SendEmailTool
+import io.github.sandeepvijayarao09.anu.connector.gmail.gmailHttpClient
 import io.github.sandeepvijayarao09.anu.core.agent.ChatSession
 import io.github.sandeepvijayarao09.anu.core.data.AnuDatabase
 import io.github.sandeepvijayarao09.anu.core.data.RoomPrivacyLedger
@@ -43,6 +50,7 @@ import io.github.sandeepvijayarao09.anu.core.vault.NewVaultItem
 import io.github.sandeepvijayarao09.anu.core.vault.Protection
 import io.github.sandeepvijayarao09.anu.core.vault.Vault
 import io.github.sandeepvijayarao09.anu.core.vault.withVault
+import io.github.sandeepvijayarao09.anu.feature.settings.AccountConnection
 import io.github.sandeepvijayarao09.anu.feature.settings.CloudKeySettings
 import io.github.sandeepvijayarao09.anu.feature.settings.VaultActivity
 import kotlinx.coroutines.CoroutineScope
@@ -95,6 +103,17 @@ class AppGraph(private val context: Context) {
     private val toolAudit by lazy { RoomToolAudit(db.toolAudit()) }
     private val zone: () -> ZoneId = ZoneId::systemDefault
 
+    /** Gmail tokens come from Play services on demand. Anu stores none (ADR-029). */
+    val gmailAccess = PlayServicesTokens(context)
+
+    /** The settings screen's view of Gmail, so `feature:settings` never depends on the connector (§4.2). */
+    val gmailConnection = object : AccountConnection {
+        override suspend fun isConnected() = gmailAccess.isConnected()
+        override suspend fun beginConnect() = gmailAccess.beginConnect()
+        override fun finishConnect(data: android.content.Intent?) = gmailAccess.finishConnect(data)
+    }
+    private val gmail by lazy { GmailClient(gmailHttpClient(), gmailAccess, ledger) }
+
     /** Every tool Anu has. Each skill offers only its own subset to the model (§7.3). */
     private val tools: List<Tool<*, *>> by lazy {
         val calendar = ProviderCalendar(context.contentResolver)
@@ -103,7 +122,20 @@ class AppGraph(private val context: Context) {
             FindFreeSlotsTool(calendar, zone),
             CreateEventTool(calendar, zone),
             FindContactTool(ProviderContacts(context.contentResolver)),
+            SearchEmailTool(gmail),
+            GetThreadTool(gmail),
+            CreateDraftTool(gmail),
+            SendEmailTool(gmail),
         )
+    }
+
+    private fun toolsFor(skill: Skill): List<String> = when (skill) {
+        Skill.SCHEDULING -> listOf("calendar_list_events", "calendar_find_free_slots", "calendar_create_event", "contacts_find")
+        Skill.EMAIL -> listOf(
+            "email_search", "email_get_thread", "email_create_draft", "email_send",
+            "contacts_find", "calendar_list_events", "calendar_find_free_slots",
+        )
+        else -> emptyList()
     }
 
     private val broker by lazy { ToolBroker(tools, approvals, RoomToolResultStore(db.toolResults()), toolAudit) }
@@ -112,7 +144,7 @@ class AppGraph(private val context: Context) {
         ChatSession(
             agent = Agent(Router(), brains, broker),
             store = RoomTranscriptStore(db.transcripts(), conversationId = "main"),
-            toolsFor = { skill -> if (skill == Skill.SCHEDULING) tools.map { it.name } else emptyList() },
+            toolsFor = ::toolsFor,
         )
     }
 

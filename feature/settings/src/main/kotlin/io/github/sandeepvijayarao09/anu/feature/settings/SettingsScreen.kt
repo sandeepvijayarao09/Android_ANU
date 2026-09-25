@@ -3,6 +3,7 @@ package io.github.sandeepvijayarao09.anu.feature.settings
 import android.Manifest
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -24,6 +25,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -71,6 +73,7 @@ fun SettingsScreen(viewModel: SettingsViewModel, modifier: Modifier = Modifier) 
 
         HorizontalDivider()
         ConnectorsSection()
+        GmailRow(viewModel)
 
         HorizontalDivider()
         Section(
@@ -166,6 +169,28 @@ private fun ConnectorsSection() {
             Text("Connected", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
         } else {
             Button(onClick = { request.launch(CONNECTOR_PERMISSIONS) }) { Text("Connect") }
+        }
+    }
+}
+
+/** Gmail connects through Google's own consent screen. Anu never sees the password (ADR-029). */
+@Composable
+private fun GmailRow(viewModel: SettingsViewModel) {
+    val connected by viewModel.gmailConnected.collectAsStateWithLifecycle()
+    val consent by viewModel.gmailConsent.collectAsStateWithLifecycle()
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
+        viewModel.finishGmail(result.data)
+    }
+    LaunchedEffect(consent) { consent?.let { launcher.launch(IntentSenderRequest.Builder(it).build()) } }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text("Gmail", style = MaterialTheme.typography.bodyLarge)
+            Text("Search, read and draft. Sending always asks you first.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        when (connected) {
+            true -> Text("Connected", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+            false -> Button(onClick = viewModel::connectGmail) { Text("Connect") }
+            null -> Text("Checking…", style = MaterialTheme.typography.labelLarge)
         }
     }
 }

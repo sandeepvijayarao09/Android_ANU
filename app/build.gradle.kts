@@ -49,6 +49,7 @@ dependencies {
     implementation(project(":core:data"))
     implementation(project(":connector:calendar"))
     implementation(project(":connector:contacts"))
+    implementation(project(":connector:gmail"))
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)

@@ -42,7 +42,7 @@ class MainActivity : ComponentActivity() {
 private fun AnuHome(graph: AppGraph) {
     var tab by rememberSaveable { mutableIntStateOf(0) }
     val chat = viewModel { ChatViewModel(graph.chat, graph.device::current, graph.approvals) }
-    val settings = viewModel { SettingsViewModel(graph.models, graph.geminiKey, graph.ledger, graph.vaultActivity, graph.toolActivity) }
+    val settings = viewModel { SettingsViewModel(graph.models, graph.geminiKey, graph.ledger, graph.vaultActivity, graph.toolActivity, graph.gmailConnection) }
     Scaffold(
         bottomBar = {
             NavigationBar {

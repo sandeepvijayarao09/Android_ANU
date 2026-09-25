@@ -1,5 +1,7 @@
 package io.github.sandeepvijayarao09.anu.feature.settings
 
+import android.content.Intent
+import android.content.IntentSender
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.sandeepvijayarao09.anu.core.agent.ToolAuditEntry
@@ -32,6 +34,16 @@ interface CloudKeySettings {
 
 data class ModelRow(val info: ModelInfo, val state: ModelState)
 
+/** An account connected through the provider's own consent screen, such as Gmail (§9). */
+interface AccountConnection {
+    suspend fun isConnected(): Boolean
+
+    /** Returns the consent screen to launch, or null when access is already granted. */
+    suspend fun beginConnect(): IntentSender?
+
+    fun finishConnect(data: Intent?): Boolean
+}
+
 /** One use of a vault secret, as the audit trail records it: never the value (§11). */
 data class VaultActivity(val label: String, val caller: String, val host: String, val at: Instant)
 
@@ -41,7 +53,36 @@ class SettingsViewModel(
     ledger: PrivacyLedger,
     vaultActivity: Flow<List<VaultActivity>>,
     toolActivity: Flow<List<ToolAuditEntry>> = kotlinx.coroutines.flow.flowOf(emptyList()),
+    private val gmail: AccountConnection? = null,
 ) : ViewModel() {
+
+    /** Null while checking. */
+    private val mutableGmail = MutableStateFlow<Boolean?>(null)
+    val gmailConnected: StateFlow<Boolean?> = mutableGmail.asStateFlow()
+
+    /** Set when the consent screen must be shown. The screen launches it, then calls [finishGmail]. */
+    private val mutableConsent = MutableStateFlow<IntentSender?>(null)
+    val gmailConsent: StateFlow<IntentSender?> = mutableConsent.asStateFlow()
+
+    init {
+        gmail?.let { account -> viewModelScope.launch { mutableGmail.value = runCatching { account.isConnected() }.getOrDefault(false) } }
+    }
+
+    fun connectGmail() {
+        val account = gmail ?: return
+        viewModelScope.launch {
+            runCatching { account.beginConnect() }
+                .onSuccess { consent -> if (consent == null) mutableGmail.value = true else mutableConsent.value = consent }
+                .onFailure { mutableMessage.value = "Gmail couldn't connect: ${it.message}. Check the Google Cloud setup in docs/GMAIL_SETUP.md." }
+        }
+    }
+
+    fun finishGmail(data: Intent?) {
+        mutableConsent.value = null
+        val connected = gmail?.finishConnect(data) == true
+        mutableGmail.value = connected
+        if (!connected) mutableMessage.value = "Gmail wasn't connected."
+    }
 
     // WorkManager doesn't emit when a file is deleted, so a delete bumps this to re-read the state.
     private val refresh = MutableStateFlow(0)

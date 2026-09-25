@@ -1,6 +1,6 @@
 # Anu for Android: Architecture
 
-Version 1.0.0 · Draft · 2026-09-25
+Version 1.1.0 · Draft · 2026-09-25
 Status: proposed. OD-1 to OD-4 were resolved on 2026-09-25 (§16).
 Product intent lives in [VISION.md](VISION.md).
 
@@ -542,6 +542,16 @@ All connectors implement a single contract: an auth method, a sync mode, tools (
   - `calendar_find_free_slots` (READ; returns times only; quarter-hour starts; never in the past; working hours are parameters);
   - `calendar_create_event` (`WRITE_PRIVATE`, or `WRITE_EXTERNAL` with attendees). Attendee emails are validated; events are limited to a day; events go into the primary writable calendar.
 - **`connector:contacts`:** `contacts_find` (READ) on `ContactsContract`, returning names, emails and phones.
+- **`connector:gmail` (ADR-029, ADR-030):** the Gmail REST API (`gmail.googleapis.com/gmail/v1/users/me`).
+  - **Tools:**
+    - `email_search` (READ, untrusted);
+    - `email_get_thread` (READ, untrusted; message bodies are cut to 4,000 characters);
+    - `email_create_draft` (`WRITE_PRIVATE`);
+    - `email_send` (`WRITE_EXTERNAL`; can reply in a thread).
+  - **Tokens.** Short-lived access tokens come from Google Play services' `AuthorizationClient`. Anu never stores them. A host-bound interceptor attaches them only to `gmail.googleapis.com`, over HTTPS, with redirects off: the vault's pattern. A 401 gets one fresh token and one retry.
+  - **Scopes.** v1 asks for `gmail.readonly`, `gmail.compose` and `gmail.send` together at Connect. Asking for them one at a time is Planned.
+  - **Setup.** There is no client ID in the app. Google matches the Android OAuth client by package name and signing certificate, which the owner creates in Google Cloud. `personal` runs in OAuth testing mode.
+  - **Header injection is refused.** CR/LF in any header value, invalid addresses, and more than 20 recipients are all rejected before approval. Messages are built by Anu's own RFC 5322 writer, never from model-written raw MIME.
 - **Permissions** are requested from Settings → Connectors. Without them, tools fail cleanly and the model is told.
 
 **Sideloaded installs.** Android can block notification access (and, on newer versions, other sensitive permissions) for apps installed from an APK file until the user turns on **Allow restricted settings** in App info. Installs from Android Studio or `adb` are normally not affected. Spike S5 checks this on the reference device.
@@ -621,6 +631,8 @@ Outlook / Microsoft 365 is not in v1 (OD-2). The connector contract allows addin
 5. **Send.**
 6. **Rehydrate** the response locally.
 7. **Write a Privacy Ledger entry:** what was sent, where, why, and how many tokens.
+
+**Connector traffic (ADR-030).** Requests to the user's own account provider, such as Gmail search queries, drafts and sends, carry personal data off the device. Each one writes a ledger entry: destination, purpose, data class and size. It is **not redacted**, because the provider needs the real content to do the job, and it is the user's own account. Sending is also gated by approval of the exact message (I2).
 
 Recommend a **paid** Gemini tier for personal data. Google's terms for unpaid Gemini API services allow submitted content to be used to improve its products.
 
@@ -708,7 +720,7 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 | S1 | LiteRT-LM with Gemma 4 E2B and E4B: API surface, load time, time to first token, tokens/s, peak RAM, native tool calling, context limits, how well cancellation works |
 | S2 | `personal` model delivery: can the app download straight from Hugging Face, or is it gated? `adb push` for development. (Play for On-device AI packs are left to Phase 5.) |
 | S3 | On-device embeddings: EmbeddingGemma on LiteRT, or the fallback. Quality and speed |
-| S4 | Gmail through `AuthorizationClient` with restricted scopes, in testing mode |
+| S4 | Gmail through `AuthorizationClient` with restricted scopes, in testing mode. **Partly done:** the flow launches from Anu (Play services 25.26 on the emulator). Consent and the live API wait for the owner's Cloud setup |
 | S5 | Notification-listener quality across WhatsApp, Google Messages and Telegram; reliability of notification replies; SMS provider access; the restricted-settings behavior for sideloaded installs on the reference device |
 | S6 | Gemma 4 audio input through LiteRT-LM, which might replace speech recognition |
 | S7 | Room + SQLCipher performance at the expected data volume, including vectors |
@@ -815,6 +827,8 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 | 026 | 2026-09-25 | Escalating mid-run continues the same transcript on the stronger brain; idempotency keys are content-based per turn | Tool results and side effects already produced are never redone, even across a resend after consent |
 | 027 | 2026-09-25 | Answers are checked against the broker's record: action claims without a successful write are repaired, then escalated, then shown with a warning. Every answer lists its real actions in the tool's own words | On the emulator, E4B claimed an invite it never requested. Approvals stopped nothing real, but the chat showed a false claim |
 | 028 | 2026-09-25 | A short follow-up keeps the previous skill; scheduling prompts carry a table of dates; leaked control markup is invalid output | Emulator findings: "yes please" lost the tools, "tomorrow" became the wrong day, and raw `<\|tool_call>` text reached the chat |
+| 029 | 2026-09-25 | Gmail through REST with Play services' `AuthorizationClient` tokens, attached by a host-bound interceptor, never stored; read, compose and send scopes requested together at Connect in v1 | No token storage to protect; the same host-binding as the vault; one consent screen for the owner's personal build |
+| 030 | 2026-09-25 | Connector traffic to the user's own provider is ledgered but not redacted; email content is untrusted and taints the run | Redaction would break search and sending. The ledger keeps I3 honest. Inbound email is the main prompt-injection channel (P4) |
 
 ### Component status
 
@@ -846,9 +860,10 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 | App wiring (`AppGraph`, device state, no-backup rules) | 1 | Implemented; lint clean (two warnings: newer Gradle available, no app icon yet) |
 | Agent loop, Tool Broker, approvals, taint, claim check (`core:agent`) | 2 | Implemented. 33 JVM tests, and works end to end on the Anu emulator with E4B: lookups, free slots, and an approval-gated invite |
 | Connectors: calendar, contacts | 2 | Implemented. JVM tests, plus provider tests on the Anu emulator (real `CalendarContract` and `ContactsContract`) |
-| Connectors: Gmail, messages (notifications), SMS (`personal`) | 2 | Planned |
+| Gmail connector (`connector:gmail`): search, thread, draft, send; host-bound tokens; MIME writer; ledgered egress | 2 | Implemented. 8 JVM tests (fake server). On the emulator the Connect button starts Google's own consent flow, and cancelling is handled. **Live Gmail untested:** it needs the owner's one-time Google Cloud setup ([GMAIL_SETUP.md](GMAIL_SETUP.md)) and their Google account on the device |
+| Connectors: messages (notifications), SMS (`personal`) | 2 | Planned |
 | AI Scheduling v1 (chat with calendar and contacts tools) | 2 | Implemented. Verified by hand on the emulator; no eval set yet (§15) |
-| AI Email | 2 | Planned (needs Gmail) |
+| AI Email v1: email skill detection, email tools plus contacts and calendar lookups, drafts and approval-gated sends | 2 | Implemented. Not yet run against a real mailbox (see the Gmail row) |
 | Tool audit and idempotency persistence (schema v2), Activity in Settings | 2 | Implemented. Migration test passes on the emulator |
 | Memory pipeline, profile, Memory Inspector | 3 | Planned |
 | AI Writing everywhere (PROCESS_TEXT) | 3 | Planned |
@@ -857,6 +872,11 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 
 ### Changelog
 
+- **1.1.0** (2026-09-25): Gmail.
+  - `connector:gmail`: four tools, `AuthorizationClient` tokens attached by a host-bound interceptor (ADR-029), and a header-injection-proof MIME writer.
+  - Connector egress is ledgered but not redacted (ADR-030).
+  - Email skill detection; a Gmail Connect row in Settings.
+  - `docs/GMAIL_SETUP.md` covers the owner's one-time Google Cloud setup.
 - **1.0.0** (2026-09-25): Phase 2, first slice: the agent can act, with approval.
   - `Tool` contract with input-dependent risk and tool-written summaries.
   - `ToolBroker` with policy, taint, idempotency, approvals and audit; `ApprovalCenter` and the approval sheet.

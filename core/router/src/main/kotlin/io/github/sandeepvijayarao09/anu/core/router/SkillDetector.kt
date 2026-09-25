@@ -6,6 +6,11 @@ package io.github.sandeepvijayarao09.anu.core.router
  * which offers no tools.
  */
 object SkillDetector {
+    private val EMAIL = Regex(
+        "\\b(e-?mails?|gmail|inbox|unread|mail from|message from|replies|reply to|draft|forward|newsletter|sent me|wrote to me)\\b",
+        RegexOption.IGNORE_CASE,
+    )
+
     private val SCHEDULING = Regex(
         "\\b(calendar|schedul\\w*|meeting|meetings|appointment|agenda|free (time|slot)|busy|availab\\w*|" +
             "invite|reschedul\\w*|book (a|an|me)|remind me (at|on)|what'?s on my|my (day|week|morning|afternoon))\\b",
@@ -18,6 +23,8 @@ object SkillDetector {
      * write raw tool-call text.
      */
     fun detect(text: String, previous: Skill? = null): Skill = when {
+        // Email goes first: its tools include the calendar lookups, for replies that propose a time.
+        EMAIL.containsMatchIn(text) -> Skill.EMAIL
         SCHEDULING.containsMatchIn(text) -> Skill.SCHEDULING
         previous != null && previous != Skill.CHAT && text.trim().length <= FOLLOW_UP_CHARS -> previous
         else -> Skill.CHAT

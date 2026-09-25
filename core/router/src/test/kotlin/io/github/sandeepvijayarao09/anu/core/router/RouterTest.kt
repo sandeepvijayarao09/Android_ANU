@@ -116,6 +116,15 @@ class RouterTest {
     }
 
     @Test
+    fun `skills are detected from the request, and follow-ups keep them`() {
+        assertEquals(Skill.EMAIL, SkillDetector.detect("Reply to Maya's email and suggest Thursday"))
+        assertEquals(Skill.EMAIL, SkillDetector.detect("Anything important in my inbox?"))
+        assertEquals(Skill.SCHEDULING, SkillDetector.detect("Book a meeting with Raj on Monday"))
+        assertEquals(Skill.CHAT, SkillDetector.detect("Tell me a joke"))
+        assertEquals(Skill.EMAIL, SkillDetector.detect("Yes, send it", previous = Skill.EMAIL))
+    }
+
+    @Test
     fun `secrets are rejected before routing`() {
         assertThrows(IllegalArgumentException::class.java) { request("x", data = setOf(DataClass.SECRET)) }
     }
