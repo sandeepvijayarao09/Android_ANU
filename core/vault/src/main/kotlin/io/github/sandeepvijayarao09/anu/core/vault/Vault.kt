@@ -110,7 +110,7 @@ class Vault(
             }
         } catch (e: GeneralSecurityException) {
             // Tink replaces the master key's error with its own ("Parse keyset failed"), so rethrow the original.
-            master.failure?.let { if (it is VaultLockedException || it is VaultIntegrityException) throw it }
+            master.failure?.let { if (it is VaultLockedException || it is VaultIntegrityException || it is VaultPolicyException) throw it }
             throw e
         }
         return handle.getPrimitive(config, Aead::class.java)

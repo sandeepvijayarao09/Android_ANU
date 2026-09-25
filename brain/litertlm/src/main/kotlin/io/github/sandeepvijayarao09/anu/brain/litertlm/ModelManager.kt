@@ -36,7 +36,7 @@ import java.io.File
 class ModelManager(
     private val context: Context,
     private val workManager: WorkManager = WorkManager.getInstance(context),
-    private val preferred: ModelVariant = ModelVariant.GPU,
+    private val preferred: ModelVariant = defaultVariant(),
 ) : OnDeviceModels {
     private val modelsDir = File(context.noBackupFilesDir, "models")
     private val weightCacheDir = File(context.noBackupFilesDir, "litertlm-cache")
@@ -106,6 +106,15 @@ class ModelManager(
         const val KEY_ERROR = "error"
 
         fun workName(artifact: ModelArtifact) = "model-download-${artifact.fileName}"
+
+        /**
+         * GPU until S1 measures otherwise (ADR-019). Emulators have no OpenCL for LiteRT's GPU backend,
+         * so they use the CPU build (ADR-025).
+         */
+        fun defaultVariant(): ModelVariant = if (isEmulator()) ModelVariant.CPU else ModelVariant.GPU
+
+        private fun isEmulator(): Boolean =
+            Build.HARDWARE == "ranchu" || Build.HARDWARE == "goldfish" || Build.PRODUCT.startsWith("sdk_gphone")
 
         fun modelsDir(context: Context) = File(context.noBackupFilesDir, "models")
     }

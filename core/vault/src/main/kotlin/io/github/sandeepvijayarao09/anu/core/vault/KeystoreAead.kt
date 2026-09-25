@@ -6,6 +6,7 @@ import android.security.keystore.KeyProperties
 import android.security.keystore.StrongBoxUnavailableException
 import android.security.keystore.UserNotAuthenticatedException
 import com.google.crypto.tink.Aead
+import java.security.InvalidAlgorithmParameterException
 import java.security.KeyStore
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
@@ -90,9 +91,15 @@ class KeystoreAead(private val alias: String, private val policy: KeyPolicy) : A
                 }
             }
             .build()
-        return KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, KEYSTORE).run {
-            init(spec)
-            generateKey()
+        return try {
+            KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, KEYSTORE).run {
+                init(spec)
+                generateKey()
+            }
+        } catch (e: InvalidAlgorithmParameterException) {
+            // Keys that need the user present can't exist without a secure lock screen.
+            if (policy is KeyPolicy.UserPresence) throw VaultPolicyException("Set a screen lock (PIN, pattern or password) first")
+            throw e
         }
     }
 

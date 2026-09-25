@@ -1,6 +1,6 @@
 # Anu for Android: Architecture
 
-Version 0.8.0 · Draft · 2026-09-25
+Version 0.9.0 · Draft · 2026-09-25
 Status: proposed. OD-1 to OD-4 were resolved on 2026-09-25 (§16).
 Product intent lives in [VISION.md](VISION.md).
 
@@ -685,6 +685,27 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 
 **Spike log.** Measured results only, newest first.
 
+- **S1, run 2, 2026-09-25.** Dedicated emulator `anu_api36` (API 36, arm64, 10 GB RAM, on the M5 Pro development Mac). E4B CPU file, `maxNumTokens` 4096, weight cache in app-private storage (ADR-020). These are emulator numbers; the phone's are still to come.
+  - **Brain contract on the real model: all four tests pass.**
+    - Schema-constrained JSON came back valid.
+    - A tool call was reported but not run (`weather_get_current{"city":"Paris"}`), and after the tool result was sent back the answer was correct.
+    - Cancel took **32 ms** (the I7 target is 500 ms), and the next request worked.
+  - **Benchmark (emulator CPU):**
+
+    | | Short prompt | 814-token prompt |
+    |---|---|---|
+    | Load | 7.5 s | |
+    | Time to first token | 1.0 s | 4.1 s |
+    | Prefill | 27.5 tok/s | 199 tok/s |
+    | Decode | 23.7 tok/s | 30.4 tok/s |
+
+  - **Memory in the app with E4B loaded:** 4.9 GB resident, no swap. Run 1, without the weight cache, reached 7.3 GB plus 1.6 GB of swap and was killed. **ADR-020 is confirmed on the emulator.** The weight cache takes 2.0 GB on disk, next to the 3.4 GB model.
+  - **App end to end:**
+    - The first answer took 34 s, which includes the first model load and building the weight cache. A warm follow-up took 4 s and used the earlier context.
+    - History came back from the encrypted database after a force-stop.
+    - The database file starts with random bytes, not a SQLite header. The device test for encryption at rest passes.
+  - **Cold start:** 3.7–4.3 s for the debug build on an emulator whose host was swapping heavily (the system Settings app took 1.9 s). Opening the database takes 44–95 ms on the main thread. Real startup numbers need a release build on the reference phone.
+
 - **S2, 2026-09-25:**
   - Both `litert-community/gemma-4-E2B-it-litert-lm` and `gemma-4-E4B-it-litert-lm` are ungated, so in-app download needs no token.
   - Separate CPU, GPU and NPU files exist; see the table in §5 (ADR-019).
@@ -753,6 +774,7 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 | 022 | 2026-09-25 | Gemini through REST/SSE with JSON Schema fields; Gemini's default sampling; model IDs from config (default `-latest` aliases) | Our schemas pass through unchanged. Gemini 3 advises against changing temperature. Hard-coded model IDs go stale |
 | 023 | 2026-09-25 | Manual dependency injection (`AppGraph`) instead of Hilt for now | A small graph; avoids annotation processing on the brand-new AGP 9 toolchain; one readable place where contracts meet implementations |
 | 024 | 2026-09-25 | Database: SQLCipher with a random 256-bit key wrapped by a Keystore key that has no user check (`AfterFirstUnlock`); raw-key format | Background work must read and write while the phone is locked. Credential-encrypted storage plus a hardware-bound key still protect data at rest. A random key needs no stretching |
+| 025 | 2026-09-25 | A dedicated emulator, `anu_api36`, is the correctness device until the Pixel is available. Emulators use the CPU model files | The user asked to build with an emulator. Emulators have no OpenCL for LiteRT's GPU backend. Speed numbers still come only from the reference phone (ADR-016) |
 
 ### Component status
 
@@ -760,11 +782,11 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 |---|---|---|
 | Project scaffold: Gradle 9.6, AGP 9.4.1, Kotlin 2.4.20; `app` with `personal` and `play` flavors | 0 | Implemented. Both flavors build |
 | CI workflow (`.github/workflows/ci.yml`) | 0 | Implemented, not yet run (the repo hasn't been pushed) |
-| Spike S1 (runtime on device) | 0 | In progress. Run 1 was killed by the low-memory killer (spike log); needs the reference device |
+| Spike S1 (runtime on device) | 0 | In progress. Run 2 on the Anu emulator passed: contract, tools, schema, cancel, memory. Speed on the reference phone is still pending |
 | Spike S2 (model delivery) | 0 | Partly done: ungated, and per-backend files found |
 | Spikes S3–S7 | 0 | Planned |
 | `core:model`: brain contracts, `JsonSchemas`, `ToolSpec` | 1 | Implemented. JVM unit tests pass; the tool-call path is not yet verified on a real model |
-| `brain:litertlm`: `LiteRtLmBrain`, `EngineHolder` | 1 | In progress. It builds and its JVM tests pass; real-model tests are written but blocked on a device |
+| `brain:litertlm`: `LiteRtLmBrain`, `EngineHolder` | 1 | Implemented. Real-model tests pass on the Anu emulator (E4B, CPU). Not yet run on the reference phone |
 | ModelManager: pinned catalog, resumable verified download worker | 1 | Implemented, with 7 JVM tests (resume, restart, corrupted file deleted, catalog). The worker hasn't run on a device yet |
 | Residency: one model at a time (`OnDeviceBrains`) | 1 | Implemented. Not device-tested; thresholds come from S1 |
 | `core:security`: PII detection, redaction, `EgressGate`, ledger interface | 1 | Implemented, with 9 unit tests. The ledger is persisted by `core:data` |
@@ -772,13 +794,15 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 | Router v1: `core:router` stages A and B, and escalation | 1 | Implemented, with 13 unit tests. Not yet Verified: there's no router eval set yet (§15) |
 | Cascade (Stage C: validate, repair, escalate, consent stop) in `core:agent` | 1 | Implemented, with 9 unit tests using `ScriptedBrain` |
 | Direct tier (deterministic handlers) | 2 | Planned. Needs connectors |
-| `core:vault`: store, Keystore protector, `SecretInjector` | 1 | Implemented, with 10 JVM unit tests using an in-memory key stand-in. The Keystore path isn't run on a device yet. Recovery passphrase Planned |
+| `core:vault`: store, Keystore protector, `SecretInjector` | 1 | Implemented. 10 JVM tests, plus 2 device tests with the real Keystore on the Anu emulator. The device tests found and fixed a hidden screen-lock error. Recovery passphrase Planned |
 | Vault UI and biometric prompt (`feature:vault`) | 1 | Planned |
-| Encrypted database (`core:data`): Room 2.8 + SQLCipher 4.19, key wrapping, transcript, ledger and audit stores | 1 | Implemented, with 8 JVM tests (Robolectric, unencrypted). Encryption at rest is checked by a device test that is written but not yet run. Room + KSP confirmed working with AGP 9.4.1 |
+| Encrypted database (`core:data`): Room 2.8 + SQLCipher 4.19, key wrapping, transcript, ledger and audit stores | 1 | **Verified on the Anu emulator**: the encryption-at-rest device test passes (no plain header, no canary, wrong key refused). Plus 8 JVM tests |
 | Persistence wired: chat history restored at launch, ledger persisted, vault activity shown in Settings | 1 | Implemented, with a ViewModel test for restore. Not yet run on a device |
-| Chat UI (`feature:home`): streaming, tier badge, Retry with Pro, cloud consent dialog, Stop | 1 | Implemented, with 7 ViewModel tests on the JVM. Not yet run on a device or emulator (ADR-016, dedicated devices only) |
+| Chat UI (`feature:home`): streaming, tier badge, Retry with Pro, cloud consent dialog, Stop, Markdown | 1 | Implemented. It runs end to end on the Anu emulator with E4B, and has 11 JVM tests. The cloud consent dialog isn't exercised on a device yet (needs a Gemini key) |
+| Save the answering tier with each message (restored answers currently lose their badge) | 1 | Planned: schema v2 |
+| Open the database off the main thread (44–95 ms today) | 1 | Planned |
 | `ChatSession` (transcript as the truth, consent resend, take back last) in `core:agent` | 1 | Implemented, with 4 unit tests |
-| Settings UI (`feature:settings`): models, Gemini key into the vault, Privacy Ledger | 1 | Implemented; not yet run on a device |
+| Settings UI (`feature:settings`): models (with delete confirmation), Gemini key into the vault, vault activity, Privacy Ledger | 1 | Implemented. It runs on the Anu emulator |
 | App wiring (`AppGraph`, device state, no-backup rules) | 1 | Implemented; lint clean (two warnings: newer Gradle available, no app icon yet) |
 | Agent loop, Tool Broker, approvals, taint | 2 | Planned |
 | Connectors: calendar, contacts, Gmail, messages (notifications), SMS (`personal`) | 2 | Planned |
@@ -790,6 +814,12 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 
 ### Changelog
 
+- **0.9.0** (2026-09-25): built and run on an emulator.
+  - A dedicated emulator, `anu_api36`, uses the CPU model files (ADR-025).
+  - S1 run 2 results: the contract, tools, schema and cancel all pass, and ADR-020 cut memory from about 9 GB to 4.9 GB.
+  - Fixes found by running on a device: the vault's screen-lock error is no longer hidden by Tink, and the dev model-install script handles Hugging Face symlinks.
+  - Markdown in answers; model deletes need confirmation.
+  - Two gaps recorded: the tier isn't saved with each message, and the database opens on the main thread.
 - **0.8.0** (2026-09-25): encrypted persistence.
   - New module `core:data`: Room on SQLCipher, with the key wrapped by Keystore (ADR-024).
   - `KeystoreAead` and `KeyPolicy` extracted as a shared primitive in `core:vault`.

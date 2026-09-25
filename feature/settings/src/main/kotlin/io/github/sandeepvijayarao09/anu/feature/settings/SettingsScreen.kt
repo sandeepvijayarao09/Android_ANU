@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
@@ -132,6 +133,17 @@ private fun Section(title: String, subtitle: String) {
 private fun ModelRowView(row: ModelRow, onDownload: () -> Unit, onDelete: () -> Unit) {
     val name = if (row.info.id == BrainId.BASE) "Base · Gemma 4 E2B" else "Pro · Gemma 4 E4B"
     val size = "%.1f GB · %s".format(row.info.sizeBytes / 1e9, row.info.variant)
+    var confirmDelete by remember { mutableStateOf(false) }
+    if (confirmDelete) {
+        // A model is gigabytes to download again, so deleting one is never a single tap.
+        AlertDialog(
+            onDismissRequest = { confirmDelete = false },
+            title = { Text("Delete $name?") },
+            text = { Text("This frees ${"%.1f".format(row.info.sizeBytes / 1e9)} GB. Downloading it again takes a while on Wi-Fi.") },
+            confirmButton = { TextButton(onClick = { confirmDelete = false; onDelete() }) { Text("Delete") } },
+            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Keep") } },
+        )
+    }
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
@@ -139,10 +151,13 @@ private fun ModelRowView(row: ModelRow, onDownload: () -> Unit, onDelete: () -> 
                 Text(size, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Spacer(Modifier.width(8.dp))
-            when (val state = row.state) {
+            when (row.state) {
                 ModelState.NotInstalled -> Button(onClick = onDownload) { Text("Download") }
                 is ModelState.Downloading -> OutlinedButton(onClick = onDelete) { Text("Cancel") }
-                ModelState.Ready -> TextButton(onClick = onDelete) { Text("Delete") }
+                ModelState.Ready -> {
+                    Text("Ready", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                    TextButton(onClick = { confirmDelete = true }) { Text("Delete") }
+                }
                 is ModelState.Failed -> Button(onClick = onDownload) { Text("Retry") }
             }
         }

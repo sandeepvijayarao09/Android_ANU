@@ -62,3 +62,8 @@ export JAVA_HOME=/opt/homebrew/opt/openjdk@21
 - The encryption-at-rest check needs no model: `./gradlew :core:data:connectedDebugAndroidTest`.
 - Changing an entity? Bump the `AnuDatabase` version, add a migration, and commit the new schema JSON in `core/data/schemas`.
 - **Use only devices dedicated to Anu.** The emulators `daykit_ai` and `daykit_shots` belong to another project. Never install on them, push to them, or run tests on them. If the only attached devices aren't Anu's, ask first.
+- **Anu's emulator is `anu_api36`:** Android 16, arm64, 10 GB RAM, 32 GB data.
+  - Start it with `emulator -avd anu_api36 -no-snapshot`.
+  - Its serial changes between runs. Check with `adb -s <serial> emu avd name`.
+  - Emulators use the CPU model files (ADR-025).
+- **Installing a local model into the app** (debug builds only, no download): `scripts/dev-install-model.sh <serial> <file.litertlm>`. It checks the SHA-256 against `ModelCatalog` first.

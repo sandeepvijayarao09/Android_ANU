@@ -136,7 +136,13 @@ private fun BubbleRow(bubble: Bubble, showRetry: Boolean, onRetryWithPro: () -> 
             modifier = Modifier.widthIn(max = 320.dp),
         ) {
             Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
-                Text(bubble.text.ifEmpty { if (bubble.streaming) "…" else "" }, style = MaterialTheme.typography.bodyLarge)
+                val shown = bubble.text.ifEmpty { if (bubble.streaming) "…" else "" }
+                // Only model answers are formatted; the user's own words are shown exactly as typed.
+                if (bubble.fromUser) {
+                    Text(shown, style = MaterialTheme.typography.bodyLarge)
+                } else {
+                    Text(markdown(shown), style = MaterialTheme.typography.bodyLarge)
+                }
                 bubble.note?.let {
                     Text(it, style = MaterialTheme.typography.bodySmall, fontStyle = FontStyle.Italic)
                 }
