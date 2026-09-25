@@ -1,0 +1,104 @@
+package io.github.sandeepvijayarao09.anu.brain.litertlm
+
+import io.github.sandeepvijayarao09.anu.core.model.BrainId
+import kotlinx.coroutines.test.runTest
+import mockwebserver3.MockResponse
+import mockwebserver3.MockWebServer
+import okhttp3.OkHttpClient
+import org.junit.After
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
+import org.junit.Before
+import org.junit.Rule
+import org.junit.Test
+import org.junit.rules.TemporaryFolder
+import java.security.MessageDigest
+
+class ModelDownloadTest {
+
+    @get:Rule val folder = TemporaryFolder()
+    private val server = MockWebServer()
+    private val content = ByteArray(200_000) { (it % 251).toByte() }
+    private val sha = MessageDigest.getInstance("SHA-256").digest(content).joinToString("") { "%02x".format(it) }
+    private lateinit var artifact: ModelArtifact
+
+    @Before
+    fun setUp() {
+        server.start()
+        artifact = ModelArtifact(BrainId.BASE, ModelVariant.CPU, "m.litertlm", server.url("/m.litertlm").toString(), content.size.toLong(), sha)
+    }
+
+    @After
+    fun tearDown() = server.close()
+
+    private val download = ResumableDownload(OkHttpClient())
+    private val target get() = folder.root.resolve("models/m.litertlm")
+
+    @Test
+    fun `downloads and verifies a file`() = runTest {
+        server.enqueue(MockResponse.Builder().body(okio.Buffer().write(content)).build())
+        download.run(artifact, target)
+        assertTrue(target.readBytes().contentEquals(content))
+        assertFalse(folder.root.resolve("models/m.litertlm.part").exists())
+    }
+
+    @Test
+    fun `resumes a partial file with a range request`() = runTest {
+        target.parentFile!!.mkdirs()
+        folder.root.resolve("models/m.litertlm.part").writeBytes(content.copyOfRange(0, 50_000))
+        server.enqueue(
+            MockResponse.Builder().code(206).body(okio.Buffer().write(content.copyOfRange(50_000, content.size))).build(),
+        )
+        download.run(artifact, target)
+        assertEquals("bytes=50000-", server.takeRequest().headers["Range"])
+        assertTrue(target.readBytes().contentEquals(content))
+    }
+
+    @Test
+    fun `starts over when the server ignores the range`() = runTest {
+        target.parentFile!!.mkdirs()
+        folder.root.resolve("models/m.litertlm.part").writeBytes(ByteArray(10_000) { 7 })
+        server.enqueue(MockResponse.Builder().code(200).body(okio.Buffer().write(content)).build())
+        download.run(artifact, target)
+        assertTrue(target.readBytes().contentEquals(content))
+    }
+
+    @Test
+    fun `a corrupted file is deleted and never moved into place`() {
+        val corrupted = content.copyOf().also { it[1234] = (it[1234] + 1).toByte() }
+        server.enqueue(MockResponse.Builder().body(okio.Buffer().write(corrupted)).build())
+        val error = assertThrows(ModelDownloadException::class.java) { kotlinx.coroutines.runBlocking { download.run(artifact, target) } }
+        assertFalse(error.retryable)
+        assertFalse(target.exists())
+        assertFalse(folder.root.resolve("models/m.litertlm.part").exists())
+    }
+
+    @Test
+    fun `an already verified file is not downloaded again`() = runTest {
+        target.parentFile!!.mkdirs()
+        target.writeBytes(content)
+        download.run(artifact, target)
+        assertEquals(0, server.requestCount)
+    }
+
+    @Test
+    fun `catalog picks GPU by default, CPU on request, and NPU only when allowed and the chip matches`() {
+        assertEquals(ModelVariant.GPU, ModelCatalog.choose(BrainId.PRO, "Tensor G3").variant)
+        assertEquals(ModelVariant.CPU, ModelCatalog.choose(BrainId.BASE, "Tensor G3", preferred = ModelVariant.CPU).variant)
+        assertEquals(ModelVariant.GPU, ModelCatalog.choose(BrainId.BASE, "Tensor G5").variant)
+        assertEquals(ModelVariant.NPU_TENSOR_G5, ModelCatalog.choose(BrainId.BASE, "Tensor G5", allowNpu = true).variant)
+        // There is no E4B NPU build, so Pro falls back to GPU even when NPU is allowed.
+        assertEquals(ModelVariant.GPU, ModelCatalog.choose(BrainId.PRO, "Tensor G5", allowNpu = true).variant)
+        assertThrows(IllegalArgumentException::class.java) { ModelCatalog.choose(BrainId.CLOUD_FLASH, "x") }
+    }
+
+    @Test
+    fun `catalog entries are pinned to a commit and carry a full hash`() {
+        ModelCatalog.all.forEach {
+            assertTrue(it.url, Regex("https://huggingface\\.co/litert-community/.+/resolve/[0-9a-f]{40}/.+").matches(it.url))
+            assertTrue(it.sha256, Regex("[0-9a-f]{64}").matches(it.sha256))
+        }
+    }
+}

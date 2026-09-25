@@ -1,0 +1,20 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: gradle/actions/setup-gradle@v6
+      # Unit tests for every module, plus both flavors (ADR-012). Real-model tests need a device and
+      # a pushed model, so they run locally (see CLAUDE.md), not here.
+      - run: ./gradlew test assemblePersonalDebug assemblePlayDebug :brain:litertlm:assembleDebugAndroidTest
