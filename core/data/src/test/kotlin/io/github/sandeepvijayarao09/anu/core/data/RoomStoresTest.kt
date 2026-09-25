@@ -106,6 +106,24 @@ class RoomStoresTest {
     }
 
     @Test
+    fun `tool audit and idempotent results persist`() = runBlocking {
+        val audit = RoomToolAudit(db.toolAudit())
+        val entry = io.github.sandeepvijayarao09.anu.core.agent.ToolAuditEntry(
+            "run-1", "calendar_create_event", io.github.sandeepvijayarao09.anu.core.agent.RiskTier.WRITE_EXTERNAL,
+            "Add \"Design review\" and invite maya@example.com", "ok", approved = true, atMillis = 5,
+        )
+        audit.record(entry)
+        assertEquals(listOf(entry), audit.recent().first())
+
+        val results = RoomToolResultStore(db.toolResults())
+        val result = buildJsonObject { put("eventId", 7) }
+        results.put("key-1", result)
+        results.put("key-1", buildJsonObject { put("eventId", 8) }) // the first result wins: a replay never changes it
+        assertEquals(result, results.get("key-1"))
+        assertEquals(null, results.get("missing"))
+    }
+
+    @Test
     fun `the vault audit records who used which item where, and never a value`() = runBlocking {
         val audit = RoomVaultAudit(db.vaultAudit())
         // The vault reports uses from OkHttp's network thread, never the main thread.

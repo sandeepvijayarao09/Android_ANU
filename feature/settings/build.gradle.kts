@@ -23,6 +23,7 @@ android {
 dependencies {
     api(project(":core:model"))
     api(project(":core:security"))
+    api(project(":core:agent")) // ToolAuditEntry for the Activity list
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.activity.compose)

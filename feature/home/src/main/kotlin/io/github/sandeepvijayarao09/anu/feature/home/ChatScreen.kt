@@ -29,11 +29,16 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.sandeepvijayarao09.anu.core.router.Tier
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 
 @Composable
 fun ChatScreen(viewModel: ChatViewModel, modifier: Modifier = Modifier) {
@@ -45,6 +50,8 @@ fun ChatScreen(viewModel: ChatViewModel, modifier: Modifier = Modifier) {
         onRetryWithPro = viewModel::retryWithPro,
         onApproveCloud = viewModel::approveCloud,
         onDeclineCloud = viewModel::declineCloud,
+        onApprove = viewModel::approve,
+        onDeny = viewModel::deny,
         modifier = modifier,
     )
 }
@@ -57,6 +64,8 @@ internal fun ChatContent(
     onRetryWithPro: () -> Unit,
     onApproveCloud: () -> Unit,
     onDeclineCloud: () -> Unit,
+    onApprove: (String) -> Unit = {},
+    onDeny: (String) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     var input by rememberSaveable { mutableStateOf("") }
@@ -107,6 +116,27 @@ internal fun ChatContent(
         }
     }
 
+    state.approval?.let { request ->
+        // The exact payload, re-encoded from validated input by the Tool Broker, never the model's own paraphrase (I2).
+        AlertDialog(
+            onDismissRequest = {}, // a decision is required, and tapping outside is not one
+            title = { Text("Approve this?") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(request.summary, style = MaterialTheme.typography.bodyLarge)
+                    Text(request.reason, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(
+                        payloadLines(request.payload).joinToString("\n"),
+                        style = MaterialTheme.typography.bodySmall,
+                        fontFamily = FontFamily.Monospace,
+                    )
+                }
+            },
+            confirmButton = { Button(onClick = { onApprove(request.id) }) { Text("Approve") } },
+            dismissButton = { TextButton(onClick = { onDeny(request.id) }) { Text("Don't do it") } },
+        )
+    }
+
     if (state.consentFor != null) {
         AlertDialog(
             onDismissRequest = onDeclineCloud,
@@ -146,6 +176,14 @@ private fun BubbleRow(bubble: Bubble, showRetry: Boolean, onRetryWithPro: () -> 
                 bubble.note?.let {
                     Text(it, style = MaterialTheme.typography.bodySmall, fontStyle = FontStyle.Italic)
                 }
+                if (bubble.actions.isNotEmpty()) {
+                    Text(
+                        bubble.actions.joinToString("\n"),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 6.dp),
+                    )
+                }
             }
         }
         if (!bubble.fromUser) {
@@ -157,6 +195,16 @@ private fun BubbleRow(bubble: Bubble, showRetry: Boolean, onRetryWithPro: () -> 
             }
         }
     }
+}
+
+/** One line per field, so the user sees every value that will be used. */
+internal fun payloadLines(payload: JsonObject): List<String> = payload.filterValues { it !is JsonNull }.map { (key, value) ->
+    val shown = when (value) {
+        is JsonArray -> value.joinToString { (it as? JsonPrimitive)?.content ?: it.toString() }.ifEmpty { "none" }
+        is JsonPrimitive -> value.content
+        else -> value.toString()
+    }
+    "$key: $shown"
 }
 
 @Preview(showBackground = true)

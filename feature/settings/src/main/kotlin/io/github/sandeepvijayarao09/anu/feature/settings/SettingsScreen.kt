@@ -1,6 +1,7 @@
 package io.github.sandeepvijayarao09.anu.feature.settings
 
 import android.Manifest
+import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -29,12 +30,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import io.github.sandeepvijayarao09.anu.core.agent.ToolAuditEntry
 import io.github.sandeepvijayarao09.anu.core.model.BrainId
 import io.github.sandeepvijayarao09.anu.core.model.ModelState
 import io.github.sandeepvijayarao09.anu.core.security.LedgerEntry
+import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
@@ -44,6 +48,7 @@ fun SettingsScreen(viewModel: SettingsViewModel, modifier: Modifier = Modifier) 
     val hasKey by viewModel.hasCloudKey.collectAsStateWithLifecycle()
     val ledger by viewModel.ledgerEntries.collectAsStateWithLifecycle()
     val vaultUses by viewModel.vaultUses.collectAsStateWithLifecycle()
+    val toolActions by viewModel.toolActions.collectAsStateWithLifecycle()
     val message by viewModel.message.collectAsStateWithLifecycle()
     // Downloads show progress in a notification; they still run if the user declines this.
     val notifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
@@ -63,6 +68,9 @@ fun SettingsScreen(viewModel: SettingsViewModel, modifier: Modifier = Modifier) 
                 onDelete = { viewModel.delete(row.info.id) },
             )
         }
+
+        HorizontalDivider()
+        ConnectorsSection()
 
         HorizontalDivider()
         Section(
@@ -95,6 +103,23 @@ fun SettingsScreen(viewModel: SettingsViewModel, modifier: Modifier = Modifier) 
         }
 
         HorizontalDivider()
+        Section("Activity", "What Anu did with your calendar and contacts, including what it asked you to approve.")
+        if (toolActions.isEmpty()) {
+            Text("Nothing yet.", style = MaterialTheme.typography.bodyMedium)
+        } else {
+            toolActions.forEach { action ->
+                Column {
+                    Text(action.summary, style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        "${outcomeLabel(action)} · ${time.format(Instant.ofEpochMilli(action.atMillis))}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+
+        HorizontalDivider()
         Section("Vault activity", "Every time a saved key was used, by which part of Anu, and for which site.")
         if (vaultUses.isEmpty()) {
             Text("No saved key has been used yet.", style = MaterialTheme.typography.bodyMedium)
@@ -119,6 +144,38 @@ fun SettingsScreen(viewModel: SettingsViewModel, modifier: Modifier = Modifier) 
             ledger.asReversed().forEach { LedgerRow(it) }
         }
     }
+}
+
+private val CONNECTOR_PERMISSIONS = arrayOf(
+    Manifest.permission.READ_CALENDAR,
+    Manifest.permission.WRITE_CALENDAR,
+    Manifest.permission.READ_CONTACTS,
+)
+
+/** Calendar and contacts stay on the phone. Granting access is what connects them (§9). */
+@Composable
+private fun ConnectorsSection() {
+    val context = LocalContext.current
+    fun allGranted() = CONNECTOR_PERMISSIONS.all { context.checkSelfPermission(it) == PackageManager.PERMISSION_GRANTED }
+    var granted by remember { mutableStateOf(allGranted()) }
+    val request = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { granted = allGranted() }
+    Section("Connectors", "Anu reads your calendar and contacts on this phone. Anything that invites people asks you first.")
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text("Calendar and contacts", Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
+        if (granted) {
+            Text("Connected", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+        } else {
+            Button(onClick = { request.launch(CONNECTOR_PERMISSIONS) }) { Text("Connect") }
+        }
+    }
+}
+
+private fun outcomeLabel(action: ToolAuditEntry): String = when {
+    action.approved == false -> "You declined"
+    action.outcome == "ok" && action.approved == true -> "Approved and done"
+    action.outcome == "ok" -> "Done"
+    action.outcome == "replayed" -> "Already done, not repeated"
+    else -> action.outcome.replaceFirstChar { it.uppercase() }
 }
 
 @Composable

@@ -1,6 +1,7 @@
 package io.github.sandeepvijayarao09.anu.core.data
 
 import android.content.Context
+import androidx.room.AutoMigration
 import androidx.room.Dao
 import androidx.room.Database
 import androidx.room.Entity
@@ -49,6 +50,27 @@ data class VaultAuditEntity(
     val atMillis: Long,
 )
 
+/** One tool call as the Tool Broker decided it (§7.2). Shown to the user under Activity. */
+@Entity(tableName = "tool_audit")
+data class ToolAuditEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val runId: String,
+    val toolName: String,
+    val risk: String,
+    val summary: String,
+    val outcome: String,
+    val approved: Boolean?,
+    val atMillis: Long,
+)
+
+/** The result of a side-effecting call by idempotency key, so a resumed run never repeats it (§7.2). */
+@Entity(tableName = "tool_results")
+data class ToolResultEntity(
+    @PrimaryKey val idempotencyKey: String,
+    val resultJson: String,
+    val atMillis: Long,
+)
+
 @Dao
 interface TranscriptDao {
     @Query("SELECT * FROM messages WHERE conversationId = :conversationId ORDER BY seq")
@@ -83,17 +105,46 @@ interface VaultAuditDao {
     fun recent(limit: Int): Flow<List<VaultAuditEntity>>
 }
 
+@Dao
+interface ToolAuditDao {
+    @Insert
+    suspend fun insert(entry: ToolAuditEntity)
+
+    @Query("SELECT * FROM tool_audit ORDER BY atMillis DESC, id DESC LIMIT :limit")
+    fun recent(limit: Int): Flow<List<ToolAuditEntity>>
+}
+
+@Dao
+interface ToolResultDao {
+    @Query("SELECT resultJson FROM tool_results WHERE idempotencyKey = :key")
+    suspend fun get(key: String): String?
+
+    @Insert(onConflict = androidx.room.OnConflictStrategy.IGNORE)
+    suspend fun put(entry: ToolResultEntity)
+}
+
 /**
  * Anu's database (ARCHITECTURE §14): Room on SQLCipher, encrypted with a key wrapped by Android
  * Keystore (ADR-024). It lives in `noBackupFilesDir`, and backup is disabled for the whole app.
  */
-@Database(entities = [MessageEntity::class, LedgerEntity::class, VaultAuditEntity::class], version = 1)
+@Database(
+    entities = [
+        MessageEntity::class, LedgerEntity::class, VaultAuditEntity::class, ToolAuditEntity::class, ToolResultEntity::class,
+    ],
+    version = 2,
+    // v2 (Phase 2) adds tool_audit and tool_results. Room derives the migration from the committed schemas.
+    autoMigrations = [AutoMigration(from = 1, to = 2)],
+)
 abstract class AnuDatabase : RoomDatabase() {
     abstract fun transcripts(): TranscriptDao
 
     abstract fun ledger(): LedgerDao
 
     abstract fun vaultAudit(): VaultAuditDao
+
+    abstract fun toolAudit(): ToolAuditDao
+
+    abstract fun toolResults(): ToolResultDao
 
     companion object {
         fun open(context: Context): AnuDatabase {

@@ -2,7 +2,12 @@ package io.github.sandeepvijayarao09.anu.feature.home
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import io.github.sandeepvijayarao09.anu.core.agent.CascadeEvent
+import io.github.sandeepvijayarao09.anu.core.agent.ActionRecord
+import io.github.sandeepvijayarao09.anu.core.agent.AgentEvent
+import io.github.sandeepvijayarao09.anu.core.agent.ApprovalCenter
+import io.github.sandeepvijayarao09.anu.core.agent.ApprovalDecision
+import io.github.sandeepvijayarao09.anu.core.agent.ApprovalRequest
+import io.github.sandeepvijayarao09.anu.core.agent.ToolOutcome
 import io.github.sandeepvijayarao09.anu.core.agent.ChatSession
 import io.github.sandeepvijayarao09.anu.core.model.ChatMessage
 import io.github.sandeepvijayarao09.anu.core.router.DeviceState
@@ -24,6 +29,8 @@ data class Bubble(
     val note: String? = null,
     val streaming: Boolean = false,
     val failed: Boolean = false,
+    /** What really happened, from the Tool Broker's record, never from the model's words (ADR-027). */
+    val actions: List<String> = emptyList(),
 )
 
 data class ChatUiState(
@@ -31,10 +38,16 @@ data class ChatUiState(
     val busy: Boolean = false,
     /** Set when a message needs cloud consent (§12.2). Holds the text waiting to be sent. */
     val consentFor: String? = null,
+    /** The oldest action waiting for the user's approval (I2). */
+    val approval: ApprovalRequest? = null,
 )
 
 /** The chat screen's state. It turns cascade events into bubbles and owns the one running request. */
-class ChatViewModel(private val session: ChatSession, private val device: () -> DeviceState) : ViewModel() {
+class ChatViewModel(
+    private val session: ChatSession,
+    private val device: () -> DeviceState,
+    private val approvals: ApprovalCenter = ApprovalCenter(),
+) : ViewModel() {
 
     private val mutable = MutableStateFlow(ChatUiState())
     val state: StateFlow<ChatUiState> = mutable.asStateFlow()
@@ -43,6 +56,7 @@ class ChatViewModel(private val session: ChatSession, private val device: () -> 
     private var nextId = 0L
 
     init {
+        viewModelScope.launch { approvals.requests.collect { pending -> mutable.update { it.copy(approval = pending.firstOrNull()) } } }
         // Restore the saved conversation (§14). Sending waits until it has loaded.
         mutable.update { it.copy(busy = true) }
         viewModelScope.launch {
@@ -89,6 +103,10 @@ class ChatViewModel(private val session: ChatSession, private val device: () -> 
         add(Bubble(nextId++, fromUser = false, text = "Kept on this phone. Nothing was sent.", failed = true))
     }
 
+    fun approve(id: String) = approvals.decide(id, ApprovalDecision.Approved)
+
+    fun deny(id: String) = approvals.decide(id, ApprovalDecision.Denied("The user said no"))
+
     fun stop() {
         running?.cancel()
     }
@@ -112,18 +130,44 @@ class ChatViewModel(private val session: ChatSession, private val device: () -> 
         }
     }
 
-    private fun reduce(id: Long, text: String, event: CascadeEvent) {
+    private fun reduce(id: Long, text: String, event: AgentEvent) {
         when (event) {
-            is CascadeEvent.Routed -> edit(id) { it.copy(tier = event.decision.tier) }
-            is CascadeEvent.TextDelta -> edit(id) { it.copy(text = it.text + event.text) }
-            is CascadeEvent.Discarded -> edit(id) { it.copy(text = "", note = "That answer didn't pass its checks. Trying again…") }
-            is CascadeEvent.Escalated -> edit(id) { it.copy(tier = event.to, note = "Trying ${event.to.label}…") }
-            is CascadeEvent.ConsentNeeded -> mutable.update { state ->
+            is AgentEvent.Routed -> edit(id) { it.copy(tier = event.decision.tier) }
+            is AgentEvent.TextDelta -> edit(id) { it.copy(text = it.text + event.text) }
+            is AgentEvent.Discarded -> edit(id) { it.copy(text = "", note = "That answer didn't pass its checks. Trying again…") }
+            is AgentEvent.Escalated -> edit(id) { it.copy(tier = event.to, note = "Trying ${event.to.label}…") }
+            is AgentEvent.ConsentNeeded -> mutable.update { state ->
                 state.copy(bubbles = state.bubbles.filterNot { it.id == id }, consentFor = text)
             }
-            is CascadeEvent.Completed -> edit(id) { it.copy(text = event.text, tier = event.tier, note = null) }
-            is CascadeEvent.Failed -> edit(id) { it.copy(text = friendly(event.reasons), failed = true, note = null) }
+            is AgentEvent.ToolStarted -> edit(id) { it.copy(text = "", note = activity(event.call.name)) }
+            is AgentEvent.ToolFinished -> actionLine(event.outcome)?.let { line -> edit(id) { it.copy(actions = it.actions + line) } }
+            // Only the final answer is kept. Text the model wrote before calling tools is scaffolding.
+            is AgentEvent.Completed -> edit(id) {
+                it.copy(text = event.text, tier = event.tier, note = null, actions = event.actions.map(::actionLine), failed = event.unverifiedClaim)
+            }
+            is AgentEvent.Failed -> edit(id) { it.copy(text = friendly(event.reasons), failed = true, note = null) }
         }
+    }
+
+    private fun actionLine(outcome: ToolOutcome): String? = when (outcome) {
+        is ToolOutcome.Ok -> "✓ ${outcome.summary}"
+        is ToolOutcome.Rejected -> "✗ Not done: ${outcome.summary}"
+        is ToolOutcome.Failed -> "! Failed: ${outcome.summary}"
+        is ToolOutcome.Invalid -> null
+    }
+
+    private fun actionLine(action: ActionRecord): String = when (action.status) {
+        ActionRecord.Status.DONE -> "✓ ${action.summary}"
+        ActionRecord.Status.NOT_DONE -> "✗ Not done: ${action.summary}"
+        ActionRecord.Status.FAILED -> "! Failed: ${action.summary}"
+    }
+
+    /** What the user sees while a tool runs. */
+    private fun activity(tool: String): String = when {
+        tool.startsWith("calendar_create") -> "Preparing the event…"
+        tool.startsWith("calendar_") -> "Checking your calendar…"
+        tool.startsWith("contacts_") -> "Looking up contacts…"
+        else -> "Working…"
     }
 
     private fun add(bubble: Bubble) = mutable.update { it.copy(bubbles = it.bubbles + bubble) }

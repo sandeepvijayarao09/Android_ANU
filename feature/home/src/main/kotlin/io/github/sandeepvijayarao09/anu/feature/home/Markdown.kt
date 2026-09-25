@@ -32,7 +32,10 @@ internal fun markdown(text: String): AnnotatedString = buildAnnotatedString {
 
 private val HEADING = Regex("#{1,6}\\s+(.*)")
 private val BULLET = Regex("(\\s*)[-*]\\s+(.*)")
-private val INLINE = Regex("\\*\\*(.+?)\\*\\*|`([^`]+)`|\\*([^*\\s][^*]*?)\\*|_([^_\\s][^_]*?)_")
+// Single * and _ only count at word edges, so identifiers like calendar_create_event stay intact.
+private val INLINE = Regex(
+    "\\*\\*(.+?)\\*\\*|`([^`]+)`|(?<![\\w*])\\*([^*\\s][^*]*?)\\*(?![\\w*])|(?<![\\w])_([^_\\s][^_]*?)_(?![\\w])",
+)
 
 private fun AnnotatedString.Builder.inline(text: String) {
     var last = 0

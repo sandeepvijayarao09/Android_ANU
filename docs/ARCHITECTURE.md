@@ -1,6 +1,6 @@
 # Anu for Android: Architecture
 
-Version 0.9.0 · Draft · 2026-09-25
+Version 1.0.0 · Draft · 2026-09-25
 Status: proposed. OD-1 to OD-4 were resolved on 2026-09-25 (§16).
 Product intent lives in [VISION.md](VISION.md).
 
@@ -399,6 +399,11 @@ interface Tool<I : Any, O : Any> {
 }
 ```
 
+As implemented in `core:agent` `Tool`:
+- **Risk depends on the input:** `risk(input)`. For example, `calendar_create_event` is `WRITE_PRIVATE` without attendees and `WRITE_EXTERNAL` with them.
+- **Every tool writes its own `describe(input)`,** a one-sentence summary used on the approval sheet, in the audit and in the chat's action lines. It is never the model's words.
+- **Tools declare `returnsUntrustedContent`.** Calendar event titles, for example, are untrusted because other people can write them through invites.
+
 Tool names are snake_case `<connector>_<verb>`, for example `email_get_thread`. `ToolSpec` enforces this, and snake_case is the style small models see most in training. Parameter schemas come from `JsonSchemas.of(serializer)` in `core:model`, with `@Description` annotations for the text the model reads.
 
 | Risk tier | Meaning | Policy |
@@ -421,6 +426,14 @@ Tool names are snake_case `<connector>_<verb>`, for example `email_get_thread`. 
 - **Taint.** Any tool result that carries connector content marks the run as tainted. A tainted run cannot auto-execute `WRITE_PRIVATE`, and its egress content is re-checked.
 - **Persistence.** Runs, steps, tool results and approvals are stored. Each `WRITE_*` call has an idempotency key, so resuming never repeats a side effect that has already happened (§18).
 - **Planner.** There is none in v1. A plan-then-execute mode is added only if evals show the tool loop failing on multi-step tasks.
+- **As built (`ToolBroker`, `Agent`):**
+  - **Outcomes, not exceptions.** Every call returns an outcome: `Ok`, `Invalid`, `Rejected` or `Failed`. Each is sent back to the model as the tool's result, so the model can correct itself. Two invalid rounds in a row escalate.
+  - **Validation is strict about types and required fields, and ignores unknown keys.** Input that fails while the tool assesses it, such as an end time before the start, is `Invalid` and is never shown for approval.
+  - **Idempotency keys are content-based:** `sha256(turn key | tool | canonical payload)`. Re-sending the same turn after consent replays the stored result instead of acting twice.
+  - **Approvals go through `ApprovalCenter`,** which the chat screen observes. v1 offers approve or deny only; editing is Planned. A timeout (10 minutes) counts as a denial.
+  - **Escalation mid-run continues the same transcript (ADR-026).** The stronger brain sees the tool results already produced, so side effects never repeat.
+  - **Budgets:** 8 steps and 12 tool calls per turn.
+  - **Persistence:** the audit and the idempotency results are stored in the encrypted database (schema v2), and Settings shows them under Activity.
 
 ### 7.3 Context builder
 
@@ -434,9 +447,17 @@ The context builder assembles each prompt within a **per-tier token budget that 
 
 Untrusted content goes in clearly delimited data blocks. Budgets are set per tier from spike S1 measurements.
 
+**Dates for scheduling.** Small models are poor at date arithmetic. S1 on the emulator saw E4B turn "tomorrow" into the wrong day. So scheduling prompts include a small table: today, tomorrow, and the next seven days with weekday names and ISO dates. They also say that calling `calendar_create_event` *is* how to ask the user, because the approval sheet is the confirmation.
+
 ### 7.4 Output handling
 
 - Every structured output has a strict parser, one repair attempt, and a deterministic fallback or escalation (P6, I6).
+- **Claims are checked against what happened (ADR-027).** A final answer that claims an action ("I've scheduled…", "I sent the invite…") is rejected if the Tool Broker recorded no successful write in the run.
+  - The model gets one repair attempt, with a system note that nothing has been done yet.
+  - If it still claims, the request escalates.
+  - If no tier is left, the answer is shown marked "not actually done".
+  - This was found on the emulator: E4B claimed it had created an invite that it never requested. The broker had correctly stopped nothing, because nothing was asked for, but the chat still showed a false claim.
+- **Every answer shows its real actions.** The chat lists, under each answer, what the broker actually did: done, declined, or failed. Each line uses the tool's own summary, never the model's words. The user sees the truth whatever the model writes.
 
 ### 7.5 Proactive agents
 
@@ -515,11 +536,21 @@ All connectors implement a single contract: an auth method, a sync mode, tools (
 | Messages | `NotificationListenerService`, reading `MessagingStyle` from any messaging app; reply through the notification's `RemoteInput` action | Notification access, granted in Settings | Real time while the listener is bound | summarize, suggest reply (READ); reply (WRITE_EXTERNAL) | Sees only messages that arrive as notifications; no history backfill. WhatsApp and RCS offer no third-party API |
 | SMS (`personal` only) | `Telephony` SMS provider + `SMS_RECEIVED` broadcast | `READ_SMS`, `RECEIVE_SMS` | ContentObserver + broadcast + periodic reconcile | read/search history, summarize threads (READ) | Replies go through the notification reply action, or through an intent that opens the SMS app with a prefilled message. There is no `SEND_SMS` in v1. Play restricts SMS permissions to default handlers, so the `play` flavor leaves this module out |
 
+**As built in Phase 2:**
+- **`connector:calendar`:** three tools on `CalendarContract`, with recurring events expanded through Instances:
+  - `calendar_list_events` (READ, untrusted);
+  - `calendar_find_free_slots` (READ; returns times only; quarter-hour starts; never in the past; working hours are parameters);
+  - `calendar_create_event` (`WRITE_PRIVATE`, or `WRITE_EXTERNAL` with attendees). Attendee emails are validated; events are limited to a day; events go into the primary writable calendar.
+- **`connector:contacts`:** `contacts_find` (READ) on `ContactsContract`, returning names, emails and phones.
+- **Permissions** are requested from Settings → Connectors. Without them, tools fail cleanly and the model is told.
+
 **Sideloaded installs.** Android can block notification access (and, on newer versions, other sensitive permissions) for apps installed from an APK file until the user turns on **Allow restricted settings** in App info. Installs from Android Studio or `adb` are normally not affected. Spike S5 checks this on the reference device.
 
 Outlook / Microsoft 365 is not in v1 (OD-2). The connector contract allows adding it later without changing the design.
 
 ## 10. Skills
+
+**Skill detection** (`SkillDetector`, v1): keyword rules choose Scheduling or Chat. A short follow-up (80 characters or fewer, such as "yes please") keeps the previous turn's skill, so the tools stay available. The emulator run found this bug: "yes please" dropped the calendar tools, and the model then wrote raw tool-call markup as text. Answers containing control markup (for example `<|tool_call>`) are treated as invalid output: repaired once, then escalated.
 
 | Skill | Does | Typical tier | Uses | Approval |
 |---|---|---|---|---|
@@ -685,6 +716,12 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 
 **Spike log.** Measured results only, newest first.
 
+- **Phase 2 end to end, 2026-09-25.** Anu emulator, E4B CPU, a local calendar and a made-up contact "Maya Chen". Request: "Schedule a 30 minute design review with Maya tomorrow afternoon".
+  - **Run 1:** the model looked up Maya and searched the wrong day (the 27th), then claimed it had scheduled and invited. **Nothing was created**; the broker had not been asked. Led to ADR-027 and the date table.
+  - **Run 2:** correct day, honest proposal. The follow-up "yes please" lost its tools, and the model wrote raw tool-call markup. Led to ADR-028.
+  - **Run 3:** lookups, a proposal in plain words, then "yes please". The approval sheet showed the tool's summary and the exact payload. After approval, the event was created: Sat 26 Sep 12:00–12:30 America/Los_Angeles, with the attendee, verified in the calendar provider. The action lines matched what happened.
+  - **Test-harness note:** fast `adb input text` loses characters on Gboard. Type word by word and verify.
+
 - **S1, run 2, 2026-09-25.** Dedicated emulator `anu_api36` (API 36, arm64, 10 GB RAM, on the M5 Pro development Mac). E4B CPU file, `maxNumTokens` 4096, weight cache in app-private storage (ADR-020). These are emulator numbers; the phone's are still to come.
   - **Brain contract on the real model: all four tests pass.**
     - Schema-constrained JSON came back valid.
@@ -775,6 +812,9 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 | 023 | 2026-09-25 | Manual dependency injection (`AppGraph`) instead of Hilt for now | A small graph; avoids annotation processing on the brand-new AGP 9 toolchain; one readable place where contracts meet implementations |
 | 024 | 2026-09-25 | Database: SQLCipher with a random 256-bit key wrapped by a Keystore key that has no user check (`AfterFirstUnlock`); raw-key format | Background work must read and write while the phone is locked. Credential-encrypted storage plus a hardware-bound key still protect data at rest. A random key needs no stretching |
 | 025 | 2026-09-25 | A dedicated emulator, `anu_api36`, is the correctness device until the Pixel is available. Emulators use the CPU model files | The user asked to build with an emulator. Emulators have no OpenCL for LiteRT's GPU backend. Speed numbers still come only from the reference phone (ADR-016) |
+| 026 | 2026-09-25 | Escalating mid-run continues the same transcript on the stronger brain; idempotency keys are content-based per turn | Tool results and side effects already produced are never redone, even across a resend after consent |
+| 027 | 2026-09-25 | Answers are checked against the broker's record: action claims without a successful write are repaired, then escalated, then shown with a warning. Every answer lists its real actions in the tool's own words | On the emulator, E4B claimed an invite it never requested. Approvals stopped nothing real, but the chat showed a false claim |
+| 028 | 2026-09-25 | A short follow-up keeps the previous skill; scheduling prompts carry a table of dates; leaked control markup is invalid output | Emulator findings: "yes please" lost the tools, "tomorrow" became the wrong day, and raw `<\|tool_call>` text reached the chat |
 
 ### Component status
 
@@ -804,9 +844,12 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 | `ChatSession` (transcript as the truth, consent resend, take back last) in `core:agent` | 1 | Implemented, with 4 unit tests |
 | Settings UI (`feature:settings`): models (with delete confirmation), Gemini key into the vault, vault activity, Privacy Ledger | 1 | Implemented. It runs on the Anu emulator |
 | App wiring (`AppGraph`, device state, no-backup rules) | 1 | Implemented; lint clean (two warnings: newer Gradle available, no app icon yet) |
-| Agent loop, Tool Broker, approvals, taint | 2 | Planned |
-| Connectors: calendar, contacts, Gmail, messages (notifications), SMS (`personal`) | 2 | Planned |
-| AI Scheduling, AI Email | 2 | Planned |
+| Agent loop, Tool Broker, approvals, taint, claim check (`core:agent`) | 2 | Implemented. 33 JVM tests, and works end to end on the Anu emulator with E4B: lookups, free slots, and an approval-gated invite |
+| Connectors: calendar, contacts | 2 | Implemented. JVM tests, plus provider tests on the Anu emulator (real `CalendarContract` and `ContactsContract`) |
+| Connectors: Gmail, messages (notifications), SMS (`personal`) | 2 | Planned |
+| AI Scheduling v1 (chat with calendar and contacts tools) | 2 | Implemented. Verified by hand on the emulator; no eval set yet (§15) |
+| AI Email | 2 | Planned (needs Gmail) |
+| Tool audit and idempotency persistence (schema v2), Activity in Settings | 2 | Implemented. Migration test passes on the emulator |
 | Memory pipeline, profile, Memory Inspector | 3 | Planned |
 | AI Writing everywhere (PROCESS_TEXT) | 3 | Planned |
 | Proactive agents, voice, assistant role | 4 | Planned |
@@ -814,6 +857,14 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 
 ### Changelog
 
+- **1.0.0** (2026-09-25): Phase 2, first slice: the agent can act, with approval.
+  - `Tool` contract with input-dependent risk and tool-written summaries.
+  - `ToolBroker` with policy, taint, idempotency, approvals and audit; `ApprovalCenter` and the approval sheet.
+  - `Agent` tool loop (ADR-026), with the claim check and real action lines (ADR-027).
+  - `SkillDetector` with follow-ups, the date table, and the control-markup check (ADR-028).
+  - Calendar and contacts connectors.
+  - Schema v2 with tool audit and results; Connectors and Activity in Settings.
+  - End to end on the emulator: an approval-gated calendar invite.
 - **0.9.0** (2026-09-25): built and run on an emulator.
   - A dedicated emulator, `anu_api36`, uses the CPU model files (ADR-025).
   - S1 run 2 results: the contract, tools, schema and cancel all pass, and ADR-020 cut memory from about 9 GB to 4.9 GB.

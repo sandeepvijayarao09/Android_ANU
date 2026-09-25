@@ -2,6 +2,7 @@ package io.github.sandeepvijayarao09.anu.feature.settings
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import io.github.sandeepvijayarao09.anu.core.agent.ToolAuditEntry
 import io.github.sandeepvijayarao09.anu.core.model.BrainId
 import io.github.sandeepvijayarao09.anu.core.model.ModelInfo
 import io.github.sandeepvijayarao09.anu.core.model.ModelState
@@ -39,6 +40,7 @@ class SettingsViewModel(
     private val cloudKey: CloudKeySettings,
     ledger: PrivacyLedger,
     vaultActivity: Flow<List<VaultActivity>>,
+    toolActivity: Flow<List<ToolAuditEntry>> = kotlinx.coroutines.flow.flowOf(emptyList()),
 ) : ViewModel() {
 
     // WorkManager doesn't emit when a file is deleted, so a delete bumps this to re-read the state.
@@ -53,6 +55,8 @@ class SettingsViewModel(
 
     val hasCloudKey: StateFlow<Boolean> = cloudKey.hasKey
     val ledgerEntries: StateFlow<List<LedgerEntry>> = ledger.entries
+    val toolActions: StateFlow<List<ToolAuditEntry>> =
+        toolActivity.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val vaultUses: StateFlow<List<VaultActivity>> =
         vaultActivity.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 

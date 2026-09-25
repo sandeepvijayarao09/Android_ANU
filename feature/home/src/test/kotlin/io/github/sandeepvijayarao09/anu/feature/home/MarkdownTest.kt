@@ -28,6 +28,12 @@ class MarkdownTest {
     }
 
     @Test
+    fun `underscores inside identifiers are not emphasis`() {
+        assertEquals("call calendar_create_event and file_name_v2", markdown("call calendar_create_event and file_name_v2").text)
+        assertEquals("a really _important_ point", markdown("a really _important_ point").text.replace("important", "_important_"))
+    }
+
+    @Test
     fun `plain text and stray markers are left alone`() {
         assertEquals("2 * 3 = 6 and a lone ** marker", markdown("2 * 3 = 6 and a lone ** marker").text)
         assertEquals("see [the doc](https://example.com)", markdown("see [the doc](https://example.com)").text)

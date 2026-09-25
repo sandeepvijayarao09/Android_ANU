@@ -1,5 +1,9 @@
 package io.github.sandeepvijayarao09.anu.core.data
 
+import io.github.sandeepvijayarao09.anu.core.agent.RiskTier
+import io.github.sandeepvijayarao09.anu.core.agent.ToolAudit
+import io.github.sandeepvijayarao09.anu.core.agent.ToolAuditEntry
+import io.github.sandeepvijayarao09.anu.core.agent.ToolResultStore
 import io.github.sandeepvijayarao09.anu.core.agent.TranscriptStore
 import io.github.sandeepvijayarao09.anu.core.model.ChatMessage
 import io.github.sandeepvijayarao09.anu.core.model.DataClass
@@ -18,6 +22,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -85,6 +90,32 @@ class RoomVaultAudit(private val dao: VaultAuditDao) : VaultAudit {
     fun recent(limit: Int = 50): Flow<List<VaultUse>> = dao.recent(limit).map { rows ->
         rows.map { VaultUse(it.itemId, it.caller, it.host, Instant.ofEpochMilli(it.atMillis)) }
     }
+}
+
+/** The Tool Broker's audit trail in the encrypted database (§7.2). */
+class RoomToolAudit(private val dao: ToolAuditDao) : ToolAudit {
+    override suspend fun record(entry: ToolAuditEntry) = dao.insert(
+        ToolAuditEntity(
+            runId = entry.runId,
+            toolName = entry.toolName,
+            risk = entry.risk.name,
+            summary = entry.summary,
+            outcome = entry.outcome,
+            approved = entry.approved,
+            atMillis = entry.atMillis,
+        ),
+    )
+
+    fun recent(limit: Int = 50): Flow<List<ToolAuditEntry>> = dao.recent(limit).map { rows ->
+        rows.map { ToolAuditEntry(it.runId, it.toolName, RiskTier.valueOf(it.risk), it.summary, it.outcome, it.approved, it.atMillis) }
+    }
+}
+
+/** Idempotent results that survive a restart, so a resumed turn never repeats a side effect (§7.2, §18). */
+class RoomToolResultStore(private val dao: ToolResultDao, private val clock: () -> Long = System::currentTimeMillis) : ToolResultStore {
+    override suspend fun get(key: String): JsonElement? = dao.get(key)?.let(Json::parseToJsonElement)
+
+    override suspend fun put(key: String, result: JsonElement) = dao.put(ToolResultEntity(key, result.toString(), clock()))
 }
 
 /** Maps transcript messages to rows. Tool calls keep their provider signature (ADR-022). */

@@ -11,15 +11,28 @@ import io.github.sandeepvijayarao09.anu.brain.gemini.GeminiBrain
 import io.github.sandeepvijayarao09.anu.brain.litertlm.ModelManager
 import io.github.sandeepvijayarao09.anu.brain.litertlm.OnDeviceBrains
 import io.github.sandeepvijayarao09.anu.core.agent.BrainProvider
-import io.github.sandeepvijayarao09.anu.core.agent.Cascade
+import io.github.sandeepvijayarao09.anu.core.agent.Agent
+import io.github.sandeepvijayarao09.anu.core.agent.ApprovalCenter
+import io.github.sandeepvijayarao09.anu.core.agent.Tool
+import io.github.sandeepvijayarao09.anu.core.agent.ToolAuditEntry
+import io.github.sandeepvijayarao09.anu.core.agent.ToolBroker
+import io.github.sandeepvijayarao09.anu.connector.calendar.CreateEventTool
+import io.github.sandeepvijayarao09.anu.connector.calendar.FindFreeSlotsTool
+import io.github.sandeepvijayarao09.anu.connector.calendar.ListEventsTool
+import io.github.sandeepvijayarao09.anu.connector.calendar.ProviderCalendar
+import io.github.sandeepvijayarao09.anu.connector.contacts.FindContactTool
+import io.github.sandeepvijayarao09.anu.connector.contacts.ProviderContacts
 import io.github.sandeepvijayarao09.anu.core.agent.ChatSession
 import io.github.sandeepvijayarao09.anu.core.data.AnuDatabase
 import io.github.sandeepvijayarao09.anu.core.data.RoomPrivacyLedger
+import io.github.sandeepvijayarao09.anu.core.data.RoomToolAudit
+import io.github.sandeepvijayarao09.anu.core.data.RoomToolResultStore
 import io.github.sandeepvijayarao09.anu.core.data.RoomTranscriptStore
 import io.github.sandeepvijayarao09.anu.core.data.RoomVaultAudit
 import io.github.sandeepvijayarao09.anu.core.model.BrainId
 import io.github.sandeepvijayarao09.anu.core.router.DeviceState
 import io.github.sandeepvijayarao09.anu.core.router.Router
+import io.github.sandeepvijayarao09.anu.core.router.Skill
 import io.github.sandeepvijayarao09.anu.core.router.Tier
 import io.github.sandeepvijayarao09.anu.core.security.EgressGate
 import io.github.sandeepvijayarao09.anu.core.security.PrivacyLedger
@@ -42,12 +55,13 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
 import okhttp3.OkHttpClient
 import java.io.File
+import java.time.ZoneId
 
 /**
  * The app's object graph, wired by hand (ADR-023). This is the only place concrete brains, the vault
  * and connectors meet contracts (§4.2).
  */
-class AppGraph(context: Context) {
+class AppGraph(private val context: Context) {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val prefs: SharedPreferences = context.getSharedPreferences("anu", Context.MODE_PRIVATE)
 
@@ -76,7 +90,34 @@ class AppGraph(context: Context) {
         }
     }
 
-    val chat by lazy { ChatSession(Cascade(Router(), brains), RoomTranscriptStore(db.transcripts(), conversationId = "main")) }
+    /** Pending approvals, shown by the chat screen (I2). */
+    val approvals = ApprovalCenter()
+    private val toolAudit by lazy { RoomToolAudit(db.toolAudit()) }
+    private val zone: () -> ZoneId = ZoneId::systemDefault
+
+    /** Every tool Anu has. Each skill offers only its own subset to the model (§7.3). */
+    private val tools: List<Tool<*, *>> by lazy {
+        val calendar = ProviderCalendar(context.contentResolver)
+        listOf(
+            ListEventsTool(calendar, zone),
+            FindFreeSlotsTool(calendar, zone),
+            CreateEventTool(calendar, zone),
+            FindContactTool(ProviderContacts(context.contentResolver)),
+        )
+    }
+
+    private val broker by lazy { ToolBroker(tools, approvals, RoomToolResultStore(db.toolResults()), toolAudit) }
+
+    val chat by lazy {
+        ChatSession(
+            agent = Agent(Router(), brains, broker),
+            store = RoomTranscriptStore(db.transcripts(), conversationId = "main"),
+            toolsFor = { skill -> if (skill == Skill.SCHEDULING) tools.map { it.name } else emptyList() },
+        )
+    }
+
+    /** What Anu did with tools, newest first, for the settings screen (§7.2). */
+    val toolActivity: Flow<List<ToolAuditEntry>> by lazy { toolAudit.recent() }
 
     /** Recent uses of vault secrets, with item labels, for the settings screen (§11). */
     val vaultActivity: Flow<List<VaultActivity>> by lazy {

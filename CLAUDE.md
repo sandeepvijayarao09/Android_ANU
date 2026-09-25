@@ -67,3 +67,9 @@ export JAVA_HOME=/opt/homebrew/opt/openjdk@21
   - Its serial changes between runs. Check with `adb -s <serial> emu avd name`.
   - Emulators use the CPU model files (ADR-025).
 - **Installing a local model into the app** (debug builds only, no download): `scripts/dev-install-model.sh <serial> <file.litertlm>`. It checks the SHA-256 against `ModelCatalog` first.
+- **Test data on `anu_api36`.** Created once with `adb shell content insert`:
+  - a local calendar "Personal" (`account_type=LOCAL`);
+  - a made-up contact "Maya Chen", `maya.chen@example.com`.
+  Only use made-up `example.com` people.
+- **Typing into the app from adb:** use `scripts/emu-type.sh <serial> "<text>"`, because fast `input text` loses characters on Gboard.
+- **Resetting the chat without re-copying the model:** `adb shell run-as io.github.sandeepvijayarao09.anu.personal rm -rf no_backup/db`, with the app stopped.

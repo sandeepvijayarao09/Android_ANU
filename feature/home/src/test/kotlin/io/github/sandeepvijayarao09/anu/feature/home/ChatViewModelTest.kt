@@ -1,7 +1,9 @@
 package io.github.sandeepvijayarao09.anu.feature.home
 
 import io.github.sandeepvijayarao09.anu.core.agent.BrainProvider
-import io.github.sandeepvijayarao09.anu.core.agent.Cascade
+import io.github.sandeepvijayarao09.anu.core.agent.Agent
+import io.github.sandeepvijayarao09.anu.core.agent.ToolBroker
+import io.github.sandeepvijayarao09.anu.core.agent.ApprovalCenter
 import io.github.sandeepvijayarao09.anu.core.agent.ChatSession
 import io.github.sandeepvijayarao09.anu.core.agent.InMemoryTranscriptStore
 import io.github.sandeepvijayarao09.anu.core.model.ChatMessage
@@ -11,7 +13,17 @@ import io.github.sandeepvijayarao09.anu.core.model.ScriptedBrain.Step
 import io.github.sandeepvijayarao09.anu.core.router.DeviceState
 import io.github.sandeepvijayarao09.anu.core.router.Router
 import io.github.sandeepvijayarao09.anu.core.router.Tier
+import io.github.sandeepvijayarao09.anu.core.agent.RiskTier
+import io.github.sandeepvijayarao09.anu.core.agent.Tool
+import io.github.sandeepvijayarao09.anu.core.agent.ToolContext
+import io.github.sandeepvijayarao09.anu.core.model.DataClass
+import io.github.sandeepvijayarao09.anu.core.model.ToolCall
 import kotlinx.coroutines.Dispatchers
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonArray
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
@@ -37,7 +49,7 @@ class ChatViewModelTest {
     fun setUp() {
         Dispatchers.setMain(UnconfinedTestDispatcher())
         val brains = mapOf(Tier.BASE to base, Tier.PRO to pro, Tier.CLOUD to cloud)
-        viewModel = ChatViewModel(ChatSession(Cascade(Router(), BrainProvider { brains[it] })), device = { device })
+        viewModel = ChatViewModel(ChatSession(Agent(Router(), BrainProvider { brains[it] }, ToolBroker(emptyList(), ApprovalCenter()))), device = { device })
     }
 
     @After
@@ -111,9 +123,60 @@ class ChatViewModelTest {
     fun `the saved conversation is shown when the screen opens`() {
         val store = InMemoryTranscriptStore(listOf(ChatMessage.User("Remember milk"), ChatMessage.Model("Noted.")))
         val brains = mapOf(Tier.BASE to base)
-        val reopened = ChatViewModel(ChatSession(Cascade(Router(), BrainProvider { brains[it] }), store), device = { device })
+        val reopened = ChatViewModel(
+            ChatSession(Agent(Router(), BrainProvider { brains[it] }, ToolBroker(emptyList(), ApprovalCenter())), store),
+            device = { device },
+        )
         assertEquals(listOf("Remember milk", "Noted."), reopened.state.value.bubbles.map { it.text })
         assertFalse(reopened.state.value.busy)
+    }
+
+    @Serializable
+    data class Invite(val title: String, val attendees: List<String>)
+
+    @Serializable
+    data class Created(val id: String)
+
+    private class InviteTool : Tool<Invite, Created> {
+        var created = 0
+        override val name = "calendar_create_event"
+        override val description = "Create an event"
+        override val input = Invite.serializer()
+        override val output = Created.serializer()
+        override val dataClasses = setOf(DataClass.PERSONAL)
+        override val returnsUntrustedContent = false
+        override fun risk(input: Invite) = RiskTier.WRITE_EXTERNAL
+        override fun describe(input: Invite) = "Create \"${input.title}\" and invite ${input.attendees.joinToString()}"
+        override suspend fun invoke(input: Invite, context: ToolContext): Created = Created("e${++created}")
+    }
+
+    @Test
+    fun `an invite waits for approval, shows the exact payload, and runs once approved`() {
+        val tool = InviteTool()
+        val center = ApprovalCenter()
+        val brains = mapOf(Tier.BASE to base, Tier.PRO to pro)
+        val scheduling = ChatViewModel(
+            ChatSession(Agent(Router(), BrainProvider { brains[it] }, ToolBroker(listOf(tool), center)), toolsFor = { listOf(tool.name) }),
+            device = { device },
+            approvals = center,
+        )
+        val call = ToolCall("calendar_create_event", buildJsonObject {
+            put("title", "Design review")
+            putJsonArray("attendees") { add(JsonPrimitive("maya@example.com")) }
+        })
+        pro.enqueue(Step.Reply(listOf(""), toolCalls = listOf(call)), Step.Reply("Invite sent."))
+        scheduling.send("Schedule a design review with Maya")
+
+        val approval = scheduling.state.value.approval!!
+        assertEquals("Create \"Design review\" and invite maya@example.com", approval.summary)
+        assertEquals(listOf("title: Design review", "attendees: maya@example.com"), payloadLines(approval.payload))
+        assertEquals(listOf("title: x"), payloadLines(buildJsonObject { put("title", "x"); put("location", kotlinx.serialization.json.JsonNull) }))
+        assertEquals(0, tool.created)
+
+        scheduling.approve(approval.id)
+        assertEquals(1, tool.created)
+        assertNull(scheduling.state.value.approval)
+        assertEquals("Invite sent.", scheduling.state.value.bubbles.last().text)
     }
 
     @Test

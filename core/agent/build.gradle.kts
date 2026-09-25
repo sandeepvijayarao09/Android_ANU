@@ -3,6 +3,7 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 // Pure Kotlin: no android.* allowed here (ARCHITECTURE §4.2).
 plugins {
     alias(libs.plugins.kotlin.jvm)
+    alias(libs.plugins.kotlin.serialization) // tool inputs and outputs in tests and connectors
 }
 
 java {
