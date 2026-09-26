@@ -137,6 +137,31 @@ class ChatSessionTest {
     }
 
     @Test
+    fun `a long chat shows the model its newest exchanges, keeps the start steady, and says so`() = runTest {
+        val now = java.time.ZonedDateTime.parse("2026-09-25T10:31:00-04:00[America/New_York]")
+        val chat = ChatSession(agent(mapOf(Tier.BASE to base)), clock = { now }, window = ContextWindow(budget = 1_000, refill = 0.6))
+        repeat(8) { base.enqueue(Step.Reply("r".repeat(350))) }
+        val views = mutableListOf<ContextView>()
+        repeat(8) { i ->
+            chat.send("Message $i " + "x".repeat(340), device).toList()
+            views += chat.context.value
+        }
+        val shownFrom = views.map { it.shownFrom }
+        assertEquals("the first turns see everything", listOf(0, 0, 0), shownFrom.take(3))
+        assertTrue("older messages were left out", shownFrom.last() > 0)
+        assertTrue("starts only move forward, rarely", shownFrom.zipWithNext().count { (a, b) -> a != b } <= 2)
+        views.forEach { assertTrue("${it.tokens} is within the budget", it.tokens <= 1_000) }
+        base.requests.forEachIndexed { i, request ->
+            assertEquals(views[i].messages - views[i].shownFrom + 1, request.transcript.size)
+            assertEquals(views[i].trimmed, request.system!!.contains("This chat is long"))
+        }
+        // Between trims each request extends the one before, so the on-device cache keeps matching (ADR-033).
+        val steady = (1 until 8).first { shownFrom[it] == shownFrom[it - 1] && shownFrom[it] > 0 }
+        assertEquals(base.requests[steady - 1].transcript, base.requests[steady].transcript.take(base.requests[steady - 1].transcript.size))
+        assertEquals("the whole chat stays saved", 16, chat.history().size)
+    }
+
+    @Test
     fun `memory commands are not offered to memory again`() = runTest {
         val offered = mutableListOf<String>()
         val chat = ChatSession(agent(mapOf(Tier.BASE to base)), onTurnCompleted = { text, _ -> offered += text })

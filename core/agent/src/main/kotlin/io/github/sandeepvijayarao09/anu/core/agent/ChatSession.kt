@@ -10,6 +10,9 @@ import io.github.sandeepvijayarao09.anu.core.router.Tier
 import io.github.sandeepvijayarao09.anu.core.security.PiiDetector
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -22,6 +25,8 @@ import java.util.Locale
  * - The transcript, including tool turns, is persisted through [store] and is the source of truth (ADR-018).
  * - A turn is saved only when it completes, so a failed, cancelled or consent-blocked turn leaves no trace.
  * - Re-sending the same turn (for example after consent) reuses its idempotency keys (§7.2).
+ * - The model sees the newest part of the chat that fits its budget ([window], ADR-040). The whole chat
+ *   stays saved and on screen, and memory keeps what matters from what falls out.
  */
 class ChatSession(
     private val agent: Agent,
@@ -37,10 +42,19 @@ class ChatSession(
      * Memory commands ("Remember that…") are not offered: the memory tools already carried them out.
      */
     private val onTurnCompleted: suspend (text: String, turnKey: String) -> Unit = { _, _ -> },
+    /** Which past messages the model sees. The default shows them all. */
+    private val window: ContextWindow = ContextWindow(),
 ) {
     private val lock = Mutex()
     private var transcript: MutableList<ChatMessage>? = null
 
+    /** Where the model's view started last turn. It stays put until the chat outgrows the window. */
+    private var windowStart = 0
+
+    private val mutableContext = MutableStateFlow(ContextView(budget = window.budget))
+
+    /** What the model was shown last turn (ADR-040). */
+    val context: StateFlow<ContextView> = mutableContext.asStateFlow()
 
     /** The saved conversation, loaded from [store] on first use. */
     suspend fun history(): List<ChatMessage> = lock.withLock { loaded().toList() }
@@ -49,17 +63,26 @@ class ChatSession(
     fun send(text: String, device: DeviceState, pinned: Tier? = null, cloudConsented: Boolean = false): Flow<AgentEvent> = flow {
         lock.withLock {
             val transcript = loaded()
-            val turn = transcript + ChatMessage.User(text)
             val skill = SkillDetector.detect(transcript.filterIsInstance<ChatMessage.User>().map { it.text } + text)
             val tools = toolsFor(skill)
-            val system = systemPrompt(tools)
             val now = clock()
             val memoryBlock = currentMemory()
+            val message = ChatMessage.User(text)
+            // What every turn carries besides the history. The note about left-out messages is counted
+            // either way, so adding it can't push a turn over the budget.
+            val fixed = Tokens.of(systemPrompt(tools, trimmed = true)) + Tokens.of(memoryBlock) +
+                Tokens.ofTools(agent.toolSpecs(tools)) + Tokens.of(message)
+            windowStart = window.start(transcript, windowStart, fixed)
+            val shown = transcript.subList(windowStart, transcript.size).toList()
+            val system = systemPrompt(tools, trimmed = windowStart > 0)
+            val turn = shown + message
+            val promptTokens = fixed + Tokens.of(shown)
+            mutableContext.value = ContextView(windowStart, transcript.size, promptTokens, window.budget)
             val route = RouteRequest(
                 text = text,
                 skill = skill,
                 dataClasses = dataClassesOf(turn),
-                promptTokens = estimateTokens(system, turn) + (memoryBlock?.length ?: 0) / 4,
+                promptTokens = promptTokens,
                 pinnedTier = pinned,
                 cloudConsented = cloudConsented,
             )
@@ -97,14 +120,18 @@ class ChatSession(
         text
     }
 
-    /** Each hint is given only with its tool, so small models aren't told about tools they don't have (§7.3). */
-    private fun systemPrompt(tools: List<String>): String = buildString {
+    /**
+     * Each hint is given only with its tool, so small models aren't told about tools they don't have
+     * (§7.3). [trimmed] says the oldest messages are left out, so the model asks rather than guesses.
+     */
+    private fun systemPrompt(tools: List<String>, trimmed: Boolean): String = buildString {
         append(basePrompt)
         // Only the date, never the time: a prompt that changed every minute would make the on-device
         // model re-read the whole conversation on every turn. The time goes with the message (ADR-018).
         val now = clock()
         append("\n\nToday: ").append(TODAY.format(now)).append(" (").append(now.zone.id).append(").")
         append(" The user's newest message starts with the local time they sent it, in brackets.")
+        if (trimmed) append(" This chat is long, so its oldest messages are left out here. If you need something from earlier, ask the user.")
         if (tools.isNotEmpty()) {
             // Small models are poor at date arithmetic, so give them the dates (§7.3).
             append("\nDates: ").append(dateTable(now.toLocalDate())).append('.')
@@ -168,15 +195,5 @@ class ChatSession(
         /** Chat text may hold anything personal, so it is always at least S1. S2 is added when detected. */
         fun dataClassesOf(turn: List<ChatMessage>): Set<DataClass> =
             setOf(DataClass.PERSONAL) + turn.filterIsInstance<ChatMessage.User>().flatMap { PiiDetector.dataClasses(it.text) }
-
-        /** About four characters per token. Real counts come from the runtime once S1 calibrates budgets. */
-        fun estimateTokens(system: String, turn: List<ChatMessage>): Int =
-            (system.length + turn.sumOf { message ->
-                when (message) {
-                    is ChatMessage.User -> message.text.length
-                    is ChatMessage.Model -> message.text.length + message.toolCalls.sumOf { it.arguments.toString().length }
-                    is ChatMessage.Tool -> message.results.sumOf { it.result.toString().length }
-                }
-            }) / 4 + 1
     }
 }

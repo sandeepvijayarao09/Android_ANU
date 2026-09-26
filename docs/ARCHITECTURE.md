@@ -1,6 +1,6 @@
 # Anu for Android: Architecture
 
-Version 1.3.0 · Draft · 2026-09-25
+Version 1.4.0 · Draft · 2026-09-25
 Status: proposed. OD-1 to OD-4 were resolved on 2026-09-25 (§16).
 Product intent lives in [VISION.md](VISION.md).
 
@@ -289,6 +289,7 @@ Application ID: `io.github.sandeepvijayarao09.anu`. It can change until the firs
     - The conversation is closed only after that final callback, never while decoding is still running (I7).
   - **Structured output.** Router decisions, extraction and classification use `ResponseFormat.json(schema)`, which constrains decoding to the schema (P6).
   - **Budgets.** Token counts come from `getTokenCount()`. Per-tier limits are set with `maxNumTokens` (engine) and `maxOutputToken` (per request). `ThinkingConfig` is off for Base short tasks.
+  - **One context size (ADR-040).** A single constant, 4,096 tokens today, sets the engines' `maxNumTokens`. The router's prompt budgets and the chat window are derived from it, so a prompt sent to a device tier fits it. S1 on the reference phone may raise it.
   - **Backends.** `CPU`, `GPU`, `NPU` and `GOOGLE_TENSOR` (the Pixel TPU) are all available. S1 measures each on the reference device.
   - **Metrics.** `ExperimentalFlags.enableBenchmark` reports init time, time to first token, and prefill/decode tokens per second. It is used by S1 and the performance evals.
   - **Embeddings.** LiteRT-LM ships an `EmbeddingEngine`, which is the first candidate for S3.
@@ -366,7 +367,7 @@ These are deterministic rules that decide which tiers are *allowed*:
 - **v1** (`core:router` `ComplexityScorer`): transparent weighted rules, each of which adds a reason.
   - **Weights:** skill weight (Chat, Memory, Messages 0; Writing, Email 1; Brief, Scheduling 2); two or more action verbs +2; chained steps +1; reasoning cues +1; long-form output +1; short-task cues −1.
   - **Thresholds:** a score of 1 or less goes to Base, 2–5 to Pro, and 6 or more to Cloud. Cloud's threshold is high on purpose, because on-device is the default (P1).
-  - **Prompt size:** a prompt over the Base budget goes to Pro at least; over the Pro budget, to Cloud. Budgets start at 3,000 and 6,000 tokens; these are hypotheses until S1.
+  - **Prompt size:** a prompt over the Base budget goes to Pro at least; over the Pro budget, to Cloud. Budgets come from the on-device context minus 1,536 tokens kept for the answer and the turn's tool results (ADR-040): Pro 2,560 and Base 2,048 with today's 4,096-token engines. Base's smaller share is a hypothesis until S1 on the phone. The earlier 6,000-token Pro budget was larger than the engine's context, so a long chat went to Pro and failed there.
 - **v2:** a small on-device classifier (embedding plus a logistic head). It is trained on router data and user feedback, and evaluated on a held-out set it was **not** tuned on (§18).
 
 **Stage C: cascade with verification**
@@ -449,7 +450,7 @@ The context builder assembles each prompt within a **per-tier token budget that 
 - a compact system prompt for the tier;
 - the relevant profile slice;
 - retrieved facts and episodes;
-- the conversation window;
+- the conversation window ([Conversation window](#conversation-window-adr-040) below);
 - schemas for only the tools this skill needs. Small models do better with fewer tools.
 
 Untrusted content goes in clearly delimited data blocks. Budgets are set per tier from spike S1 measurements.
@@ -459,6 +460,16 @@ Untrusted content goes in clearly delimited data blocks. Budgets are set per tie
 **Memory (ADR-038).** The memory block is read fresh for every turn and goes to on-device brains only. It changes rarely during a chat, because learning runs after the user leaves the app (ADR-037), so the KV cache survives. Its header says it is kept up to date and wins over older messages in the chat, unless the user has just said otherwise. On the emulator, the model otherwise trusted an old "I'm vegetarian" over the user's own correction to "vegan".
 
 **Time and tool hints (ADR-033).** The system prompt carries the date, never the time: the time goes with the newest user message, so the on-device KV cache survives between turns. Each tool hint is given only when its tool is offered. For example, "call `messages_reply` with the final text; it takes the chat's name or phone number" appears only with the messaging tools.
+
+#### Conversation window (ADR-040)
+
+The chat is one long conversation. The model sees only its newest part that fits the prompt budget. The whole chat stays saved and on screen.
+- **What counts.** The system prompt, the memory block, the definitions of the offered tools, the new message and the shown history. Tokens are estimated at 3.5 characters each, on the safe side for English and for the JSON of tool calls. Calibrating against the runtime's own counts is Planned.
+- **Whole exchanges only.** An exchange starts at a user message, so a tool call is never separated from its result.
+- **Trimmed in chunks.** The start stays where it was while everything fits, so the KV cache keeps matching (ADR-033). When the next turn wouldn't fit, the oldest exchanges go until the rest fits in 60% of the budget, which puts the next trim several turns away. On the emulator, the turn that trimmed took 34 s and the next same-skill turn 4 s.
+- **The model is told.** Once messages are left out, the system prompt says so, and to ask the user about anything earlier. The chat screen shows a quiet line: "Long chat: Anu reads the latest messages here. What it learned earlier is in Memory."
+- **Memory carries what falls out.** Every message was offered to memory when its turn completed. What mattered in it is learned at the next learning run (ADR-037), and the memory block brings it back.
+- **The cloud gets the same window,** so it is sent no more than it needs (I3).
 
 ### 7.4 Output handling
 
@@ -555,7 +566,7 @@ flowchart LR
 - **Retrieval v1.** The memory block holds the most important facts, grouped by section, within about 1,500 characters, for on-device brains only (ADR-038). `memory_search` finds facts by name or topic. Entity matching and vector search are Planned; vectors wait for spike S3.
 - **Tools.** `memory_remember` (`WRITE_PRIVATE`: automatic unless the run is tainted), `memory_search` (READ), `memory_forget` (`DESTRUCTIVE`: the approval sheet lists the exact facts, and only those are deleted, even if memory changes in between).
 - **Memory tab.** Facts by section, each with where it came from ("You said so", or learned from what you wrote) and a "because of" list of its source messages, with dates and the user's words. Controls: That's right, Correct, Delete, and Forget on a source message. Forgetting a message removes what came only from it and restores what it had replaced (I5). A fact the user confirmed survives, because the confirmation is also a source (I4).
-- **Planned:** entities with aliases and a link to contacts; episodes and nightly consolidation (dedupe, decay); never-learn rules; retention for event content; a memory eval (§15); windowing long chats, with memory carrying what falls out of the window.
+- **Planned:** entities with aliases and a link to contacts; episodes and nightly consolidation (dedupe, decay); never-learn rules; retention for event content; a memory eval (§15). Long chats are trimmed, with memory carrying what falls out (§7.3, ADR-040).
 
 ## 9. Connectors
 
@@ -787,6 +798,12 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 
 **Spike log.** Measured results only, newest first.
 
+- **Chat trimming end to end, 2026-09-25.** Anu emulator, E4B CPU. The existing test chat of 38 messages, with long recipe answers, was estimated at 2,139 of 2,560 tokens and sent whole.
+  - **Overflow:** after a 250-word answer, the next turn dropped the oldest 28 messages at once and sent 14 (about 1,522 tokens). The long-chat line appeared. The turn took 34 s, re-reading the new window.
+  - **Steady start:** a later same-skill turn kept the start at message 28, reused the cache and took 4 s.
+  - **Memory:** "Remind me, who is my manager?" was answered "Maya Chen" with the original message out of view.
+  - **Found:** the old router budgets (6,000 tokens for Pro) were larger than the engine's 4,096-token context. Budgets now come from the context.
+
 - **Memory end to end, 2026-09-25.** Anu emulator, E4B CPU.
   - **Upgrade:** installing over the existing v2 database kept the chat and added the memory tables. The v2→v3 device test passes.
   - **Background learning:** "I'm vegetarian, and my manager is Maya Chen" in plain chat. Leaving the app started `MemoryWorker` within a second. It finished in 22 s, including loading the model. The Memory tab then showed "manager: Maya Chen" and "diet: vegetarian", each with the message behind it.
@@ -917,6 +934,7 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 | 037 | 2026-09-25 | Memory learns after the user leaves the app (battery not low), twice a day while charging, or on "Learn now"; never mid-chat | Extraction shares the on-device model, and running it between turns would throw away the chat's KV cache (ADR-033). A session's few messages take one short call each |
 | 038 | 2026-09-25 | The memory block goes to on-device brains only, read fresh each turn; its header says it is current and wins over older chat messages unless the user has just said otherwise | The profile stays on the phone (§8.4). On the emulator, the model trusted an old message over the user's correction. Memory rarely changes mid-chat, so the cache survives |
 | 039 | 2026-09-25 | v1 learns only from the user's own words; each fact needs its quote in the message; secrets and card, bank and ID numbers are never kept; memory commands aren't learned from again; inferred facts never override the user's; a deleted fact leaves only a fingerprint | P5, I1 and I4. On the emulator, learning from a "Remember that…" message again made a duplicate |
+| 040 | 2026-09-25 | One on-device context size sets the engines, the router budgets and the chat window. The model sees the newest whole exchanges that fit, trimmed in chunks down to 60% of the budget, and is told when older ones are left out; the whole chat stays saved and on screen | A long chat overflowed the 4,096-token engines, and the router's 6,000-token Pro budget didn't match them. Chunked trimming keeps the KV cache matching between trims (ADR-033). Memory carries what falls out |
 
 ### Component status
 
@@ -933,7 +951,7 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 | Residency: one model at a time (`OnDeviceBrains`) | 1 | Implemented. Not device-tested; thresholds come from S1 |
 | `core:security`: PII detection, redaction, `EgressGate`, ledger interface | 1 | Implemented, with 9 unit tests. The ledger is persisted by `core:data` |
 | `brain:gemini` | 1 | Implemented, with 6 unit tests against a fake server. Not verified against the live API (S8) |
-| Router v1: `core:router` stages A and B, escalation, and skill detection | 1 | Implemented, with 18 unit tests. Not yet Verified: there's no router eval set yet (§15) |
+| Router v1: `core:router` stages A and B, escalation, and skill detection; prompt budgets from the on-device context | 1 | Implemented, with 19 unit tests. Not yet Verified: there's no router eval set yet (§15) |
 | Cascade (Stage C: validate, repair, escalate, consent stop) in `core:agent` | 1 | Implemented, with 9 unit tests using `ScriptedBrain` |
 | Direct tier (deterministic handlers) | 2 | Planned. Needs connectors |
 | `core:vault`: store, Keystore protector, `SecretInjector` | 1 | Implemented. 10 JVM tests, plus 2 device tests with the real Keystore on the Anu emulator. The device tests found and fixed a hidden screen-lock error. Recovery passphrase Planned |
@@ -941,10 +959,11 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 | Encrypted database (`core:data`): Room 2.8 + SQLCipher 4.19, key wrapping, transcript, ledger, audit and memory stores; schema v3 | 1 | **Verified on the Anu emulator**: the encryption-at-rest and migration device tests pass (no plain header, no canary, wrong key refused; v1→v2 and v2→v3 keep data). Plus 11 JVM tests |
 | Persistence wired: chat history restored at launch, ledger persisted, vault activity shown in Settings | 1 | Implemented, with a ViewModel test for restore. Not yet run on a device |
 | App shell: Chat, Memory and Settings tabs | 1 | Implemented. Runs on the Anu emulator |
-| Chat UI (`feature:home`): streaming, tier badge, Retry with Pro, cloud consent dialog, Stop, Markdown | 1 | Implemented. It runs end to end on the Anu emulator with E4B, and has 11 JVM tests. The cloud consent dialog isn't exercised on a device yet (needs a Gemini key) |
+| Chat UI (`feature:home`): streaming, tier badge, Retry with Pro, cloud consent dialog, Stop, Markdown, long-chat line | 1 | Implemented. It runs end to end on the Anu emulator with E4B, and has 14 JVM tests. The cloud consent dialog isn't exercised on a device yet (needs a Gemini key) |
 | Save the answering tier with each message (restored answers currently lose their badge) | 1 | Planned: schema v2 |
 | Open the database off the main thread (44–95 ms today) | 1 | Planned |
-| `ChatSession` (transcript as the truth, consent resend, take back last, stable prompt, skill replay, memory block, turns offered to memory) in `core:agent` | 1 | Implemented, with 11 unit tests |
+| `ChatSession` (transcript as the truth, consent resend, take back last, stable prompt, skill replay, memory block, turns offered to memory) in `core:agent` | 1 | Implemented, with 12 unit tests |
+| Conversation window (`ContextWindow`, `Tokens`): whole exchanges, chunked trimming, the long-chat note (ADR-040) | 3 | Implemented, with 7 unit tests plus chat and screen tests. Verified by hand on the Anu emulator: trimming at overflow, a steady start with cache reuse, and memory for what fell out. Token estimates aren't calibrated against the runtime yet |
 | Settings UI (`feature:settings`): models (with delete confirmation), Gemini key into the vault, connectors (calendar and contacts, Gmail, messaging apps, SMS in `personal`), activity, vault activity, Privacy Ledger | 1 | Implemented. It runs on the Anu emulator |
 | App wiring (`AppGraph`, device state, no-backup rules) | 1 | Implemented; lint clean (two warnings: newer Gradle available, no app icon yet) |
 | Agent loop, Tool Broker, approvals, taint, claim check (`core:agent`) | 2 | Implemented. 33 JVM tests, and works end to end on the Anu emulator with E4B: lookups, free slots, and an approval-gated invite |
@@ -964,6 +983,11 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 
 ### Changelog
 
+- **1.4.0** (2026-09-25): chat trimming.
+  - `ContextWindow` and `Tokens` in `core:agent`: the model sees the newest whole exchanges that fit, trimmed in chunks so the KV cache keeps matching between trims (ADR-040).
+  - One on-device context size sets the engines, the router's prompt budgets (`TierBudgets.forContext`) and the chat window; the old 6,000-token Pro budget was larger than the engine's context.
+  - The system prompt says when older messages are left out, and the chat screen shows a long-chat line.
+  - Verified on the emulator; see the spike log.
 - **1.3.0** (2026-09-25): memory, first slice (Phase 3).
   - `core:memory`: events, facts with sources, a versioned profile, and the pipeline: capture, on-device extraction with a strict schema and a quote check, reconcile, profile (ADR-036, ADR-039).
   - Learning after the user leaves the app, twice a day while charging, or on "Learn now"; never mid-chat (ADR-037).

@@ -1,7 +1,23 @@
 package io.github.sandeepvijayarao09.anu.core.router
 
-/** Per-tier prompt budgets, including the system prompt (§7.3). These are hypotheses until spike S1 measures them. */
-data class TierBudgets(val base: Int = 3_000, val pro: Int = 6_000)
+/**
+ * Per-tier prompt budgets, including the system prompt, memory and tool definitions (§7.3). They come
+ * from the on-device context, less room for the answer and tool results (ADR-040), so a prompt the
+ * router sends to a device tier fits it. The defaults match today's 4,096-token engines. Base gets
+ * less because smaller models handle long prompts worse; that is a hypothesis until S1 on the phone.
+ */
+data class TierBudgets(val base: Int = 2_048, val pro: Int = 2_560) {
+    companion object {
+        /** Room kept for the answer and the turn's tool results. */
+        const val ANSWER_RESERVE = 1_536
+
+        fun forContext(contextTokens: Int, reserve: Int = ANSWER_RESERVE): TierBudgets {
+            val pro = contextTokens - reserve
+            require(pro > 0) { "a $contextTokens-token context leaves no room for a prompt" }
+            return TierBudgets(base = pro * 4 / 5, pro = pro)
+        }
+    }
+}
 
 data class Scored(val target: Tier, val score: Int, val reasons: List<String>)
 

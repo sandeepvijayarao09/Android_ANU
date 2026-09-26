@@ -16,6 +16,7 @@ import io.github.sandeepvijayarao09.anu.brain.litertlm.OnDeviceBrains
 import io.github.sandeepvijayarao09.anu.core.agent.BrainProvider
 import io.github.sandeepvijayarao09.anu.core.agent.Agent
 import io.github.sandeepvijayarao09.anu.core.agent.ApprovalCenter
+import io.github.sandeepvijayarao09.anu.core.agent.ContextWindow
 import io.github.sandeepvijayarao09.anu.core.agent.Tool
 import io.github.sandeepvijayarao09.anu.core.agent.ToolAuditEntry
 import io.github.sandeepvijayarao09.anu.core.agent.ToolBroker
@@ -51,10 +52,12 @@ import io.github.sandeepvijayarao09.anu.core.memory.SearchMemoryTool
 import io.github.sandeepvijayarao09.anu.core.data.RoomTranscriptStore
 import io.github.sandeepvijayarao09.anu.core.data.RoomVaultAudit
 import io.github.sandeepvijayarao09.anu.core.model.BrainId
+import io.github.sandeepvijayarao09.anu.core.router.ComplexityScorer
 import io.github.sandeepvijayarao09.anu.core.router.DeviceState
 import io.github.sandeepvijayarao09.anu.core.router.Router
 import io.github.sandeepvijayarao09.anu.core.router.Skill
 import io.github.sandeepvijayarao09.anu.core.router.Tier
+import io.github.sandeepvijayarao09.anu.core.router.TierBudgets
 import io.github.sandeepvijayarao09.anu.core.security.EgressGate
 import io.github.sandeepvijayarao09.anu.core.security.PrivacyLedger
 import io.github.sandeepvijayarao09.anu.core.security.SecretRef
@@ -77,6 +80,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import java.io.File
 import java.time.ZoneId
@@ -100,7 +104,10 @@ class AppGraph(private val context: Context) {
     private val egress by lazy { EgressGate(ledger) }
 
     val models = ModelManager(context)
-    val onDevice = OnDeviceBrains(models)
+    val onDevice = OnDeviceBrains(models, maxNumTokens = ON_DEVICE_CONTEXT)
+
+    /** Prompt budgets from the same context, so what the router sends to a device tier fits it (ADR-040). */
+    private val budgets = TierBudgets.forContext(ON_DEVICE_CONTEXT)
     val geminiKey = GeminiKeySettings(vault, prefs)
     val device = DeviceStateProvider(context, models, geminiKey)
 
@@ -187,7 +194,7 @@ class AppGraph(private val context: Context) {
 
     val chat by lazy {
         ChatSession(
-            agent = Agent(Router(), brains, broker),
+            agent = Agent(Router(ComplexityScorer(budgets)), brains, broker),
             store = RoomTranscriptStore(db.transcripts(), conversationId = "main"),
             toolsFor = ::toolsFor,
             memory = {
@@ -202,7 +209,15 @@ class AppGraph(private val context: Context) {
                 }
             },
             onTurnCompleted = { text, turnKey -> memory.captureChat(text, turnKey) },
-        )
+            window = ContextWindow(budget = budgets.pro),
+        ).also { session ->
+            // How much of the chat the model sees. Sizes only, never content.
+            if (BuildConfig.DEBUG) {
+                scope.launch {
+                    session.context.collect { Log.d(TAG, "Context: from message ${it.shownFrom} of ${it.messages}, ~${it.tokens} of ${it.budget} tokens") }
+                }
+            }
+        }
     }
 
     /** What Anu did with tools, newest first, for the settings screen (§7.2). */
@@ -218,6 +233,9 @@ class AppGraph(private val context: Context) {
 
     private companion object {
         const val TAG = "Anu"
+
+        /** The on-device engines' context, in tokens. S1 on the reference phone may raise it (ADR-040). */
+        const val ON_DEVICE_CONTEXT = 4_096
 
         /** An alias, so the ID doesn't go stale (ADR-022). It becomes a setting once S8 confirms it. */
         const val GEMINI_MODEL = "gemini-flash-latest"

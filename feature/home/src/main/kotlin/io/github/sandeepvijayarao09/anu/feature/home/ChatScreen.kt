@@ -96,6 +96,15 @@ internal fun ChatContent(
                 }
             }
         }
+        if (state.trimmed) {
+            // Says why Anu may not recall the start of a long chat, and where the lasting part went.
+            Text(
+                "Long chat: Anu reads the latest messages here. What it learned earlier is in Memory.",
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
         Row(
             Modifier.fillMaxWidth().padding(12.dp),
             verticalAlignment = Alignment.CenterVertically,

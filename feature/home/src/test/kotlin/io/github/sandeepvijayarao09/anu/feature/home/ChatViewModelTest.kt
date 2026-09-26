@@ -58,6 +58,21 @@ class ChatViewModelTest {
     private val bubbles get() = viewModel.state.value.bubbles
 
     @Test
+    fun `a long chat says that older messages are left out`() {
+        val brains = mapOf(Tier.BASE to base)
+        val session = ChatSession(
+            Agent(Router(), BrainProvider { brains[it] }, ToolBroker(emptyList(), ApprovalCenter())),
+            window = io.github.sandeepvijayarao09.anu.core.agent.ContextWindow(budget = 600),
+        )
+        val chat = ChatViewModel(session, device = { device })
+        repeat(4) { base.enqueue(Step.Reply("r".repeat(350))) }
+        chat.send("First " + "x".repeat(340))
+        assertFalse(chat.state.value.trimmed)
+        repeat(3) { chat.send("More " + "x".repeat(340)) }
+        assertTrue(chat.state.value.trimmed)
+    }
+
+    @Test
     fun `a message streams into an answer labelled with its tier`() {
         base.enqueue(Step.Reply(listOf("Hel", "lo!")))
         viewModel.send("Hi")

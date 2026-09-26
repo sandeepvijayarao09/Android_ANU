@@ -40,6 +40,8 @@ data class ChatUiState(
     val consentFor: String? = null,
     /** The oldest action waiting for the user's approval (I2). */
     val approval: ApprovalRequest? = null,
+    /** True once the chat is longer than the model's view, so older messages are left out (ADR-040). */
+    val trimmed: Boolean = false,
 )
 
 /** The chat screen's state. It turns cascade events into bubbles and owns the one running request. */
@@ -57,6 +59,7 @@ class ChatViewModel(
 
     init {
         viewModelScope.launch { approvals.requests.collect { pending -> mutable.update { it.copy(approval = pending.firstOrNull()) } } }
+        viewModelScope.launch { session.context.collect { view -> mutable.update { it.copy(trimmed = view.trimmed) } } }
         // Restore the saved conversation (§14). Sending waits until it has loaded.
         mutable.update { it.copy(busy = true) }
         viewModelScope.launch {

@@ -6,6 +6,7 @@ import io.github.sandeepvijayarao09.anu.core.model.BrainRequest
 import io.github.sandeepvijayarao09.anu.core.model.ChatMessage
 import io.github.sandeepvijayarao09.anu.core.model.Sampling
 import io.github.sandeepvijayarao09.anu.core.model.ToolCall
+import io.github.sandeepvijayarao09.anu.core.model.ToolSpec
 import io.github.sandeepvijayarao09.anu.core.model.ToolResult
 import io.github.sandeepvijayarao09.anu.core.router.Consent
 import io.github.sandeepvijayarao09.anu.core.router.DeviceState
@@ -76,6 +77,9 @@ class Agent(
     private val broker: ToolBroker,
     private val budgets: Budgets = Budgets(),
 ) {
+
+    /** The definitions of [tools] as the model will see them, so their size can be budgeted (§7.3). */
+    fun toolSpecs(tools: List<String>): List<ToolSpec> = broker.specs(tools)
 
     fun run(
         route: RouteRequest,

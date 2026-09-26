@@ -75,10 +75,17 @@ class RouterTest {
 
     @Test
     fun `long prompts leave Base, and offline they fall back to Pro`() {
-        assertEquals(Tier.PRO, route(request("Summarize this", tokens = 4_000)).tier)
+        assertEquals(Tier.PRO, route(request("Summarize this", tokens = 2_300)).tier)
+        assertEquals(Tier.CLOUD, route(request("Summarize this", tokens = 4_000)).tier)
         val offline = route(request("Summarize this", tokens = 7_000), everything.copy(online = false))
         assertEquals(Tier.PRO, offline.tier)
         assertTrue(offline.reasons.contains("CLOUD is unavailable, using PRO"))
+    }
+
+    @Test
+    fun `budgets come from the on-device context`() {
+        assertEquals(TierBudgets(base = 2_048, pro = 2_560), TierBudgets.forContext(4_096))
+        assertEquals(TierBudgets(base = 5_324, pro = 6_656), TierBudgets.forContext(8_192))
     }
 
     @Test
