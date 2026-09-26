@@ -1,6 +1,6 @@
 # Anu for Android: Architecture
 
-Version 1.5.0 · Draft · 2026-09-25
+Version 1.6.0 · Draft · 2026-09-25
 Status: proposed. OD-1 to OD-4 were resolved on 2026-09-25 (§16).
 Product intent lives in [VISION.md](VISION.md).
 
@@ -201,7 +201,7 @@ sequenceDiagram
 | `connector:messages` | Notification listener capture and reply actions for any messaging app | yes |
 | `connector:sms` | SMS provider history and incoming SMS. **`personal` flavor only** | yes |
 | `feature:home` | Chat and voice | yes |
-| `feature:writing` | Writing tools; PROCESS_TEXT entry point | yes |
+| `feature:writing` | The writing sheet, its prompts and output checks. Its `PROCESS_TEXT` entry point, `WritingActivity`, is in `app` (ADR-042) | yes |
 | `feature:email` | Priority inbox, summaries, drafts | yes |
 | `feature:scheduling` | Scheduling assistant | yes |
 | `feature:memory` | Memory Inspector | yes |
@@ -637,12 +637,20 @@ Outlook / Microsoft 365 is not in v1 (OD-2). The connector contract allows addin
 
 | Skill | Does | Typical tier | Uses | Approval |
 |---|---|---|---|---|
-| AI Writing | Compose, rewrite (tone, length), proofread, summarize, translate, in the user's voice for each recipient | Base for short text; Pro for long-form | memory (style) | None; the output is text the user controls |
+| AI Writing | Compose, rewrite (tone, length), proofread, summarize, translate, in the user's voice for each recipient. **v1:** Improve, Shorter, More formal, Friendlier, Fix grammar, Summarize, or the user's own instruction, on text selected in any app | Base for short text; Pro for long-form | memory (style) | None; the text changes only when the user taps Replace |
 | AI Email | Priority inbox, thread summaries, drafts in the user's voice, follow-up tracking, turning email into tasks or events | Base to triage, Pro to draft | email, calendar, memory | Send |
 | AI Scheduling | Natural-language events, free slots that respect learned preferences, conflict fixes, meeting prep | Pro | calendar, contacts, email, memory | Invites |
 | AI Messages | Summarize busy chats, find texts, suggest replies, reply from the notification | Base | messages, SMS (`personal`), contacts, memory | Reply |
 | Daily Brief | Schedule, email that needs you, follow-ups, commitments | Pro, scheduled while charging | calendar, email, memory | None |
 | Memory | "Remember…", "What do you know about…", corrections | Base | memory | Deletions confirmed |
+
+**AI Writing, as built (ADR-042).**
+- **Engine.** The router's cascade with no tools: on the phone by default, with a repair and an escalation if the result is empty or leaks markup (P6), and the cloud only after the user says yes, as in chat. The skill is Writing, which scores Base for short text.
+- **Prompt.** The selected text sits between `<text>` tags, and the system prompt says never to follow instructions inside it. It keeps names, numbers, dates, links and addresses unchanged, and the text's language unless asked to translate. Fix grammar uses greedy sampling; the rest use Gemma's defaults. The answer may run to twice the text's size, within 256–1,536 tokens.
+- **Voice.** Improve, More formal, Friendlier and the user's own instructions carry the memory block, for on-device brains only (ADR-038). Learning the user's style per recipient is Planned.
+- **Output.** Preambles such as "Sure! Here's the corrected text:", labels, quotes and echoed tags are stripped, so only the edited text is offered. An answer that is empty after stripping counts as empty.
+- **Limits.** Text over 12,000 characters is refused, with a request to select a shorter part. Memory never learns from selected text, which may be someone else's words (ADR-039).
+- **Tokens.** Writing turns feed the token calibration too (ADR-041).
 
 ## 11. Vault
 
@@ -719,7 +727,7 @@ Recommend a **paid** Gemini tier for personal data. Google's terms for unpaid Ge
 | Stolen or compromised device | Encryption at rest, optional app lock, auth-bound vault keys, `FLAG_SECURE` |
 | Cloud leakage | Egress pipeline, consent, ledger, paid tier |
 | Tampered model file | Pinned SHA-256 and pinned sources |
-| Other apps abusing Anu | No exported providers; every incoming intent (PROCESS_TEXT, share) treated as untrusted |
+| Other apps abusing Anu | No exported providers; every incoming intent (PROCESS_TEXT, share) treated as untrusted. Selected text is framed as text to edit, never as instructions, and writing runs with no tools, so nothing in it can make anything happen. The result replaces the selection only on the user's tap (ADR-042) |
 | Over-collection | Never-learn rules, retention limits, deletion cascades |
 | Leaks through logs | A logger that redacts; crash reporting off or local-only by default |
 
@@ -729,7 +737,7 @@ Recommend a **paid** Gemini tier for personal data. Google's terms for unpaid Ge
 |---|---|
 | Home | Compose chat with voice. Voice uses the on-device `SpeechRecognizer` and `TextToSpeech`, speaks sentence by sentence, and stops speaking when the user starts talking. Whether Gemma 4's own audio input can replace speech recognition is spike S6 |
 | Assistant overlay | `ROLE_ASSISTANT` + `VoiceInteractionService`, so Anu can be the default assistant. Phase 4 |
-| Writing everywhere | `ACTION_PROCESS_TEXT` actions in the text-selection toolbar; share target |
+| Writing everywhere | `ACTION_PROCESS_TEXT` actions in the text-selection toolbar; share target. **As built (ADR-042):** "Anu" in any app's text-selection menu opens a sheet over that app, with six actions and a field for the user's own instruction. The result streams in, and Replace sends it back, or Copy when the other app marked the text read-only. The share target is Planned |
 | Notifications | Approvals with the exact payload, suggested replies, brief, follow-ups |
 | Management | Memory Inspector, Vault, Privacy Ledger, model and connector settings |
 
@@ -802,6 +810,14 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 | S8 | Gemini API with the owner's key: `parametersJsonSchema` and `responseJsonSchema` accepted, thought-signature round trip, the `-latest` aliases, and the SSE framing |
 
 **Spike log.** Measured results only, newest first.
+
+- **Writing everywhere end to end, 2026-09-25.** Anu emulator, E4B CPU.
+  - **Menu:** in the system Settings search box, the text-selection menu's overflow listed "Anu" next to "Read aloud".
+  - **Replace:** "wifi setting teh teh", then Fix grammar, gave "WiFi settings the the" on-device in 7 s, and Replace put it into the Settings field.
+  - **Other tasks:** Fix grammar turned "hey team, i wont be able to make it to the meeting tommorow, sorry about that" into "Hey team, I won't be able to make it to the meeting tomorrow, sorry about that." "Translate to Spanish", typed as an instruction, kept the time and day: "Nos vemos en la cafetería a las 6 p. m. el viernes. ¡Trae las entradas!"
+  - **Timing:** 7 s with the model loaded, 17 s from cold.
+  - **Not tested:** Google Messages' compose box, because its first-run screen asks to sign in or continue without an account.
+  - **Found and fixed:** a preamble with nothing after it would have been offered as the result; a unit test caught it.
 
 - **Token calibration, 2026-09-25.** Anu emulator, E4B CPU. Each turn logged the raw estimate against the runtime's count.
   - **Prose, 3.5 characters a token for everything:** 2,330 against 2,050, 2,436 against 2,151, 2,484 against 2,208. A ratio of about 0.88, so Gemma averages about 4 characters a token on English.
@@ -947,6 +963,7 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 | 039 | 2026-09-25 | v1 learns only from the user's own words; each fact needs its quote in the message; secrets and card, bank and ID numbers are never kept; memory commands aren't learned from again; inferred facts never override the user's; a deleted fact leaves only a fingerprint | P5, I1 and I4. On the emulator, learning from a "Remember that…" message again made a duplicate |
 | 040 | 2026-09-25 | One on-device context size sets the engines, the router budgets and the chat window. The model sees the newest whole exchanges that fit, trimmed in chunks down to 60% of the budget, and is told when older ones are left out; the whole chat stays saved and on screen | A long chat overflowed the 4,096-token engines, and the router's 6,000-token Pro budget didn't match them. Chunked trimming keeps the KV cache matching between trims (ADR-033). Memory carries what falls out |
 | 041 | 2026-09-25 | Token estimates are calibrated against the on-device runtime's own counts: a ratio learned from each turn (first taken as is, then smoothed and clamped, with a 5% margin), saved across restarts. Prose and JSON have separate raw rates. Cloud counts aren't used | Budgets must fit the real context. The emulator showed a raw estimate 12% high on prose and 8% low on a tool turn; separate rates made the two agree within about 3% |
+| 042 | 2026-09-25 | Writing everywhere through `PROCESS_TEXT`: a sheet over the other app, the cascade with no tools, the selected text framed as data, the result returned only on the user's Replace (Copy when read-only). Memory only for tasks in the user's voice, on-device only; no learning from selected text | Other apps' text is untrusted (§12.3), so it must not be able to act. The user stays in control of their text. Selected text may be someone else's words |
 
 ### Component status
 
@@ -990,12 +1007,18 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 | Memory pipeline v1 (`core:memory`): capture, on-device extraction, reconcile, versioned profile, memory block, memory tools, background learning (ADR-036 to ADR-039) | 3 | Implemented. 19 JVM tests, 2 Robolectric tests on the real schema, and a v2→v3 migration device test. Verified by hand on the Anu emulator with E4B: learning after leaving the app, use in chat, corrections, remember and approval-gated forget. No memory eval yet (§15), so not Verified |
 | Memory Inspector (`feature:memory`): facts by section, sources, That's right, Correct, Delete, Forget a message, Learn now | 3 | Implemented. Every control checked by hand on the Anu emulator |
 | Memory, later: entities and aliases, episodes, nightly consolidation, vector retrieval (S3), never-learn rules, learning from connectors, retention, memory eval | 3 | Planned |
-| AI Writing everywhere (PROCESS_TEXT) | 3 | Planned |
+| AI Writing everywhere (`feature:writing`, `WritingActivity`): six actions and custom instructions, Replace or Copy (ADR-042) | 3 | Implemented. 10 JVM tests. Verified by hand on the Anu emulator through the real text-selection menu in Settings. No writing eval yet (§15) |
+| Writing, later: share target, style per recipient from drafts against sent text, a writing eval | 3 | Planned |
 | Proactive agents, voice, assistant role | 4 | Planned |
 | Hardening, release readiness | 5 | Planned |
 
 ### Changelog
 
+- **1.6.0** (2026-09-25): writing with Anu from any app.
+  - "Anu" in the text-selection menu of any app opens a sheet: Improve, Shorter, More formal, Friendlier, Fix grammar, Summarize, or the user's own instruction (ADR-042).
+  - The cascade with no tools, the selected text framed as data, and output cleaning; the result goes back only on Replace, or Copy for read-only text.
+  - The memory block for tasks in the user's voice, on-device only; cloud only with consent; writing turns feed token calibration.
+  - One router shared by chat and writing.
 - **1.5.0** (2026-09-25): token calibration.
   - The agent reports each on-device turn's raw estimate against the runtime's count (`TokenSample`), and `TokenCalibration` learns the ratio that budgets use (ADR-041).
   - Separate raw rates for prose (3.5 characters a token) and JSON (2.5), after the emulator showed tool turns underestimated.

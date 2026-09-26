@@ -16,6 +16,7 @@ import io.github.sandeepvijayarao09.anu.brain.litertlm.OnDeviceBrains
 import io.github.sandeepvijayarao09.anu.core.agent.BrainProvider
 import io.github.sandeepvijayarao09.anu.core.agent.Agent
 import io.github.sandeepvijayarao09.anu.core.agent.ApprovalCenter
+import io.github.sandeepvijayarao09.anu.core.agent.Cascade
 import io.github.sandeepvijayarao09.anu.core.agent.ContextWindow
 import io.github.sandeepvijayarao09.anu.core.agent.TokenCalibration
 import io.github.sandeepvijayarao09.anu.core.agent.Tool
@@ -111,7 +112,7 @@ class AppGraph(private val context: Context) {
     private val budgets = TierBudgets.forContext(ON_DEVICE_CONTEXT)
 
     /** Token estimates learned from the on-device runtime's own counts, kept across restarts (ADR-041). */
-    private val tokenCalibration = TokenCalibration(
+    val tokenCalibration = TokenCalibration(
         initial = prefs.getFloat(KEY_TOKEN_RATIO, Float.NaN).takeUnless { it.isNaN() }?.toDouble(),
         onChange = { ratio -> prefs.edit { putFloat(KEY_TOKEN_RATIO, ratio.toFloat()) } },
     )
@@ -127,6 +128,12 @@ class AppGraph(private val context: Context) {
             Tier.CLOUD -> geminiKey.ref()?.let { GeminiBrain(BrainId.CLOUD_FLASH, GEMINI_MODEL, it, vaultHttp, egress) }
         }
     }
+
+    /** One router for chat and writing, with budgets from the on-device context (ADR-040). */
+    private val router by lazy { Router(ComplexityScorer(budgets)) }
+
+    /** Writing from any app's text-selection menu: the cascade with no tools (ADR-042). */
+    val writing by lazy { Cascade(router, brains) }
 
     /** Pending approvals, shown by the chat screen (I2). */
     val approvals = ApprovalCenter()
@@ -201,7 +208,7 @@ class AppGraph(private val context: Context) {
 
     val chat by lazy {
         ChatSession(
-            agent = Agent(Router(ComplexityScorer(budgets)), brains, broker),
+            agent = Agent(router, brains, broker),
             store = RoomTranscriptStore(db.transcripts(), conversationId = "main"),
             toolsFor = ::toolsFor,
             memory = {

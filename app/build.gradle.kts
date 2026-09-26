@@ -46,6 +46,7 @@ dependencies {
     implementation(project(":feature:home"))
     implementation(project(":feature:settings"))
     implementation(project(":feature:memory"))
+    implementation(project(":feature:writing"))
     implementation(project(":brain:litertlm"))
     implementation(project(":brain:gemini"))
     implementation(project(":core:vault"))

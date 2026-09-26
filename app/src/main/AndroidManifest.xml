@@ -21,5 +21,24 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!--
+            "Anu" in the text-selection menu of any app (ARCHITECTURE §13, ADR-042); the menu shows the app's
+            label. The selected text is untrusted data (§12.3): it is only edited, with no tools, and replaced
+            only on the user's tap.
+        -->
+        <activity
+            android:name=".WritingActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:taskAffinity=""
+            android:theme="@style/Theme.Anu.Sheet"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.PROCESS_TEXT" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+        </activity>
     </application>
 </manifest>
