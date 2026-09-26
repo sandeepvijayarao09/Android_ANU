@@ -23,6 +23,7 @@ android {
 // Depends on contracts only (§4.2): the concrete brains are bound in :app.
 dependencies {
     api(project(":core:agent"))
+    api(project(":core:voice"))
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(platform(libs.androidx.compose.bom))

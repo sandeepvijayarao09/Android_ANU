@@ -82,3 +82,11 @@ export JAVA_HOME=/opt/homebrew/opt/openjdk@21
 - **Context and tokens:** debug builds log each turn's window and token sizes, never content: `adb logcat -s Anu:D` shows `Context: from message X of N, ~T of B tokens, scale S · last turn estimated E, runtime counted C`. The learned ratio is kept in the app's settings (`token_ratio`); clearing app data resets it.
 - **Debugging a stuck turn:** the app is debuggable, so `adb forward tcp:8711 jdwp:<pid>` and `jdb` can print the pending approvals. Don't hold a breakpoint on the main thread while touching the screen: the ANR dialog that follows keeps coming back until the app restarts.
 - **Resetting the chat without re-copying the model:** `adb shell run-as io.github.sandeepvijayarao09.anu.personal rm -rf no_backup/db`, with the app stopped.
+- **Anu as the assistant on `anu_api36`** (development shortcut, Anu's emulator only): `adb shell cmd role add-role-holder android.app.role.ASSISTANT io.github.sandeepvijayarao09.anu.personal`. Open it with `adb shell input keyevent KEYCODE_ASSIST`; `cmd voiceinteraction show` needs a system permission.
+- **Voice can't be tested on the emulator.** Its on-device recognizer has no English language pack (error 13), so listening and "Hey Anu" end with that notice. Use the reference phone. Don't start the pack download without asking.
+- **MCP and UCP test servers** (debug builds only, made-up data):
+  - `python3 scripts/dev-mock-mcp.py` serves Notes on port 8765; add `--legacy` for a 2025 server, and `--port <n>` to run both.
+  - `python3 scripts/dev-mock-store.py` serves a shoe store on port 8766.
+  - In the app: Settings → Services → Add a server, `http://10.0.2.2:8765/mcp`; Settings → Shopping → Add a store, `http://10.0.2.2:8766`. Each prints what Anu sent.
+- **Typing through adb** sends key events, which takes Android out of touch mode, as a hardware keyboard does. Keyboard focus then moves when dialogs close.
+- **Links that open the browser:** Chrome's first-run screen asks to accept its terms. Don't accept it; check the link with `adb logcat -d | grep 'START u0.*VIEW'`.

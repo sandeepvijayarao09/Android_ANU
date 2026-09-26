@@ -47,6 +47,8 @@ import io.github.sandeepvijayarao09.anu.core.data.RoomToolAudit
 import io.github.sandeepvijayarao09.anu.core.data.RoomMemoryStore
 import io.github.sandeepvijayarao09.anu.core.data.RoomToolResultStore
 import io.github.sandeepvijayarao09.anu.core.memory.FactExtractor
+import io.github.sandeepvijayarao09.anu.core.voice.AndroidSpeechInput
+import io.github.sandeepvijayarao09.anu.core.voice.AndroidSpeechOutput
 import io.github.sandeepvijayarao09.anu.core.memory.ForgetMemoryTool
 import io.github.sandeepvijayarao09.anu.core.memory.MemoryPipeline
 import io.github.sandeepvijayarao09.anu.core.memory.RememberTool
@@ -84,6 +86,19 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
+import io.github.sandeepvijayarao09.anu.connector.mcp.McpClient
+import io.github.sandeepvijayarao09.anu.connector.mcp.McpRegistry
+import io.github.sandeepvijayarao09.anu.connector.mcp.McpTool
+import io.github.sandeepvijayarao09.anu.connector.shopping.SeenProducts
+import io.github.sandeepvijayarao09.anu.connector.shopping.ShopCheckoutTool
+import io.github.sandeepvijayarao09.anu.connector.shopping.ShopSearchTool
+import io.github.sandeepvijayarao09.anu.connector.shopping.UcpClient
+import io.github.sandeepvijayarao09.anu.core.data.RoomConnectorSettings
+import io.github.sandeepvijayarao09.anu.core.security.SecretUse
+import okhttp3.HttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import java.util.concurrent.TimeUnit
 import java.io.File
 import java.time.ZoneId
 
@@ -134,6 +149,48 @@ class AppGraph(private val context: Context) {
 
     /** Writing from any app's text-selection menu: the cascade with no tools (ADR-042). */
     val writing by lazy { Cascade(router, brains) }
+
+    /** Speech in and out, on the phone only (ADR-043). */
+    val speechIn by lazy { AndroidSpeechInput(context) }
+    val speechOut by lazy { AndroidSpeechOutput(context) }
+
+    /** Anu as the assistant, and "Hey Anu" (ADR-044, ADR-045). */
+    val voice by lazy { AnuVoiceSettings(context, prefs) }
+
+    /** The services and stores the user connected in Settings (ADR-046, ADR-047). */
+    private val connectorSettings by lazy { RoomConnectorSettings(db.connectors()) }
+
+    /**
+     * For MCP servers and stores. The vault attaches a server's token for its bound host only, and
+     * never over plain HTTP. Tool calls on a server can take a while.
+     */
+    private val connectorHttp: OkHttpClient by lazy {
+        OkHttpClient.Builder().withVault(vault).readTimeout(60, TimeUnit.SECONDS).callTimeout(90, TimeUnit.SECONDS).build()
+    }
+
+    /** Plain HTTP reaches only the Mac's test servers, and only in debug builds (see `scripts/dev-mock-*.py`). */
+    private val localTestHost: (HttpUrl) -> Boolean = { url -> BuildConfig.DEBUG && url.host in DEV_HOSTS }
+
+    /** MCP servers: their tools join a turn when the user names the server (ADR-046). */
+    val mcp by lazy {
+        val registry = McpRegistry(
+            clientFor = { server ->
+                McpClient(
+                    connectorHttp,
+                    server.url.toHttpUrl(),
+                    BuildConfig.VERSION_NAME,
+                    server.token?.let { SecretUse(it, header = "Authorization", caller = McpTool.CALLER, scheme = "Bearer") },
+                )
+            },
+            ledger = ledger,
+        )
+        McpConnections(connectorSettings, vault, registry, scope, localTestHost)
+    }
+
+    /** Stores that speak UCP (ADR-047). */
+    private val ucp by lazy { UcpClient(connectorHttp, UCP_PROFILE, localTestHost) }
+    val stores by lazy { StoreConnections(connectorSettings, ucp, scope) }
+    private val seenProducts = SeenProducts()
 
     /** Pending approvals, shown by the chat screen (I2). */
     val approvals = ApprovalCenter()
@@ -187,6 +244,14 @@ class AppGraph(private val context: Context) {
             RememberTool(memory),
             SearchMemoryTool(memory),
             ForgetMemoryTool(memory),
+            ShopSearchTool(stores::all, ucp, seenProducts, ledger),
+            ShopCheckoutTool(
+                stores::all,
+                ucp,
+                seenProducts,
+                ledger,
+                linkAllowed = { link -> link.toHttpUrlOrNull()?.let { it.isHttps || localTestHost(it) } == true },
+            ),
         ) + Flavor.tools(context, zone)
     }
 
@@ -201,10 +266,13 @@ class AppGraph(private val context: Context) {
             "contacts_find", "calendar_find_free_slots",
         ) + if (Flavor.HAS_SMS) listOf("sms_search") else emptyList()
         Skill.MEMORY -> listOf("memory_remember", "memory_search", "memory_forget")
+        Skill.SHOPPING -> listOf("shop_search", "shop_checkout")
         else -> emptyList()
     }
 
-    private val broker by lazy { ToolBroker(tools, approvals, RoomToolResultStore(db.toolResults()), toolAudit) }
+    private val broker by lazy {
+        ToolBroker(tools, approvals, RoomToolResultStore(db.toolResults()), toolAudit, dynamicTools = { mcp.registry.tools() })
+    }
 
     val chat by lazy {
         ChatSession(
@@ -225,6 +293,7 @@ class AppGraph(private val context: Context) {
             onTurnCompleted = { text, turnKey -> memory.captureChat(text, turnKey) },
             window = ContextWindow(budget = budgets.pro),
             tokens = tokenCalibration,
+            extraTools = { turns -> mcp.registry.toolsFor(turns) },
         ).also { session ->
             // How much of the chat the model sees, and how the estimates compare. Sizes only, never content.
             if (BuildConfig.DEBUG) {
@@ -259,6 +328,16 @@ class AppGraph(private val context: Context) {
 
         /** An alias, so the ID doesn't go stale (ADR-022). It becomes a setting once S8 confirms it. */
         const val GEMINI_MODEL = "gemini-flash-latest"
+
+        /**
+         * UCP asks every request to name the platform's profile. Anu has no server to host one yet, so this
+         * `.invalid` address says so honestly (ADR-047). Stores that require a fetchable profile won't work
+         * until a hosted profile exists (Planned).
+         */
+        const val UCP_PROFILE = "https://anu.invalid/ucp/profile.json"
+
+        /** Where the emulator reaches the Mac's test servers. */
+        val DEV_HOSTS = setOf("10.0.2.2", "localhost", "127.0.0.1")
     }
 }
 

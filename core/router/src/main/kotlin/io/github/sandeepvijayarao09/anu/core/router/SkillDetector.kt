@@ -56,6 +56,16 @@ object SkillDetector {
     )
 
     /**
+     * Buying things from the user's stores (ADR-047). Bare "order", "store" and "check out" are left out:
+     * "in order to", "store this" and "check out this article" aren't shopping.
+     */
+    private val SHOPPING = Regex(
+        "\\b(buy|buying|purchase|shop for|shopping|add (it |this |that |them )?to (my )?cart|checkout|" +
+            "order (a|an|some|me|more|another)|in stock|price of|how much (is|are|does|do)|cheapest)\\b",
+        RegexOption.IGNORE_CASE,
+    )
+
+    /**
      * [previous] is the skill of the last user turn. A short follow-up such as "yes please" or "make it
      * 3pm" keeps it, so the tools stay available. The emulator showed that dropping them made the model
      * write raw tool-call text.
@@ -93,6 +103,7 @@ object SkillDetector {
         CORRESPONDENCE.containsMatchIn(text) ->
             if (previous == Skill.MESSAGES || hasPhoneNumber(text)) Skill.MESSAGES else Skill.EMAIL
         SCHEDULING.containsMatchIn(text) -> Skill.SCHEDULING
+        SHOPPING.containsMatchIn(text) -> Skill.SHOPPING
         else -> null
     }
 

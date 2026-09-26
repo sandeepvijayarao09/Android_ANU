@@ -79,6 +79,23 @@ class FakeBrokenTool(private val hang: Boolean = false) : Tool<QueryInput, Items
     }
 }
 
+/** A lookup on a third party's server, like an MCP server's read-only tool (ADR-046). */
+class FakeRemoteLookup(override val name: String = "mcp_notes_search") : Tool<QueryInput, ItemsOutput> {
+    val queries = mutableListOf<String>()
+    override val description = "Search the user's notes service"
+    override val input: KSerializer<QueryInput> = QueryInput.serializer()
+    override val output: KSerializer<ItemsOutput> = ItemsOutput.serializer()
+    override val dataClasses = setOf(DataClass.PERSONAL)
+    override val returnsUntrustedContent = true
+    override fun risk(input: QueryInput) = RiskTier.READ
+    override fun describe(input: QueryInput) = "Search notes.example.com for \"${input.query}\""
+    override fun sendsTo(input: QueryInput) = "notes.example.com"
+    override suspend fun invoke(input: QueryInput, context: ToolContext): ItemsOutput {
+        queries += input.query
+        return ItemsOutput(listOf("groceries: milk"))
+    }
+}
+
 /** Records every approval request and answers with [decision] (or never, when null). */
 class RecordingGate(var decision: ApprovalDecision? = ApprovalDecision.Approved) : ApprovalGate {
     val requests = mutableListOf<ApprovalRequest>()

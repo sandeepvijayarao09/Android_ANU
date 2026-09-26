@@ -1,6 +1,6 @@
 # Anu for Android: Architecture
 
-Version 1.6.0 · Draft · 2026-09-25
+Version 1.7.0 · Draft · 2026-09-26
 Status: proposed. OD-1 to OD-4 were resolved on 2026-09-25 (§16).
 Product intent lives in [VISION.md](VISION.md).
 
@@ -83,8 +83,8 @@ Anu is an Android app. It runs a private personal AI on the phone and:
 ```mermaid
 flowchart TB
     subgraph SURF["Surfaces"]
-        chat["Chat & voice"]
-        overlay["Assistant overlay (ROLE_ASSISTANT)"]
+        talk["Talk: the orb, voice and chat"]
+        overlay["Assistant overlay and Hey Anu (ROLE_ASSISTANT)"]
         select["Text-selection actions (PROCESS_TEXT)"]
         notif["Notifications, approvals, brief"]
     end
@@ -94,6 +94,7 @@ flowchart TB
         sched["AI Scheduling"]
         msgs["AI Messages"]
         brief["Daily Brief"]
+        shop["Shopping"]
     end
     subgraph ORCH["Orchestration"]
         router["Router"]
@@ -117,6 +118,8 @@ flowchart TB
         contacts["Contacts"]
         mail["Email"]
         chats["Messages"]
+        mcp["MCP servers"]
+        stores["Stores (UCP)"]
     end
     subgraph PLAT["Platform & security"]
         vault["Vault"]
@@ -189,6 +192,7 @@ sequenceDiagram
 | `core:agent` | Agent loop, Tool Broker, policy, approvals, budgets, run store interface | **no** |
 | `core:router` | Router stages, features, scorer, telemetry interface | **no** |
 | `core:memory` | Event log, facts, profile, retrieval, memory pipeline and memory tools. Its store is in `core:data` and its scheduling in `app` (ADR-036) | **no** |
+| `core:voice` | Speech contracts, wake-phrase matching and the `WakeListener` loop in plain Kotlin, beside the Android engines: the on-device `SpeechRecognizer` and `TextToSpeech` (ADR-043, ADR-045) | yes |
 | `core:security` | `SecretRef`/`SecretUse` handles, PII detection, reversible redaction, egress gate, Privacy Ledger interface | **no** |
 | `core:vault` | Keystore + Tink vault store, host-bound HTTP injector (`withVault`), and the shared `KeystoreAead` primitive with its `KeyPolicy` | yes |
 | `core:data` | Room database on SQLCipher (ADR-024), DAOs, and the stores behind `TranscriptStore`, `PrivacyLedger` and `VaultAudit` | yes |
@@ -200,18 +204,20 @@ sequenceDiagram
 | `connector:gmail` | Gmail API tools and incremental sync | yes |
 | `connector:messages` | Notification listener capture and reply actions for any messaging app | yes |
 | `connector:sms` | SMS provider history and incoming SMS. **`personal` flavor only** | yes |
-| `feature:home` | Chat and voice | yes |
+| `connector:mcp` | MCP servers the user adds, as tools: a dual-era Streamable HTTP client, schema trimming and checks, and the server registry (ADR-046) | **no** (OkHttp) |
+| `connector:shopping` | Stores that speak UCP: discovery, catalog search and checkout sessions (ADR-047) | **no** (OkHttp) |
+| `feature:home` | The Talk page: the orb, live captions, voice in and out, and the chat in a sheet (ADR-043). The assistant overlay, `AssistantActivity`, and the "Hey Anu" service are in `app` (ADR-044, ADR-045) | yes |
 | `feature:writing` | The writing sheet, its prompts and output checks. Its `PROCESS_TEXT` entry point, `WritingActivity`, is in `app` (ADR-042) | yes |
 | `feature:email` | Priority inbox, summaries, drafts | yes |
 | `feature:scheduling` | Scheduling assistant | yes |
-| `feature:memory` | Memory Inspector | yes |
+| `feature:memory` | Memory Inspector, and adding a memory in the user's own words | yes |
 | `feature:vault` | Vault UI | yes |
-| `feature:settings` | Models (download, delete), the Gemini key, the Privacy Ledger. Later: connectors and privacy options | yes |
+| `feature:settings` | Voice (the assistant, "Hey Anu"), connectors, MCP servers, stores, models (download, delete), the Gemini key, activity, vault activity and the Privacy Ledger | yes |
 | `eval` | JVM harness: router, tools, memory, injection, performance scripts | no |
 
 ### 4.2 Dependency rules (enforced by module boundaries)
 
-- `core:model`, `core:agent`, `core:router`, `core:security`, `core:memory` and `brain:gemini` are pure Kotlin with no `android.*` imports. They are unit-tested on the JVM and can later become Kotlin Multiplatform modules for iOS.
+- `core:model`, `core:agent`, `core:router`, `core:security`, `core:memory`, `brain:gemini`, `connector:mcp` and `connector:shopping` are pure Kotlin with no `android.*` imports. They are unit-tested on the JVM and can later become Kotlin Multiplatform modules for iOS.
 - Features depend on core contracts, never on a concrete brain or connector. Implementations are bound in `app` (`AppGraph`). For example, screens see models only through `OnDeviceModels` in `core:model`, which `ModelManager` implements.
 - Connectors never call brains, and brains never call connectors. They meet only in the agent runtime.
 - Only `core:vault` can decrypt secrets. Only the vault's HTTP injector can attach one to a request.
@@ -238,7 +244,7 @@ sequenceDiagram
 | Database | Room on SQLCipher (`net.zetetic:sqlcipher-android`) | Key wrapped by Android Keystore |
 | Crypto | Android Keystore (StrongBox where available) + Tink AEAD; `androidx.biometric` | `androidx.security:security-crypto` is deprecated, so not used |
 | Network | OkHttp + kotlinx.serialization | Interceptors for vault injection and the egress ledger |
-| Background work | WorkManager; foreground service only for live voice | |
+| Background work | WorkManager; foreground services only for model downloads and for "Hey Anu" (microphone) | |
 | Tests | JUnit, Turbine, Robolectric, Compose UI tests, scripted fake brains | Real-model tests are opt-in |
 | CI | GitHub Actions: build, unit tests, lint, invariant tests | Status badges only once workflows exist |
 
@@ -406,12 +412,13 @@ As implemented in `core:agent` `Tool`:
 - **Risk depends on the input:** `risk(input)`. For example, `calendar_create_event` is `WRITE_PRIVATE` without attendees and `WRITE_EXTERNAL` with them.
 - **Every tool writes its own `describe(input)`,** a one-sentence summary used on the approval sheet, in the audit and in the chat's action lines. It is never the model's words.
 - **Tools declare `returnsUntrustedContent`.** Calendar event titles, for example, are untrusted because other people can write them through invites.
+- **Tools that send their input to a third party say where: `sendsTo(input)`,** such as an MCP server's or a store's host. The broker uses it for policy and in the approval's wording (ADR-046). A request to the user's own account, such as Gmail, isn't a third party.
 
 Tool names are snake_case `<connector>_<verb>`, for example `email_get_thread`. `ToolSpec` enforces this, and snake_case is the style small models see most in training. Parameter schemas come from `JsonSchemas.of(serializer)` in `core:model`, with `@Description` annotations for the text the model reads.
 
 | Risk tier | Meaning | Policy |
 |---|---|---|
-| `READ` | No side effects | Automatic |
+| `READ` | No side effects | Automatic. **Needs approval once the run is tainted if the call sends data to a third party** (`sendsTo`) |
 | `WRITE_PRIVATE` | Changes only the user's own data and can be undone: own event with no attendees, email draft, label | Automatic with visible undo. **Needs approval once the run is tainted.** |
 | `WRITE_EXTERNAL` | Visible to others, or leaves the user's control: send email, reply, invite, share | **Always** approval of the exact payload (I2) |
 | `DESTRUCTIVE` | Delete, unsubscribe, or anything irreversible | Approval; bulk actions also need biometric confirmation |
@@ -441,6 +448,8 @@ Tool names are snake_case `<connector>_<verb>`, for example `email_get_thread`. 
   - **Approvals go through `ApprovalCenter`,** which the chat screen observes. v1 offers approve or deny only; editing is Planned. A timeout (10 minutes) counts as a denial.
   - **Escalation mid-run continues the same transcript (ADR-026).** The stronger brain sees the tool results already produced, so side effects never repeat.
   - **Budgets:** 8 steps and 12 tool calls per turn.
+  - **Tools that come and go.** Besides its fixed tools, the broker looks up `dynamicTools`, such as the tools of the user's MCP servers, under the same policy. A fixed tool wins if a name is ever shared (ADR-046).
+  - **Approvals say where data goes.** For a tool with a destination, the reason names it, as in "This goes to shoes.example.com, outside your phone", instead of "Other people will see this". The emulator showed the old wording on an MCP write.
   - **Persistence:** the audit and the idempotency results are stored in the encrypted database (schema v2), and Settings shows them under Activity.
 
 ### 7.3 Context builder
@@ -460,6 +469,8 @@ Untrusted content goes in clearly delimited data blocks. Budgets are set per tie
 **Memory (ADR-038).** The memory block is read fresh for every turn and goes to on-device brains only. It changes rarely during a chat, because learning runs after the user leaves the app (ADR-037), so the KV cache survives. Its header says it is kept up to date and wins over older messages in the chat, unless the user has just said otherwise. On the emulator, the model otherwise trusted an old "I'm vegetarian" over the user's own correction to "vegan".
 
 **Time and tool hints (ADR-033).** The system prompt carries the date, never the time: the time goes with the newest user message, so the on-device KV cache survives between turns. Each tool hint is given only when its tool is offered. For example, "call `messages_reply` with the final text; it takes the chat's name or phone number" appears only with the messaging tools.
+
+**Extra tools per turn (ADR-046).** Besides the skill's tools, a turn gets the tools of MCP servers named in the user's last three messages: at most six, best matches first. A server's tools are fetched the first time they are needed and kept for its `ttlMs`, at most a day. With shopping tools, the prompt says that the user approves the order and pays on the store's site, and never to say an order is placed.
 
 #### Conversation window (ADR-040)
 
@@ -584,6 +595,8 @@ All connectors implement a single contract: an auth method, a sync mode, tools (
 | Gmail | Gmail API via `AuthorizationClient` | Least scopes per skill; reading mail needs restricted scopes | `history.list` incremental polling (≥15 min, plus on open); backfill window defaults to 90 days | search/read thread (READ); draft, label (WRITE_PRIVATE); send/reply (WRITE_EXTERNAL); delete (DESTRUCTIVE) | `personal` runs in Google's OAuth testing mode, which allows up to 100 test users. `play` needs Google verification. Push notifications need a server (Pub/Sub), so v1 polls |
 | Messages | `NotificationListenerService`, reading `MessagingStyle` from any messaging app; reply through the notification's `RemoteInput` action | Notification access, granted in Settings | Real time while the listener is bound | list and read chats (READ); reply (WRITE_EXTERNAL) | Sees only messages that arrive as notifications; no history backfill. WhatsApp and RCS offer no third-party API. Android 15+ hides one-time-code notifications from listeners |
 | SMS (`personal` only) | `Telephony` SMS provider | `READ_SMS` only | Queried when a tool asks (v1) | search history (READ) | Replies go through the notification reply action. There is no `SEND_SMS` in v1. Play restricts SMS permissions to default handlers, so the `play` flavor leaves this module out |
+| MCP servers (ADR-046) | Model Context Protocol over Streamable HTTP: 2026-07-28, falling back to 2025-11-25 | A server the user adds: its address, and an optional token kept in the vault | Tools listed on first use and cached for the server's `ttlMs` | the server's own tools: READ if `readOnlyHint`, otherwise approval (`DESTRUCTIVE` unless `destructiveHint` is false) | Offered only in turns that name the server; https only; OAuth is Planned; `input_required` results (sampling, elicitation) aren't supported |
+| Stores (UCP, ADR-047) | Universal Commerce Protocol 2026-08-25, REST binding | A store the user adds by its web address; its profile at `/.well-known/ucp` | None | search (READ); start a checkout (WRITE_EXTERNAL) | Anu never completes a checkout or handles payment: the user finishes on the store's site. Identity linking, carts, orders and payment handlers are Planned |
 
 **As built in Phase 2:**
 - **`connector:calendar`:** three tools on `CalendarContract`, with recurring events expanded through Instances:
@@ -622,16 +635,31 @@ All connectors implement a single contract: an auth method, a sync mode, tools (
   - **Play safety (ADR-012).** `verify<Variant>HasNoSms` runs with `check`, `assemble` and `bundle` of every `play` variant, including CI's `assemblePlayDebug`, and fails the build if the merged manifest declares any SMS permission. A test with an injected `READ_SMS` failed the build as intended.
 - **Verification codes are secrets (S3).** One-time codes in messages and SMS ("Your code is 482913") are masked before any tool returns them. No model, on-device or cloud, ever sees one (I1). On the emulator, a search for the code returned "Your Anu test verification code is ••••••".
 
+- **`connector:mcp` (ADR-046):** the user adds a server in Settings → Services (MCP): a name, an address, and an optional token.
+  - **Client.** Stateless 2026-07-28 first: every request carries `_meta` with `io.modelcontextprotocol/protocolVersion`, `clientInfo` and `clientCapabilities` (empty: Anu serves no sampling or elicitation), mirrored into `MCP-Protocol-Version`, `Mcp-Method` and, for `tools/call`, `Mcp-Name`. Replies are JSON or a request-scoped SSE stream, read past notifications. A 400, 404 or 405 whose body isn't a modern MCP error means an older server: the client opens a 2025 `initialize` session (`Mcp-Session-Id`, then `notifications/initialized`) and keeps it for that server. `UnsupportedProtocolVersion` (-32022) picks a 2025 version the server lists; `HeaderMismatch` (-32020) is an error, not a fallback. An expired session is reopened once. Cancelling cancels the HTTP call (I7).
+  - **Tool definitions come from the server, so none is trusted.** Tools with invalid `x-mcp-header` annotations are left out, as MCP requires; valid ones become `Mcp-Param-{Name}` headers, Base64-sentinel-encoded when unsafe. The schema the model sees keeps only what Anu's own schemas use. Descriptions are stripped of markup and cut to 300 characters. Arguments are checked against the server's schema (required fields, types, enums, unknown fields when forbidden) before approval, and sent exactly as approved.
+  - **Tools** are named `mcp_<server>_<tool>`, made unique. Their risk comes from annotations, and every result is untrusted. A result is cut to 2,000 characters; a server's `isError` result is a failure.
+  - **Egress.** Every call writes a ledger entry with the server's host (I3). A token is a vault item bound to the server's host and usable only by `connector:mcp`; the vault never sends it over plain HTTP.
+  - **Settings** shows each server's host and tools, fetches missing tool lists when shown, and offers Retry and Remove (which deletes the token).
+- **`connector:shopping` (ADR-047):** the user adds a store by its web address in Settings → Shopping (UCP).
+  - **Discovery** reads `/.well-known/ucp`: the version, a REST service's endpoint (resolved against the store's address), and the capabilities. A store must offer catalog search or checkout. Settings shows where requests go.
+  - **`shop_search` (READ, untrusted):** `POST /catalog/search` to each store, or the one named, with the phone's country and language, the price limit in minor units (checked again on the results), and five results per store. Product and variant ids are returned for checkout. Every search writes a ledger entry.
+  - **`shop_checkout` (WRITE_EXTERNAL):** `POST /checkout-sessions` with the line items. The approval shows the store, each item with its price and the estimated total, from what the search returned. The store's `continue_url`, if https, becomes a "Finish at <host>" button in the chat; Anu never opens it by itself. Anu never calls `complete` and never touches payment details.
+  - **Headers.** `UCP-Agent` names Anu's platform profile, `Request-Id` is fresh, `Content-Digest` is the body's SHA-256, and `Idempotency-Key` is derived from the broker's key, so a retried call reuses the store's session. Business errors (HTTP 200 with `ucp.status: error`) are reported as errors.
+  - **Profile.** Anu has no server to host a UCP profile yet (ADR-011), so `UCP-Agent` names `https://anu.invalid/ucp/profile.json`. Stores that require a fetchable profile won't work until one exists (Planned).
+- **Local test servers (debug builds only).** `scripts/dev-mock-mcp.py` (optionally `--legacy`) and `scripts/dev-mock-store.py` are made-up services on the Mac, reached from the emulator at `10.0.2.2`. A debug-only network security config allows plain HTTP to those hosts; release builds allow none.
+
 **Sideloaded installs.** Android can block notification access (and, on newer versions, other sensitive permissions) for apps installed from an APK file until the user turns on **Allow restricted settings** in App info. Installs from Android Studio or `adb` are normally not affected. Spike S5 checks this on the reference device.
 
 Outlook / Microsoft 365 is not in v1 (OD-2). The connector contract allows adding it later without changing the design.
 
 ## 10. Skills
 
-**Skill detection** (`SkillDetector`, v1): keyword rules choose Memory, Email, Messages, Scheduling or Chat (ADR-028, ADR-034).
+**Skill detection** (`SkillDetector`, v1): keyword rules choose Memory, Email, Messages, Scheduling, Shopping or Chat (ADR-028, ADR-034).
 - **Memory comes first.** A message that starts with "remember", "don't forget", "note that" or "forget that", or asks "what do you know about…", gets the memory tools. "Remember Maya's email is…" is about memory, not email. "Forget it" and "I can't remember…" are not memory commands.
 - **Words that mean one thing decide it.** "Inbox" and "email" mean email. "Texts", "WhatsApp" and "group chat" mean messages. Bare "text" and "chat" don't, because "shorten this text" is writing. A message that starts with "text", "message" or "DM" is messaging ("Text Maya I'm late").
 - **Shared words follow the conversation.** "Reply", "draft" and "unread" keep messaging if the chat is about texts or names a phone number, and otherwise mean email. They come before scheduling, so a reply that proposes a time keeps its reply tools.
+- **Shopping comes after scheduling.** "Buy", "purchase", "shop for", "price of", "cheapest", "in stock" and "order a…" mean shopping. Bare "order", "store" and "check out" don't: "in order to", "store this" and "check out this article" aren't shopping (ADR-047).
 - **Replay.** The skill is found by replaying the last 20 user turns, so "check my texts", then "reply that 7 works", then "make it 7:30" all keep the messaging tools. A short follow-up (80 characters or fewer, such as "yes please") keeps the previous skill, at most three times in a row. The emulator found the first bug: "yes please" dropped the calendar tools, and the model wrote raw tool-call markup as text.
 - Answers containing control markup (for example `<|tool_call>`) are treated as invalid output: repaired once, then escalated.
 
@@ -643,6 +671,7 @@ Outlook / Microsoft 365 is not in v1 (OD-2). The connector contract allows addin
 | AI Messages | Summarize busy chats, find texts, suggest replies, reply from the notification | Base | messages, SMS (`personal`), contacts, memory | Reply |
 | Daily Brief | Schedule, email that needs you, follow-ups, commitments | Pro, scheduled while charging | calendar, email, memory | None |
 | Memory | "Remember…", "What do you know about…", corrections | Base | memory | Deletions confirmed |
+| Shopping | Find products in the user's stores, compare prices, start a checkout | Pro | stores (UCP) | Every checkout; payment always on the store's site |
 
 **AI Writing, as built (ADR-042).**
 - **Engine.** The router's cascade with no tools: on the phone by default, with a repair and an escalation if the result is empty or leaks markup (P6), and the cloud only after the user says yes, as in chat. The skill is Writing, which scores Base for short text.
@@ -683,7 +712,8 @@ Outlook / Microsoft 365 is not in v1 (OD-2). The connector contract allows addin
   - the Gemini API key, bound to `generativelanguage.googleapis.com`;
   - the Meta Model API key for Muse, bound to Meta's API host (pinned when that integration is added);
   - email app passwords;
-  - OAuth tokens.
+  - OAuth tokens;
+  - MCP server tokens, each bound to its server's host and usable only by `connector:mcp` (ADR-046).
 
   It is **not** an Autofill or Credential Manager provider for other apps.
 
@@ -717,6 +747,8 @@ The memory block is never part of a cloud request (ADR-038). A unit test checks 
 
 **Connector traffic (ADR-030).** Requests to the user's own account provider, such as Gmail search queries, drafts and sends, carry personal data off the device. Each one writes a ledger entry: destination, purpose, data class and size. It is **not redacted**, because the provider needs the real content to do the job, and it is the user's own account. Sending is also gated by approval of the exact message (I2).
 
+**Third-party services (ADR-046, ADR-047).** Requests to MCP servers and stores the user added carry data off the device too. Each writes a ledger entry with the destination, and none is redacted: the user added the service to do this work, and redaction would break it. They are offered only when the user names the service or asks to shop. A READ call to one needs approval once the run is tainted, and writes always do.
+
 Recommend a **paid** Gemini tier for personal data. Google's terms for unpaid Gemini API services allow submitted content to be used to improve its products.
 
 ### 12.3 Threat model
@@ -727,16 +759,20 @@ Recommend a **paid** Gemini tier for personal data. Google's terms for unpaid Ge
 | Stolen or compromised device | Encryption at rest, optional app lock, auth-bound vault keys, `FLAG_SECURE` |
 | Cloud leakage | Egress pipeline, consent, ledger, paid tier |
 | Tampered model file | Pinned SHA-256 and pinned sources |
-| Other apps abusing Anu | No exported providers; every incoming intent (PROCESS_TEXT, share) treated as untrusted. Selected text is framed as text to edit, never as instructions, and writing runs with no tools, so nothing in it can make anything happen. The result replaces the selection only on the user's tap (ADR-042) |
+| Other apps abusing Anu | No exported providers; every incoming intent (PROCESS_TEXT, share) treated as untrusted. The recognition service is exported like every recognizer, and Android checks the calling app's microphone permission before any audio flows (ADR-044). Selected text is framed as text to edit, never as instructions, and writing runs with no tools, so nothing in it can make anything happen. The result replaces the selection only on the user's tap (ADR-042) |
 | Over-collection | Never-learn rules, retention limits, deletion cascades |
 | Leaks through logs | A logger that redacts; crash reporting off or local-only by default |
+| A microphone that is always on | "Hey Anu" is off until the user turns it on. It listens only while the screen is on and no Anu screen shows, with a notification and the system's microphone indicator, through the on-device recognizer only. What it hears is checked for the wake phrase and dropped: never kept, logged or sent (ADR-045) |
+| A malicious MCP server or store | Only the user adds one, over https. Its tools are offered only when it is named. Descriptions lose markup and are cut short. Annotations can't lower the approval a write needs. Results are untrusted (taint), a READ call to it needs approval once the run is tainted, every call is ledgered, and its token is bound to its host (ADR-046, ADR-047) |
+| A store's link leads somewhere else | Links are shown as a button with their host, and only the user opens them. https only; plain HTTP reaches only the Mac's test servers, in debug builds |
 
 ## 13. Surfaces
 
 | Surface | How |
 |---|---|
-| Home | Compose chat with voice. Voice uses the on-device `SpeechRecognizer` and `TextToSpeech`, speaks sentence by sentence, and stops speaking when the user starts talking. Whether Gemma 4's own audio input can replace speech recognition is spike S6 |
-| Assistant overlay | `ROLE_ASSISTANT` + `VoiceInteractionService`, so Anu can be the default assistant. Phase 4 |
+| Talk page (ADR-043) | The first of three pages: Talk, Memory and Settings, swiped or chosen in the bar. An orb breathes when idle, swells with the user's voice, swirls while Anu thinks and pulses while it speaks; captions show what was heard and the answer. The whole chat, with typing, opens in a sheet. Voice uses only the on-device `SpeechRecognizer` (a missing language pack is downloaded only when the user taps) and `TextToSpeech`, spoken sentence by sentence as the answer streams; Mute and Stop are one tap. Only the visible page is composed, so keyboard focus can't jump the pager. Whether Gemma 4's own audio input can replace speech recognition is spike S6 |
+| Assistant overlay (ADR-044) | Anu can be the phone's digital assistant (`ROLE_ASSISTANT`), chosen in Android's settings from Settings → Voice → Set up. Holding the power button, or the corner swipe, opens `AssistantActivity`: a sheet over the current app that listens at once and shares the one conversation. Screen content (assist data) is ignored in v1 |
+| "Hey Anu" (ADR-045) | Opt-in, in Settings → Voice, once Anu is the assistant. While the screen is on and no Anu screen shows, the on-device recognizer listens in rounds; "Hey Anu, …" or "Anu, …" opens the assistant with the rest as the request. After a reboot it resumes when Anu next opens |
 | Writing everywhere | `ACTION_PROCESS_TEXT` actions in the text-selection toolbar; share target. **As built (ADR-042):** "Anu" in any app's text-selection menu opens a sheet over that app, with six actions and a field for the user's own instruction. The result streams in, and Replace sends it back, or Copy when the other app marked the text read-only. The share target is Planned |
 | Notifications | Approvals with the exact payload, suggested replies, brief, follow-ups |
 | Management | Memory Inspector, Vault, Privacy Ledger, model and connector settings |
@@ -745,10 +781,10 @@ Recommend a **paid** Gemini tier for personal data. Google's terms for unpaid Ge
 
 | Store | Contents | Protection | Backup |
 |---|---|---|---|
-| Main database (Room + SQLCipher) | Now: transcripts (`messages`), Privacy Ledger (`ledger`), vault audit (`vault_audit`), tool audit and results, memory (`memory_events`, `facts`, `fact_sources`, `rejected_facts`, `profile_versions`). Later: entities, episodes, runs, approvals, router telemetry | Database key wrapped by Keystore (ADR-024) | Excluded |
+| Main database (Room + SQLCipher) | Now: transcripts (`messages`), Privacy Ledger (`ledger`), vault audit (`vault_audit`), tool audit and results, memory (`memory_events`, `facts`, `fact_sources`, `rejected_facts`, `profile_versions`), and the services and stores the user added (`mcp_servers`, `stores`; schema v4). Later: entities, episodes, runs, approvals, router telemetry | Database key wrapped by Keystore (ADR-024) | Excluded |
 | Vault store (separate files) | Vault items | Tink keyset per protection level, wrapped by Keystore master keys (§11) | Excluded |
 | Blob store | Large content (email bodies, attachments), cached for extraction | Tink streaming AEAD | Excluded |
-| Settings (`SharedPreferences`) | Non-sensitive values only, such as vault handles and the learned token ratio (ADR-041) | None needed | Excluded |
+| Settings (`SharedPreferences`) | Non-sensitive values only, such as vault handles, the learned token ratio (ADR-041) and the "Hey Anu" switch | None needed | Excluded |
 | Model files | `.litertlm` and embedding models | SHA-256 verified | Excluded (`noBackupFilesDir`) |
 
 **Database encryption (ADR-024)**
@@ -808,8 +844,28 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 | S6 | Gemma 4 audio input through LiteRT-LM, which might replace speech recognition |
 | S7 | Room + SQLCipher performance at the expected data volume, including vectors |
 | S8 | Gemini API with the owner's key: `parametersJsonSchema` and `responseJsonSchema` accepted, thought-signature round trip, the `-latest` aliases, and the SSE framing |
+| S9 | Voice on the reference phone: the on-device recognizer's language pack, recognition quality, "Hey Anu" false wakes and misses, and battery per hour of listening |
 
 **Spike log.** Measured results only, newest first.
+
+- **Voice, assistant, MCP and shopping end to end, 2026-09-26.** Anu emulator, E4B CPU.
+  - **Talk page:** the orb and captions render, and the pager moves between Talk, Memory and Settings. The emulator's on-device recognizer has no English pack (error 13), so the page says so and offers the download. It wasn't started: downloads are the user's choice.
+  - **Assistant:** with Anu made the assistant through `cmd role add-role-holder` (a development shortcut), the assist key opened the sheet over the system Settings app, listening at once. Tapping outside closed it and freed the microphone.
+  - **"Hey Anu":** the switch started the microphone service, which showed "paused while Anu is open". At Home it listened, got error 13, and turned itself off with a notice.
+  - **MCP**, against `scripts/dev-mock-mcp.py`. Adding the server listed its two tools.
+    - "What's on my grocery list in Notes?" called `search_notes` without asking. The server checked `MCP-Protocol-Version`, `Mcp-Method` and `Mcp-Name` against the body.
+    - "Add a note to Notes: buy bananas and oat milk" waited for approval of the exact text. Then the server added it, answering over SSE with a progress notification first.
+    - Both calls have ledger entries. A second server in 2025 mode got the fallback: the modern request was refused, then `initialize`, `notifications/initialized` and tools in the session.
+  - **Shopping**, against `scripts/dev-mock-store.py`. Adding the store read its profile.
+    - "Find me running shoes under 150 dollars" searched with the limit in minor units (15000). The store checked `UCP-Agent`, `Request-Id` and `Content-Digest`.
+    - "Buy the Blue Runner Pro in size 10" asked to approve "Start a checkout at 10.0.2.2: 1 × Blue Runner Pro, Size 10 ($120.00 each). About $120.00 before tax and shipping…". Nothing reached the store before approval. The store then opened a $120.00 checkout, and "Finish at 10.0.2.2" opened its page in the browser.
+  - **Memory:** "My favorite color is teal" in Add became one fact marked "You said so".
+  - **Found and fixed:**
+    - after typing through `adb` (key events, like a hardware keyboard), closing a dialog jumped the pager to a neighbouring page, so only the visible page is composed;
+    - the chat sheet opened half way, with its field below the fold;
+    - a race showed "0 tools" after adding a server;
+    - approvals for a service said "Other people will see this", and order items showed as raw JSON;
+    - `emu-type.sh` checked the first field of a dialog instead of the focused one.
 
 - **Writing everywhere end to end, 2026-09-25.** Anu emulator, E4B CPU.
   - **Menu:** in the system Settings search box, the text-selection menu's overflow listed "Anu" next to "Read aloud".
@@ -892,7 +948,8 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 - On-device quality or speed on mid-range phones (mitigated by the router and cloud escalation).
 - Background limits delaying memory updates.
 - Play policy, for SMS and Gmail restricted scopes.
-- Prompt injection through connected content.
+- Prompt injection through connected content, including third-party MCP servers and stores.
+- The battery and trust cost of listening for "Hey Anu" (opt-in, screen-on only; measured in S9).
 
 **Roadmap phases.** Each phase ends when its evals pass:
 
@@ -964,6 +1021,11 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 | 040 | 2026-09-25 | One on-device context size sets the engines, the router budgets and the chat window. The model sees the newest whole exchanges that fit, trimmed in chunks down to 60% of the budget, and is told when older ones are left out; the whole chat stays saved and on screen | A long chat overflowed the 4,096-token engines, and the router's 6,000-token Pro budget didn't match them. Chunked trimming keeps the KV cache matching between trims (ADR-033). Memory carries what falls out |
 | 041 | 2026-09-25 | Token estimates are calibrated against the on-device runtime's own counts: a ratio learned from each turn (first taken as is, then smoothed and clamped, with a 5% margin), saved across restarts. Prose and JSON have separate raw rates. Cloud counts aren't used | Budgets must fit the real context. The emulator showed a raw estimate 12% high on prose and 8% low on a tool turn; separate rates made the two agree within about 3% |
 | 042 | 2026-09-25 | Writing everywhere through `PROCESS_TEXT`: a sheet over the other app, the cascade with no tools, the selected text framed as data, the result returned only on the user's Replace (Copy when read-only). Memory only for tasks in the user's voice, on-device only; no learning from selected text | Other apps' text is untrusted (§12.3), so it must not be able to act. The user stays in control of their text. Selected text may be someone else's words |
+| 043 | 2026-09-26 | Voice uses only the phone's on-device `SpeechRecognizer`, with a language-pack download the user starts, and the system `TextToSpeech`, spoken sentence by sentence as the answer streams. The app is three pages: Talk (an orb that shows listening, thinking and speaking, with captions and the chat a tap away), Memory and Settings | A server recognizer would send the user's voice outside the Privacy Ledger (I3). Speaking each sentence as it arrives starts talking before the answer ends. The user asked for a voice-first app with a ball that reacts |
+| 044 | 2026-09-26 | Anu can be the phone's digital assistant: a `VoiceInteractionService` whose session only opens `AssistantActivity`, a sheet over the current app that shares the one conversation. Assist data (screen content) is ignored. The required `RecognitionService` passes every request to the on-device recognizer | The power button or corner swipe then opens Anu over any app. Reading the screen would be a new data source needing its own privacy design. Other apps' voice input keeps working, on the phone |
+| 045 | 2026-09-26 | "Hey Anu" is opt-in: a microphone foreground service, with a notification, runs the on-device recognizer in rounds while the screen is on and no Anu screen shows. What it hears is checked for the wake phrase and dropped. It needs Anu to be the assistant, starts only from an Anu screen, backs off on errors, and turns itself off with a notice when speech is unavailable | The system's low-power hotword detectors need a privileged permission third-party apps can't hold. Android lets a microphone service start only while the app is on screen. The user chose the assistant plus opt-in listening |
+| 046 | 2026-09-26 | MCP servers the user adds become tools (`mcp_<server>_<tool>`) through a dual-era Streamable HTTP client: stateless 2026-07-28 first, a 2025 `initialize` session as the fallback. They are offered only in turns that name the server (at most six). Risk comes from annotations (unannotated tools need approval, as destructive). Results are untrusted, every call is ledgered, and tokens sit in the vault bound to the server's host. A READ tool that sends data to a third party needs approval once the run is tainted (`Tool.sendsTo`) | MCP is how services offer tools to agents. The definitions come from the server, so they can't lower the policy. Offering tools only when named keeps small models' prompts short, and keeps injected text from reaching a server the user didn't mention |
+| 047 | 2026-09-26 | Shopping through UCP 2026-08-25's REST binding: stores added by address and discovered at `/.well-known/ucp`, `shop_search` (READ, untrusted, ledgered) and `shop_checkout` (WRITE_EXTERNAL; the approval shows the items and the estimated total). Anu never completes a checkout or touches payment: the store's `continue_url` becomes a "Finish at…" button the user taps. `UCP-Agent` names an honest `.invalid` profile until Anu has a hosted one | Buying can't be undone and involves payment credentials, which Anu must never handle (I1). The continue URL is UCP's own hand-off to a person. A made-up profile URL would misrepresent Anu to stores |
 
 ### Component status
 
@@ -985,16 +1047,16 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 | Direct tier (deterministic handlers) | 2 | Planned. Needs connectors |
 | `core:vault`: store, Keystore protector, `SecretInjector` | 1 | Implemented. 10 JVM tests, plus 2 device tests with the real Keystore on the Anu emulator. The device tests found and fixed a hidden screen-lock error. Recovery passphrase Planned |
 | Vault UI and biometric prompt (`feature:vault`) | 1 | Planned |
-| Encrypted database (`core:data`): Room 2.8 + SQLCipher 4.19, key wrapping, transcript, ledger, audit and memory stores; schema v3 | 1 | **Verified on the Anu emulator**: the encryption-at-rest and migration device tests pass (no plain header, no canary, wrong key refused; v1→v2 and v2→v3 keep data). Plus 11 JVM tests |
+| Encrypted database (`core:data`): Room 2.8 + SQLCipher 4.19, key wrapping, transcript, ledger, audit, memory and connector stores; schema v4 | 1 | **Verified on the Anu emulator**: the encryption-at-rest and migration device tests pass (no plain header, no canary, wrong key refused; v1→v2, v2→v3 and v3→v4 keep data). Plus 12 JVM tests |
 | Persistence wired: chat history restored at launch, ledger persisted, vault activity shown in Settings | 1 | Implemented, with a ViewModel test for restore. Not yet run on a device |
-| App shell: Chat, Memory and Settings tabs | 1 | Implemented. Runs on the Anu emulator |
+| App shell: Talk, Memory and Settings pages (ADR-043) | 1 | Implemented. Runs on the Anu emulator |
 | Chat UI (`feature:home`): streaming, tier badge, Retry with Pro, cloud consent dialog, Stop, Markdown, long-chat line | 1 | Implemented. It runs end to end on the Anu emulator with E4B, and has 14 JVM tests. The cloud consent dialog isn't exercised on a device yet (needs a Gemini key) |
 | Save the answering tier with each message (restored answers currently lose their badge) | 1 | Planned: schema v2 |
 | Open the database off the main thread (44–95 ms today) | 1 | Planned |
 | `ChatSession` (transcript as the truth, consent resend, take back last, stable prompt, skill replay, memory block, turns offered to memory) in `core:agent` | 1 | Implemented, with 12 unit tests |
 | Conversation window (`ContextWindow`, `Tokens`): whole exchanges, chunked trimming, the long-chat note (ADR-040) | 3 | Implemented, with 8 unit tests plus chat and screen tests. Verified by hand on the Anu emulator: trimming at overflow, a steady start with cache reuse, and memory for what fell out |
 | Token calibration (`TokenCalibration`, `TokenSample`): runtime counts against raw estimates, separate prose and JSON rates, saved across restarts (ADR-041) | 3 | Implemented, with 4 unit tests plus agent and chat tests. Measured on the Anu emulator with E4B; the reference phone's numbers are still to come |
-| Settings UI (`feature:settings`): models (with delete confirmation), Gemini key into the vault, connectors (calendar and contacts, Gmail, messaging apps, SMS in `personal`), activity, vault activity, Privacy Ledger | 1 | Implemented. It runs on the Anu emulator |
+| Settings UI (`feature:settings`): voice (the assistant, "Hey Anu"), connectors (calendar and contacts, Gmail, messaging apps, SMS in `personal`), MCP servers, stores, models (with delete confirmation), Gemini key into the vault, activity, vault activity, Privacy Ledger | 1 | Implemented. Every section runs on the Anu emulator |
 | App wiring (`AppGraph`, device state, no-backup rules) | 1 | Implemented; lint clean (two warnings: newer Gradle available, no app icon yet) |
 | Agent loop, Tool Broker, approvals, taint, claim check (`core:agent`) | 2 | Implemented. 33 JVM tests, and works end to end on the Anu emulator with E4B: lookups, free slots, and an approval-gated invite |
 | Connectors: calendar, contacts | 2 | Implemented. JVM tests, plus provider tests on the Anu emulator (real `CalendarContract` and `ContactsContract`) |
@@ -1005,14 +1067,30 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 | AI Email v1: email skill detection, email tools plus contacts and calendar lookups, drafts and approval-gated sends | 2 | Implemented. Not yet run against a real mailbox (see the Gmail row) |
 | Tool audit and idempotency persistence (schema v2), Activity in Settings | 2 | Implemented. Migration test passes on the emulator |
 | Memory pipeline v1 (`core:memory`): capture, on-device extraction, reconcile, versioned profile, memory block, memory tools, background learning (ADR-036 to ADR-039) | 3 | Implemented. 19 JVM tests, 2 Robolectric tests on the real schema, and a v2→v3 migration device test. Verified by hand on the Anu emulator with E4B: learning after leaving the app, use in chat, corrections, remember and approval-gated forget. No memory eval yet (§15), so not Verified |
-| Memory Inspector (`feature:memory`): facts by section, sources, That's right, Correct, Delete, Forget a message, Learn now | 3 | Implemented. Every control checked by hand on the Anu emulator |
+| Memory Inspector (`feature:memory`): facts by section, sources, That's right, Correct, Delete, Forget a message, Learn now, and Add (the user's own words, read by the on-device model and kept as theirs) | 3 | Implemented. Every control checked by hand on the Anu emulator. Add has 2 JVM tests |
 | Memory, later: entities and aliases, episodes, nightly consolidation, vector retrieval (S3), never-learn rules, learning from connectors, retention, memory eval | 3 | Planned |
 | AI Writing everywhere (`feature:writing`, `WritingActivity`): six actions and custom instructions, Replace or Copy (ADR-042) | 3 | Implemented. 10 JVM tests. Verified by hand on the Anu emulator through the real text-selection menu in Settings. No writing eval yet (§15) |
 | Writing, later: share target, style per recipient from drafts against sent text, a writing eval | 3 | Planned |
-| Proactive agents, voice, assistant role | 4 | Planned |
+| Voice (`core:voice`): on-device recognition only, sentence-by-sentence speech, wake-phrase matching, the `WakeListener` loop (ADR-043, ADR-045) | 4 | Implemented. 10 JVM tests. The emulator's recognizer lacks the English pack, so real speech is untested until the reference phone (S9) |
+| Talk page (`feature:home`): orb, captions, the chat in a sheet, Mute, Stop, link buttons from tools | 4 | Implemented. Checked by hand on the Anu emulator; 6 JVM tests for voice in the chat view model |
+| Assistant role (ADR-044): `AnuVoiceInteractionService`, session, pass-through recognizer, `AssistantActivity`, Settings → Voice | 4 | Implemented. On the Anu emulator the assist gesture opened the sheet over another app, and closing it freed the microphone |
+| "Hey Anu" (ADR-045): `WakeWordService`, the Settings switch | 4 | Implemented. On the Anu emulator it pauses while Anu is open and turns itself off without a language pack. Real wake-ups need the reference phone (S9) |
+| MCP connector (`connector:mcp`, ADR-046): dual-era client, tools per server, offered when named | 4 | Implemented. 9 JVM tests (both eras, SSE, headers, schemas, ledger). Verified by hand on the Anu emulator with E4B against the mock server: a read, an approved write, and the 2025 fallback. No real third-party server tried yet |
+| Shopping (`connector:shopping`, ADR-047): UCP discovery, `shop_search`, `shop_checkout` with the store's own finish page | 4 | Implemented. 4 JVM tests. Verified by hand on the Anu emulator with E4B against the mock store: search, an approved checkout, and the Finish button. No real UCP store tried yet; stores that require a fetchable platform profile won't work until Anu has one |
+| Proactive agents, learned router | 4 | Planned |
 | Hardening, release readiness | 5 | Planned |
 
 ### Changelog
+
+- **1.7.0** (2026-09-26): voice from any app, and services and shopping.
+  - Three pages: Talk, with an orb that reacts to voice, plus Memory and Settings. Speech on the phone only, spoken sentence by sentence (ADR-043).
+  - Anu as the phone's assistant: the power button or corner swipe opens a sheet over any app (ADR-044). Opt-in "Hey Anu" while the screen is on (ADR-045).
+  - `connector:mcp`: MCP servers as tools, dual-era client, offered when named, tokens in the vault (ADR-046).
+  - `connector:shopping`: UCP stores, search, and checkouts the user approves and pays for on the store's site (ADR-047); a Shopping skill.
+  - The Tool Broker: `Tool.sendsTo`, approval for tainted reads that leave the phone, tools that come and go, and approval reasons that name the destination.
+  - Memory: Add, in the user's own words. Schema v4 for services and stores.
+  - Settings: Voice, Services (MCP) and Shopping (UCP) sections.
+  - Mock MCP server and UCP store for testing (`scripts/dev-mock-*.py`); a debug-only cleartext config for them.
 
 - **1.6.0** (2026-09-25): writing with Anu from any app.
   - "Anu" in the text-selection menu of any app opens a sheet: Improve, Shorter, More formal, Friendlier, Fix grammar, Summarize, or the user's own instruction (ADR-042).

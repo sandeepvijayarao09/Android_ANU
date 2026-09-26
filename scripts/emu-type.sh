@@ -7,10 +7,19 @@ set -uo pipefail
 serial="$1"; message="$2"
 adb="${ANDROID_HOME:-$HOME/Library/Android/sdk}/platform-tools/adb"
 
+# The focused field's text. Each dump replaces the last, so a failed dump is never read as current, and
+# a screen with several fields (a dialog) is read at the field being typed into.
 field() {
-  "$adb" -s "$serial" shell uiautomator dump /sdcard/ui.xml >/dev/null 2>&1
-  "$adb" -s "$serial" shell cat /sdcard/ui.xml | grep -o '<node[^>]*EditText[^>]*>' | grep -o 'text="[^"]*"' | head -1 |
-    sed 's/^text="//; s/"$//' | sed "s/&apos;/'/g; s/&quot;/\"/g; s/&lt;/</g; s/&gt;/>/g; s/&amp;/\&/g"
+  local xml=""
+  for try in 1 2 3; do
+    "$adb" -s "$serial" shell rm -f /sdcard/ui.xml
+    "$adb" -s "$serial" shell uiautomator dump /sdcard/ui.xml >/dev/null 2>&1
+    xml="$("$adb" -s "$serial" shell cat /sdcard/ui.xml 2>/dev/null)"
+    [ -n "$xml" ] && break
+  done
+  local nodes; nodes="$(printf '%s' "$xml" | grep -o '<node[^>]*EditText[^>]*>')"
+  { printf '%s\n' "$nodes" | grep 'focused="true"'; printf '%s\n' "$nodes"; } | grep -o ' text="[^"]*"' | head -1 |
+    sed 's/^ text="//; s/"$//' | sed "s/&apos;/'/g; s/&quot;/\"/g; s/&lt;/</g; s/&gt;/>/g; s/&amp;/\&/g"
 }
 
 # adb runs the command through the device's shell, so quotes, brackets and the like need escaping.

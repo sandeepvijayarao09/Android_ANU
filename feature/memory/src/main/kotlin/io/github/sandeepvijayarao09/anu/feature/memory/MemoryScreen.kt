@@ -9,14 +9,17 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -43,11 +46,16 @@ import java.util.Locale
 fun MemoryScreen(viewModel: MemoryViewModel, modifier: Modifier = Modifier) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val message by viewModel.message.collectAsStateWithLifecycle()
+    val adding by viewModel.adding.collectAsStateWithLifecycle()
+    var showAdd by remember { mutableStateOf(false) }
     Column(
-        modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 16.dp),
+        modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text("Memory", style = MaterialTheme.typography.headlineSmall)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Memory", Modifier.weight(1f), style = MaterialTheme.typography.headlineSmall)
+            FilledTonalButton(onClick = { showAdd = true }, enabled = !adding) { Text("Add") }
+        }
         Text(
             "What Anu has learned from you. It stays on this phone. Tap anything to see why Anu thinks it, " +
                 "and to confirm, correct or delete it.",
@@ -55,6 +63,12 @@ fun MemoryScreen(viewModel: MemoryViewModel, modifier: Modifier = Modifier) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         LearningRow(state, viewModel)
+        if (adding) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
+                Text("Remembering… Anu reads it on this phone.", style = MaterialTheme.typography.bodyMedium)
+            }
+        }
         message?.let {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(it, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
@@ -63,18 +77,49 @@ fun MemoryScreen(viewModel: MemoryViewModel, modifier: Modifier = Modifier) {
         }
         if (state.facts.isEmpty()) {
             Text(
-                "Nothing yet. Tell Anu about yourself as you chat, or say \"Remember that…\".",
+                "Nothing yet. Tell Anu about yourself as you chat, say \"Remember that…\", or tap Add.",
                 style = MaterialTheme.typography.bodyMedium,
             )
         }
         ProfileSection.entries.forEach { section ->
             val facts = state.facts.filter { it.section == section }.sortedWith(MemoryPipeline.IMPORTANCE)
             if (facts.isNotEmpty()) {
-                HorizontalDivider()
-                Text(section.title, style = MaterialTheme.typography.titleMedium)
-                facts.forEach { FactRow(it, state.sources, viewModel) }
+                Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
+                    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(section.title, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+                        facts.forEachIndexed { index, fact ->
+                            if (index > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                            FactRow(fact, state.sources, viewModel)
+                        }
+                    }
+                }
             }
         }
+    }
+
+    if (showAdd) {
+        var text by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { showAdd = false },
+            title = { Text("Add to memory") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        "Tell Anu something about you or the people in your life. It stays on this phone.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    OutlinedTextField(
+                        value = text,
+                        onValueChange = { text = it },
+                        placeholder = { Text("I'm vegetarian, and my sister is Priya") },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            },
+            confirmButton = { Button(onClick = { showAdd = false; viewModel.add(text) }, enabled = text.isNotBlank()) { Text("Remember") } },
+            dismissButton = { TextButton(onClick = { showAdd = false }) { Text("Cancel") } },
+        )
     }
 }
 

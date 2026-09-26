@@ -135,4 +135,17 @@ class RoomStoresTest {
         assertEquals("generativelanguage.googleapis.com", use.host)
         assertFalse(VaultAuditEntity::class.java.declaredFields.any { it.name.contains("secret", ignoreCase = true) })
     }
+
+    @Test
+    fun `connected services and stores are saved, replaced and removed`() = runBlocking {
+        val settings = RoomConnectorSettings(db.connectors())
+        settings.saveMcpServer(McpServerEntity("s1", "Notes", "https://notes.example.com/mcp", "ref-1", 1))
+        settings.saveMcpServer(McpServerEntity("s1", "My Notes", "https://notes.example.com/mcp", null, 1))
+        assertEquals(listOf("My Notes"), settings.mcpServers().first().map { it.name })
+        settings.saveStore(StoreEntity("shoes.example.com", "shoes.example.com", "https://shoes.example.com/ucp/v1", "dev.ucp.shopping.checkout", "2026-08-25", 2))
+        assertEquals(1, settings.stores().first().size)
+        settings.deleteMcpServer("s1")
+        settings.deleteStore("shoes.example.com")
+        assertEquals(0, settings.mcpServers().first().size + settings.stores().first().size)
+    }
 }

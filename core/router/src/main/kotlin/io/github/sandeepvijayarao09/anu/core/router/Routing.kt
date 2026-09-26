@@ -6,7 +6,7 @@ import io.github.sandeepvijayarao09.anu.core.model.DataClass
 enum class Tier { BASE, PRO, CLOUD }
 
 /** The skill a request belongs to (§10). */
-enum class Skill { CHAT, WRITING, EMAIL, SCHEDULING, MESSAGES, BRIEF, MEMORY }
+enum class Skill { CHAT, WRITING, EMAIL, SCHEDULING, MESSAGES, BRIEF, MEMORY, SHOPPING }
 
 /**
  * Whether a skill may send personal data to the cloud. ASK is the default (OD-6).

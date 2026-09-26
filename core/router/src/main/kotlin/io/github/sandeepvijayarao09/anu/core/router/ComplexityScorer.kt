@@ -71,6 +71,7 @@ class ComplexityScorer(private val budgets: TierBudgets = TierBudgets()) {
             Skill.EMAIL to 1,
             Skill.BRIEF to 2,
             Skill.SCHEDULING to 2,
+            Skill.SHOPPING to 1,
         )
         val ACTIONS = listOf(
             "find", "schedul", "book", "email", "send", "repl", "invit", "summar", "draft", "remind", "compar",

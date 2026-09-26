@@ -23,6 +23,9 @@ class AnuApp : Application() {
         graph = AppGraph(this)
         // Off the main thread: this also opens the database, and it gives the memory tools their facts.
         graph.scope.launch { graph.memory.start() }
+        // The services and stores saved in Settings, kept in step with the database (ADR-046, ADR-047).
+        graph.scope.launch { graph.mcp.sync() }
+        graph.scope.launch { graph.stores.sync() }
         MemoryLearning.scheduleCatchUp(this)
         registerActivityLifecycleCallbacks(Visibility())
     }
@@ -40,6 +43,8 @@ class AnuApp : Application() {
         override fun onActivityStarted(activity: Activity) {
             started++
             visible.value = true
+            // A microphone service may only start while Anu is on screen, so "Hey Anu" resumes here (ADR-045).
+            if (started == 1) graph.voice.resume()
         }
 
         override fun onActivityStopped(activity: Activity) {

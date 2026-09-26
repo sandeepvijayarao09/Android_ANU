@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The assistant must also provide speech recognition. Anu's passes through to the on-device recognizer. -->
+<recognition-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:settingsActivity="io.github.sandeepvijayarao09.anu.MainActivity" />

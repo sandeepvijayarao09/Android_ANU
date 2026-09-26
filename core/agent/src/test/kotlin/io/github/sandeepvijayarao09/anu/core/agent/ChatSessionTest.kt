@@ -221,4 +221,29 @@ class ChatSessionTest {
             ChatSession.dataClassesOf(listOf(ChatMessage.User("my card is 4111 1111 1111 1111"))),
         )
     }
+
+    @Test
+    fun `extra tools chosen from the conversation join the turn, and a failure just leaves them out`() = runTest {
+        val remote = FakeRemoteLookup()
+        val broker = ToolBroker(emptyList(), RecordingGate(), dynamicTools = { listOf(remote) })
+        val seen = mutableListOf<List<String>>()
+        val session = ChatSession(
+            agent(mapOf(Tier.BASE to base, Tier.PRO to pro), broker),
+            extraTools = { turns ->
+                seen += turns
+                if (turns.last().contains("notes", ignoreCase = true)) listOf(remote.name) else error("server offline")
+            },
+        )
+        base.enqueue(Step.Reply("Found it."), Step.Reply("Hi!"))
+        pro.enqueue(Step.Reply("Found it."), Step.Reply("Hi!"))
+        session.send("What's on my grocery list in Notes?", device).toList()
+        val first = (base.requests + pro.requests).single()
+        assertEquals(listOf(remote.name), first.tools.map { it.name })
+        assertTrue(first.system!!.contains("Tools named mcp_"))
+
+        session.send("Thanks!", device).toList()
+        val second = (base.requests + pro.requests).last()
+        assertTrue(second.tools.isEmpty())
+        assertEquals(listOf("What's on my grocery list in Notes?", "Thanks!"), seen.last())
+    }
 }

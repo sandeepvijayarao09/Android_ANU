@@ -22,6 +22,20 @@ class MemoryViewModel(private val memory: MemoryInspector) : ViewModel() {
 
     fun learnNow() = act { mutableMessage.value = describe(memory.learnNow()) }
 
+    /** True while the on-device model reads something the user typed. */
+    private val mutableAdding = MutableStateFlow(false)
+    val adding: StateFlow<Boolean> = mutableAdding.asStateFlow()
+
+    fun add(text: String) = act {
+        mutableAdding.value = true
+        try {
+            val kept = memory.add(text)
+            mutableMessage.value = if (kept == 0) "Anu didn't find anything to remember in that. Try “My sister is Priya”." else "Remembered ${plural(kept, "thing")}."
+        } finally {
+            mutableAdding.value = false
+        }
+    }
+
     fun delete(factId: Long) = act { memory.delete(factId) }
 
     fun confirm(factId: Long) = act { memory.confirm(factId) }

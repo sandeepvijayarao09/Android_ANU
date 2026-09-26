@@ -42,6 +42,14 @@ interface Tool<I : Any, O : Any> {
     /** Risk can depend on the input. For example, an event with attendees sends invites (§9). */
     fun risk(input: I): RiskTier
 
+    /**
+     * Where this call sends its input, when that is a third party rather than the phone or the user's
+     * own account: for example an MCP server's or a store's host (ADR-046, ADR-047). Null otherwise.
+     * Once a run is tainted, even a READ call that sends data away needs approval, so text written by
+     * others can't make Anu send the user's data somewhere (§7.2).
+     */
+    fun sendsTo(input: I): String? = null
+
     /** One sentence that says exactly what this call will do. It is shown on the approval sheet. */
     fun describe(input: I): String
 

@@ -1,11 +1,11 @@
 # Anu for Android: Product Vision
 
-Version 0.2 · Draft · 2026-09-25 (scope decisions recorded in ARCHITECTURE §16)
+Version 0.3 · Draft · 2026-09-26 (scope decisions recorded in ARCHITECTURE §16 and §17)
 Companion to [ARCHITECTURE.md](ARCHITECTURE.md), which says how this is built.
 
 ## In one sentence
 
-Anu is a personal AI that lives on your phone. It understands your email, messages and calendar, and keeps a picture of you that only you can see. It writes, schedules and replies for you, and asks you first before anything leaves your hands.
+Anu is a personal AI that lives on your phone, and you can talk to it from any app. It understands your email, messages and calendar, and keeps a picture of you that only you can see. It writes, schedules, replies and shops for you, and asks you first before anything leaves your hands.
 
 ## Why
 
@@ -21,11 +21,15 @@ Most assistants either know nothing about you or send everything about you to a 
 1. **Private by default.** Models, memory, profile and vault stay on the phone. Anything sent off the phone is minimized, consented to, and logged in a ledger you can read.
 2. **Knows you, and shows its reasoning.** Anu builds a profile from every interaction and every change in your connected accounts, and the profile keeps growing. Each thing it believes about you links to where it learned it. You can edit or delete any of it.
 3. **Does the work.** It writes in your voice, triages email, drafts replies, finds meeting times and books them, summarizes chats, and briefs you on your day.
-4. **You stay in control.** Anything other people will see needs your approval of the exact content: sending an email, replying to a message, inviting someone. Private changes can be undone. The AI can use secrets, but it can never see them.
+4. **You stay in control.** Anything other people will see needs your approval of the exact content: sending an email, replying to a message, inviting someone, starting a checkout. Private changes can be undone. The AI can use secrets, but it can never see them. Anu never pays for anything: you finish every purchase on the store's own site.
 5. **Fast when it can be, smart when it must be.** A router picks the lightest model that can do the job well: E2B, then E4B, then Gemini. It escalates only when needed, and it tells you which model answered.
 
 ## What it feels like (v1 stories)
 
+- You open Anu and talk to the orb. It swells as you speak, swirls while it thinks, and answers out loud. Swipe for Memory and Settings.
+- In any app, you hold the power button, or say "Hey Anu, what's on my calendar today?" while the screen is on. Anu opens over the app, listens and answers.
+- "Find running shoes under $150." Anu searches the stores you added. "Buy the blue ones in size 10." You approve the exact order and its estimated total, then tap **Finish** to review and pay on the store's site.
+- "Add 'buy oat milk' to my Notes." Anu uses the notes service you connected, and asks before it adds anything.
 - "Reply to Maya, say yes, and suggest Thursday afternoon." Anu reads the thread, checks your calendar against your preferences (it knows you avoid meetings before 10), and drafts the reply in the tone you use with Maya. You approve it, and it sends.
 - "What's my day?" A short brief covers meetings with context, emails that need you, and anything you promised to do.
 - You select text in any app, tap **Anu → More formal**, and the rewrite replaces your selection.
@@ -40,6 +44,8 @@ Most assistants either know nothing about you or send everything about you to a 
 - Uploads your profile or memory. The cloud receives only the minimum needed for one request, and only when you allow it.
 - Learns from anything you've excluded, such as a contact, a mail label or a topic.
 - Claims to be able to do something before it has been tested.
+- Pays for anything, or handles your card or payment details.
+- Listens without your say-so. "Hey Anu" is off until you turn it on, works only while the screen is on, and shows a notification while it listens.
 
 ## Scope
 
@@ -52,8 +58,12 @@ Most assistants either know nothing about you or send everything about you to a 
   - Gmail;
   - messaging apps such as WhatsApp, Google Messages, Telegram and Slack, through their notifications;
   - full SMS history, in the personal build only.
-- A living memory and user profile, with a screen to inspect and edit it.
-- AI features: writing, email, scheduling, messages, and a daily brief.
+- Voice: a Talk page with an orb that reacts to your voice, Anu as the phone's assistant over any app, and opt-in "Hey Anu" while the screen is on. Speech is recognized on the phone.
+- More connectors:
+  - services you add as MCP servers, such as notes or tasks;
+  - stores that support the Universal Commerce Protocol (UCP): search, and checkouts you approve.
+- A living memory and user profile, with a screen to inspect, edit and add to it.
+- AI features: writing, email, scheduling, messages, shopping, and a daily brief.
 - A vault for the keys and logins Anu uses for you, such as your Gemini key, a Meta Muse API key or email app passwords. It is not a password manager for other apps.
 
 **Not in v1:**
@@ -64,6 +74,9 @@ Most assistants either know nothing about you or send everything about you to a 
 - Extra cloud models such as Meta Muse Spark. The design leaves room for them (ARCHITECTURE §5).
 - Outlook / Microsoft 365.
 - Filling passwords into other apps (autofill).
+- Paying inside Anu, such as UCP payment handlers or AP2 mandates.
+- Reading the screen when you call Anu over another app.
+- Listening for "Hey Anu" while the screen is off.
 
 ## How we'll know it works
 

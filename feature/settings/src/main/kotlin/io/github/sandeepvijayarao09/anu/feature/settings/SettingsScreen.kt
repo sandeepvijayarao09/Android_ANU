@@ -22,6 +22,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -60,6 +61,26 @@ fun SettingsScreen(viewModel: SettingsViewModel, modifier: Modifier = Modifier) 
         modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
+        Text("Settings", style = MaterialTheme.typography.headlineSmall)
+        VoiceSection(viewModel)
+
+        HorizontalDivider()
+        ConnectorsSection()
+        GmailRow(viewModel)
+        MessagingRow(viewModel)
+        if (viewModel.smsAvailable) SmsRow()
+
+        if (viewModel.mcpAvailable) {
+            HorizontalDivider()
+            McpSection(viewModel)
+        }
+        if (viewModel.shoppingAvailable) {
+            HorizontalDivider()
+            ShoppingSection(viewModel)
+        }
+        message?.let { MessageRow(it, viewModel) }
+
+        HorizontalDivider()
         Section("On-device models", "Answers from these never leave your phone. Downloads use Wi-Fi only.")
         rows.forEach { row ->
             ModelRowView(
@@ -71,12 +92,6 @@ fun SettingsScreen(viewModel: SettingsViewModel, modifier: Modifier = Modifier) 
                 onDelete = { viewModel.delete(row.info.id) },
             )
         }
-
-        HorizontalDivider()
-        ConnectorsSection()
-        GmailRow(viewModel)
-        MessagingRow(viewModel)
-        if (viewModel.smsAvailable) SmsRow()
 
         HorizontalDivider()
         Section(
@@ -101,12 +116,7 @@ fun SettingsScreen(viewModel: SettingsViewModel, modifier: Modifier = Modifier) 
             )
             Button(onClick = { viewModel.saveCloudKey(key); key = "" }, enabled = key.isNotBlank()) { Text("Save to vault") }
         }
-        message?.let {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(it, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
-                TextButton(onClick = viewModel::dismissMessage) { Text("OK") }
-            }
-        }
+        message?.let { MessageRow(it, viewModel) }
 
         HorizontalDivider()
         Section("Activity", "What Anu did with your calendar, contacts, email and messages, including what it asked you to approve.")
@@ -152,6 +162,207 @@ fun SettingsScreen(viewModel: SettingsViewModel, modifier: Modifier = Modifier) 
     }
 }
 
+/**
+ * Talking to Anu over any app (ADR-044, ADR-045). The assistant is chosen in Android's settings, so
+ * this checks again whenever the user comes back.
+ */
+@Composable
+private fun VoiceSection(viewModel: SettingsViewModel) {
+    val assistant by viewModel.isAssistant.collectAsStateWithLifecycle()
+    val wakeWord by viewModel.wakeWord.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    LifecycleResumeEffect(Unit) {
+        viewModel.refreshAssistant()
+        onPauseOrDispose {}
+    }
+    // The notification says when Anu is listening, so it is asked for too. Listening works without it.
+    val permissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { results ->
+        if (results[Manifest.permission.RECORD_AUDIO] == true) viewModel.setWakeWord(true)
+    }
+    val isAssistant = assistant ?: return
+    Section("Voice", "Talk to Anu from any app. Speech is recognized on this phone, never on a server.")
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text("Anu as your assistant", style = MaterialTheme.typography.bodyLarge)
+            Text(
+                "Hold the power button, or swipe up from a bottom corner, to talk to Anu over any app.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        if (isAssistant) {
+            Text("On", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+        } else {
+            Button(onClick = { viewModel.assistantSettings().firstOrNull { runCatching { context.startActivity(it) }.isSuccess } }) {
+                Text("Set up")
+            }
+        }
+    }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text("“Hey Anu”", style = MaterialTheme.typography.bodyLarge)
+            Text(
+                if (isAssistant) {
+                    "Listens for “Hey Anu” while your screen is on. A notification shows while it listens, and it uses more battery."
+                } else {
+                    "Make Anu your assistant first."
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Switch(
+            checked = wakeWord && isAssistant,
+            enabled = isAssistant,
+            onCheckedChange = { on ->
+                if (on) permissions.launch(arrayOf(Manifest.permission.RECORD_AUDIO, Manifest.permission.POST_NOTIFICATIONS)) else viewModel.setWakeWord(false)
+            },
+        )
+    }
+}
+
+@Composable
+private fun MessageRow(message: String, viewModel: SettingsViewModel) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(message, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+        TextButton(onClick = viewModel::dismissMessage) { Text("OK") }
+    }
+}
+
+/**
+ * Services the user adds as MCP servers (ADR-046). Their tools are offered when the user names the
+ * service, and anything that changes something there asks first.
+ */
+@Composable
+private fun McpSection(viewModel: SettingsViewModel) {
+    val servers by viewModel.mcpServers.collectAsStateWithLifecycle()
+    val connecting by viewModel.connecting.collectAsStateWithLifecycle()
+    var adding by remember { mutableStateOf(false) }
+    var removing by remember { mutableStateOf<McpServerRow?>(null) }
+    LifecycleResumeEffect(Unit) {
+        viewModel.loadMcpTools()
+        onPauseOrDispose {}
+    }
+    Section(
+        "Services (MCP)",
+        "Tools from servers you add, such as your notes or tasks. Name a service in a request to use it. " +
+            "Anu asks before anything that changes something there, and every request to a server is in the Privacy Ledger.",
+    )
+    servers.forEach { server ->
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(server.name, style = MaterialTheme.typography.bodyLarge)
+                val detail = when {
+                    server.error != null -> server.error
+                    !server.loaded -> "${server.host} · loading its tools…"
+                    server.tools.isEmpty() -> "${server.host} · no tools"
+                    else -> "${server.host} · ${server.tools.size} tools: ${server.tools.take(3).joinToString()}" + if (server.tools.size > 3) "…" else ""
+                }
+                Text(
+                    detail,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (server.error != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (server.error != null) TextButton(onClick = { viewModel.refreshMcpServer(server.id) }, enabled = !connecting) { Text("Retry") }
+            TextButton(onClick = { removing = server }) { Text("Remove") }
+        }
+    }
+    OutlinedButton(onClick = { adding = true }, enabled = !connecting) { Text(if (connecting) "Connecting…" else "Add a server") }
+
+    if (adding) {
+        var name by remember { mutableStateOf("") }
+        var url by remember { mutableStateOf("") }
+        var token by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { adding = false },
+            title = { Text("Add an MCP server") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(name, { name = it }, label = { Text("Name, such as Notes") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(url, { url = it }, label = { Text("Server address (https://…/mcp)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(
+                        token,
+                        { token = it },
+                        label = { Text("Token (optional)") },
+                        singleLine = true,
+                        visualTransformation = PasswordVisualTransformation(),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Text(
+                        "A token goes into Anu's vault. It is sent only to this server, and never shown again.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            },
+            confirmButton = {
+                Button(onClick = { adding = false; viewModel.addMcpServer(name, url, token) }, enabled = name.isNotBlank() && url.isNotBlank()) { Text("Add") }
+            },
+            dismissButton = { TextButton(onClick = { adding = false }) { Text("Cancel") } },
+        )
+    }
+    removing?.let { server ->
+        AlertDialog(
+            onDismissRequest = { removing = null },
+            title = { Text("Remove ${server.name}?") },
+            text = { Text(if (server.hasToken) "Anu stops using it, and deletes its token from the vault." else "Anu stops using it.") },
+            confirmButton = { TextButton(onClick = { removing = null; viewModel.removeMcpServer(server.id) }) { Text("Remove") } },
+            dismissButton = { TextButton(onClick = { removing = null }) { Text("Keep") } },
+        )
+    }
+}
+
+/**
+ * Stores that speak the Universal Commerce Protocol (ADR-047). Anu searches them and starts checkouts the
+ * user approves; the user always reviews and pays on the store's own site.
+ */
+@Composable
+private fun ShoppingSection(viewModel: SettingsViewModel) {
+    val stores by viewModel.stores.collectAsStateWithLifecycle()
+    val connecting by viewModel.connecting.collectAsStateWithLifecycle()
+    var adding by remember { mutableStateOf(false) }
+    Section(
+        "Shopping (UCP)",
+        "Stores that support the Universal Commerce Protocol. Anu finds products and starts checkouts you approve. " +
+            "You always review and pay on the store's own site: Anu never pays.",
+    )
+    stores.forEach { store ->
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(store.name, style = MaterialTheme.typography.bodyLarge)
+                val can = listOfNotNull("search".takeIf { store.canSearch }, "checkout".takeIf { store.canCheckout }).joinToString(" and ")
+                Text(
+                    "Offers $can · requests go to ${store.endpointHost}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            TextButton(onClick = { viewModel.removeStore(store.address) }) { Text("Remove") }
+        }
+    }
+    OutlinedButton(onClick = { adding = true }, enabled = !connecting) { Text(if (connecting) "Connecting…" else "Add a store") }
+    if (adding) {
+        var address by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { adding = false },
+            title = { Text("Add a store") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(address, { address = it }, label = { Text("Store's web address") }, placeholder = { Text("shop.example.com") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                    Text(
+                        "Anu reads the store's UCP profile to see what it offers.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            },
+            confirmButton = { Button(onClick = { adding = false; viewModel.addStore(address) }, enabled = address.isNotBlank()) { Text("Add") } },
+            dismissButton = { TextButton(onClick = { adding = false }) { Text("Cancel") } },
+        )
+    }
+}
+
 private val CONNECTOR_PERMISSIONS = arrayOf(
     Manifest.permission.READ_CALENDAR,
     Manifest.permission.WRITE_CALENDAR,
@@ -165,7 +376,7 @@ private fun ConnectorsSection() {
     fun allGranted() = CONNECTOR_PERMISSIONS.all { context.checkSelfPermission(it) == PackageManager.PERMISSION_GRANTED }
     var granted by remember { mutableStateOf(allGranted()) }
     val request = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { granted = allGranted() }
-    Section("Connectors", "Anu reads your calendar and contacts on this phone. Anything that invites people asks you first.")
+    Section("Connectors", "Your calendar, contacts, email and messages. Anything that sends or invites people asks you first.")
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text("Calendar and contacts", Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
         if (granted) {

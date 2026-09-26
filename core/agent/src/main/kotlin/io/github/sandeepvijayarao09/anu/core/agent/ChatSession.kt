@@ -47,6 +47,11 @@ class ChatSession(
     private val window: ContextWindow = ContextWindow(),
     /** Turns raw token estimates into the runtime's tokens, learning from every on-device turn (ADR-041). */
     private val tokens: TokenCalibration = TokenCalibration.NONE,
+    /**
+     * More tools for this turn, chosen from the user's messages (oldest first), such as an MCP server's
+     * tools once the user names the server (ADR-046). It may fetch them. A failure means none.
+     */
+    private val extraTools: suspend (turns: List<String>) -> List<String> = { emptyList() },
 ) {
     private val lock = Mutex()
     private var transcript: MutableList<ChatMessage>? = null
@@ -66,8 +71,9 @@ class ChatSession(
     fun send(text: String, device: DeviceState, pinned: Tier? = null, cloudConsented: Boolean = false): Flow<AgentEvent> = flow {
         lock.withLock {
             val transcript = loaded()
-            val skill = SkillDetector.detect(transcript.filterIsInstance<ChatMessage.User>().map { it.text } + text)
-            val tools = toolsFor(skill)
+            val turns = transcript.filterIsInstance<ChatMessage.User>().map { it.text } + text
+            val skill = SkillDetector.detect(turns)
+            val tools = (toolsFor(skill) + currentExtraTools(turns)).distinct()
             val now = clock()
             val memoryBlock = currentMemory()
             val message = ChatMessage.User(text)
@@ -160,6 +166,13 @@ class ChatSession(
             if ("messages_reply" in tools) {
                 append(" messages_reply takes the chat's name or phone number, so a number found in a text is enough to answer it.")
             }
+            if ("shop_checkout" in tools) {
+                append(" To buy, find the product with shop_search, then call shop_checkout: the user approves the exact order, then reviews and pays on the store's own site.")
+                append(" Never say an order is placed or paid.")
+            }
+            if (tools.any { it.startsWith("mcp_") }) {
+                append(" Tools named mcp_ belong to services the user added. Use them for what the user asks of that service.")
+            }
             append(" Only say something was done if a tool result confirms it.")
             append(" When you talk to the user, say dates and times in plain words, like \"Saturday at 1:00 PM\".")
         }
@@ -176,6 +189,14 @@ class ChatSession(
         throw e
     } catch (_: Exception) {
         null
+    }
+
+    private suspend fun currentExtraTools(turns: List<String>): List<String> = try {
+        extraTools(turns)
+    } catch (e: CancellationException) {
+        throw e
+    } catch (_: Exception) {
+        emptyList()
     }
 
     /** Callers hold [lock]. */

@@ -138,6 +138,11 @@ class RouterTest {
         assertEquals(Skill.SCHEDULING, SkillDetector.detect("Book a meeting with Raj on Monday"))
         assertEquals(Skill.CHAT, SkillDetector.detect("Tell me a joke"))
         assertEquals(Skill.EMAIL, SkillDetector.detect("Yes, send it", previous = Skill.EMAIL))
+        assertEquals(Skill.SHOPPING, SkillDetector.detect("Buy me running shoes under 100 dollars"))
+        assertEquals(Skill.SHOPPING, SkillDetector.detect("How much are the blue runners at the shoe store?"))
+        assertEquals(Skill.SHOPPING, SkillDetector.detect("Order another pack of coffee filters"))
+        assertEquals(Skill.CHAT, SkillDetector.detect("In order to sleep better, what should I change in my evening routine?"))
+        assertEquals(Skill.CHAT, SkillDetector.detect("Check out this idea: a picnic by the river on the weekend. Thoughts?"))
     }
 
     @Test

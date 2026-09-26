@@ -226,4 +226,29 @@ class MemoryPipelineTest {
         assertEquals(1, result.processed)
         assertEquals(1, store.allEvents().count { it.status == EventStatus.PENDING })
     }
+
+    @Test
+    fun `what the user types in the Memory tab is kept as their own word`() = runTest {
+        brain.enqueue(reply(fact("user", "diet", "vegetarian", "preferences", "I'm vegetarian", single = true)))
+        assertEquals(1, memory.add("  I'm vegetarian  "))
+        val kept = store.activeFacts().single()
+        assertEquals("diet: vegetarian", kept.text)
+        assertEquals(FactOrigin.USER_STATED, kept.origin)
+        assertEquals(1.0, kept.confidence, 0.0)
+        val source = store.allEvents().single()
+        assertEquals(EventSource.STATEMENT, source.source)
+        assertEquals("I'm vegetarian", source.content)
+        assertEquals(EventStatus.DONE, source.status)
+        assertEquals(listOf(source.id), kept.sources)
+    }
+
+    @Test
+    fun `typed secrets are refused before any model sees them, and nothing found keeps nothing`() = runTest {
+        val refused = runCatching { memory.add("my wifi password is hunter22") }.exceptionOrNull()
+        assertTrue(refused is IllegalArgumentException)
+        assertTrue(brain.requests.isEmpty())
+        brain.enqueue(reply())
+        assertEquals(0, memory.add("hello there"))
+        assertTrue(store.allEvents().isEmpty())
+    }
 }

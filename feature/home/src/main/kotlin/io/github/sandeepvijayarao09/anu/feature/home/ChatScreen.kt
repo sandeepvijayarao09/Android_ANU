@@ -29,6 +29,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.tooling.preview.Preview
@@ -36,6 +38,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.sandeepvijayarao09.anu.core.router.Tier
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -67,6 +70,8 @@ internal fun ChatContent(
     onApprove: (String) -> Unit = {},
     onDeny: (String) -> Unit = {},
     modifier: Modifier = Modifier,
+    /** False when the screen under this one already shows the approval and consent dialogs. */
+    showDialogs: Boolean = true,
 ) {
     var input by rememberSaveable { mutableStateOf("") }
     val list = rememberLazyListState()
@@ -125,6 +130,18 @@ internal fun ChatContent(
         }
     }
 
+    if (showDialogs) ConversationDialogs(state, onApprove, onDeny, onApproveCloud, onDeclineCloud)
+}
+
+/** The approval of an exact payload (I2) and the cloud consent (§12.2), for any screen showing the conversation. */
+@Composable
+internal fun ConversationDialogs(
+    state: ChatUiState,
+    onApprove: (String) -> Unit,
+    onDeny: (String) -> Unit,
+    onApproveCloud: () -> Unit,
+    onDeclineCloud: () -> Unit,
+) {
     state.approval?.let { request ->
         // The exact payload, re-encoded from validated input by the Tool Broker, never the model's own paraphrase (I2).
         AlertDialog(
@@ -193,6 +210,7 @@ private fun BubbleRow(bubble: Bubble, showRetry: Boolean, onRetryWithPro: () -> 
                         modifier = Modifier.padding(top = 6.dp),
                     )
                 }
+                LinkButtons(bubble.links)
             }
         }
         if (!bubble.fromUser) {
@@ -206,14 +224,29 @@ private fun BubbleRow(bubble: Bubble, showRetry: Boolean, onRetryWithPro: () -> 
     }
 }
 
+/** Links a tool offered, such as "Finish at shoes.example.com". Nothing opens until the user taps (ADR-047). */
+@Composable
+internal fun LinkButtons(links: List<LinkAction>) {
+    val uri = LocalUriHandler.current
+    links.forEach { link ->
+        OutlinedButton(onClick = { runCatching { uri.openUri(link.url) } }, modifier = Modifier.padding(top = 6.dp)) { Text(link.label) }
+    }
+}
+
 /** One line per field, so the user sees every value that will be used. */
 internal fun payloadLines(payload: JsonObject): List<String> = payload.filterValues { it !is JsonNull }.map { (key, value) ->
     val shown = when (value) {
-        is JsonArray -> value.joinToString { (it as? JsonPrimitive)?.content ?: it.toString() }.ifEmpty { "none" }
-        is JsonPrimitive -> value.content
-        else -> value.toString()
+        is JsonArray -> value.joinToString("; ") { element -> plain(element) }.ifEmpty { "none" }
+        else -> plain(value)
     }
     "$key: $shown"
+}
+
+/** A value as words: objects in a list, such as a store order's items, read "item_id: x, quantity: 1". */
+private fun plain(value: JsonElement): String = when (value) {
+    is JsonPrimitive -> value.content
+    is JsonObject -> value.filterValues { it !is JsonNull }.entries.joinToString(", ") { (key, inner) -> "$key: ${plain(inner)}" }
+    is JsonArray -> value.joinToString(", ") { plain(it) }
 }
 
 @Preview(showBackground = true)

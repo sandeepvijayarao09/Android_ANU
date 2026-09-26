@@ -36,6 +36,12 @@ interface MemoryInspector {
 
     suspend fun learnNow(): LearnResult
 
+    /**
+     * Something the user typed in the Memory tab, such as "I'm vegetarian". The on-device model finds
+     * the facts in it, and they are kept as the user's own word (P5). Returns how many were kept.
+     */
+    suspend fun add(text: String): Int
+
     /** Deletes the fact, and remembers only its fingerprint so it isn't learned again (§8.4). */
     suspend fun delete(factId: Long)
 
@@ -136,6 +142,24 @@ class MemoryPipeline(
 
     override suspend fun learnNow(): LearnResult = processPending()
 
+    override suspend fun add(text: String): Int {
+        val content = text.trim().takeIf(String::isNotEmpty)?.let(MemoryFilters::cleaned)
+        require(content != null) { NOT_KEPT }
+        val facts = when (val extracted = extractor.extract(content)) {
+            FactExtractor.Result.NoModel -> throw IllegalStateException("Download a model in Settings first. Anu learns only on this phone.")
+            is FactExtractor.Result.Failed -> throw IllegalStateException("Anu couldn't read that. Try saying it more simply.")
+            is FactExtractor.Result.Facts -> extracted.facts
+        }
+        if (facts.isEmpty()) return 0
+        val kept = store.atomically {
+            val event = MemoryEvent(0, clock(), EventSource.STATEMENT, content, null, EventStatus.DONE, 1)
+            val id = store.addEvent(event)
+            reconcile(event.copy(id = id), facts, FactOrigin.USER_STATED)
+        }
+        refreshProfile()
+        return kept
+    }
+
     /** "Remember that…": the user's own statement, kept at once as their fact (P5). Returns what was kept. */
     suspend fun remember(
         subject: String,
@@ -147,9 +171,7 @@ class MemoryPipeline(
     ): Fact {
         val candidate = ExtractedFact(Normalize.subject(subject), Normalize.predicate(predicate), value.trim(), section, "", sensitive, single = false)
         require(candidate.subject.isNotEmpty() && candidate.predicate.isNotEmpty() && candidate.value.isNotEmpty()) { "Say who it's about, what, and the value." }
-        require(MemoryFilters.safeToKeep("${candidate.predicate} ${candidate.value}")) {
-            "Anu doesn't keep passwords, codes, or card, bank or ID numbers in memory."
-        }
+        require(MemoryFilters.safeToKeep("${candidate.predicate} ${candidate.value}")) { NOT_KEPT }
         val statement = "You asked Anu to remember: " + factText(candidate.subject, candidate.predicate, candidate.value)
         val kept = store.atomically {
             val event = MemoryEvent(0, clock(), EventSource.STATEMENT, statement, ref, EventStatus.DONE, 1)
@@ -317,6 +339,7 @@ class MemoryPipeline(
 
     companion object {
         const val MAX_ATTEMPTS = 3
+        private const val NOT_KEPT = "Anu doesn't keep passwords, codes, or card, bank or ID numbers in memory."
         private const val BATCH = 10
         private const val INFERRED_CONFIDENCE = 0.6
         private const val CONFIRMATION_STEP = 0.15

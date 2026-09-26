@@ -114,6 +114,11 @@ class ToolBroker(
     private val audit: ToolAudit = ToolAudit.None,
     private val approvalTimeoutMillis: Long = 10 * 60_000L,
     private val clock: () -> Long = System::currentTimeMillis,
+    /**
+     * Tools that come and go while the app runs, such as those of the user's MCP servers (ADR-046).
+     * The same policy applies to them. A fixed tool wins if a name is ever shared.
+     */
+    private val dynamicTools: () -> Collection<Tool<*, *>> = { emptyList() },
 ) {
     private val byName: Map<String, Tool<*, *>> = tools.associateBy { it.name }
 
@@ -121,13 +126,15 @@ class ToolBroker(
         require(byName.size == tools.size) { "Tool names must be unique" }
     }
 
+    private fun find(name: String): Tool<*, *>? = byName[name] ?: dynamicTools().firstOrNull { it.name == name }
+
     /** Schemas of the named tools, so each skill offers only the tools it needs (§7.3). */
     fun specs(names: Collection<String>): List<ToolSpec> = names.map { name ->
-        requireNotNull(byName[name]) { "No tool named $name" }.spec()
+        requireNotNull(find(name)) { "No tool named $name" }.spec()
     }
 
     suspend fun execute(call: ToolCall, run: RunState): ToolOutcome {
-        val tool = byName[call.name]
+        val tool = find(call.name)
             ?: return ToolOutcome.Invalid("There is no tool named ${call.name}. Available: ${byName.keys.sorted().joinToString()}")
         return executeTyped(tool, call, run)
     }
@@ -141,8 +148,13 @@ class ToolBroker(
             return ToolOutcome.Invalid("The arguments for ${tool.name} are not valid: ${e.message}")
         }
         // Tools may reject input while assessing it, for example an end time before the start.
-        val (risk, summary) = try {
-            tool.risk(input) to tool.describe(input)
+        val risk: RiskTier
+        val summary: String
+        val destination: String?
+        try {
+            risk = tool.risk(input)
+            summary = tool.describe(input)
+            destination = tool.sendsTo(input)
         } catch (e: IllegalArgumentException) {
             return ToolOutcome.Invalid("The arguments for ${tool.name} are not valid: ${e.message}")
         }
@@ -165,10 +177,12 @@ class ToolBroker(
         }
 
         val approvalReason = when (risk) {
-            RiskTier.READ -> null
+            // Injected text could otherwise send the user's data to a third party without asking.
+            RiskTier.READ -> if (run.tainted && destination != null) "This sends data to $destination after reading content written by others" else null
             RiskTier.WRITE_PRIVATE -> if (run.tainted) "This request read content written by others" else null
-            RiskTier.WRITE_EXTERNAL -> "Other people will see this"
-            RiskTier.DESTRUCTIVE -> "This can't be undone"
+            // A service or store the user added isn't "other people": say where it goes (seen on the emulator).
+            RiskTier.WRITE_EXTERNAL -> if (destination != null) "This goes to $destination, outside your phone" else "Other people will see this"
+            RiskTier.DESTRUCTIVE -> if (destination != null) "This goes to $destination, and may not be undoable there" else "This can't be undone"
         }
         if (approvalReason != null) {
             val decision = withTimeoutOrNull(approvalTimeoutMillis) {

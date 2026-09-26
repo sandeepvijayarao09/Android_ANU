@@ -1,8 +1,27 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <!-- Router Stage A: is the phone online (§6)? -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <!-- Talking to Anu (ADR-043). Recognition runs on the phone's own on-device recognizer. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+
+    <!-- "Hey Anu" listens in a foreground service, with a notification while it does (ADR-045). -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <queries>
+        <!-- The phone's text-to-speech engine and speech recognizers (package visibility, API 30+). -->
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE" />
+        </intent>
+        <intent>
+            <action android:name="android.speech.RecognitionService" />
+        </intent>
+    </queries>
 
     <!-- Nothing is backed up: every store is encrypted with device-bound keys (ARCHITECTURE §14). -->
     <application
@@ -40,5 +59,51 @@
                 <data android:mimeType="text/plain" />
             </intent-filter>
         </activity>
+
+        <!-- Anu as the digital assistant (ARCHITECTURE §13, ADR-044): the power button or corner swipe opens it. -->
+        <service
+            android:name=".AnuVoiceInteractionService"
+            android:exported="true"
+            android:label="Anu"
+            android:permission="android.permission.BIND_VOICE_INTERACTION">
+            <meta-data
+                android:name="android.voice_interaction"
+                android:resource="@xml/voice_interaction" />
+            <intent-filter>
+                <action android:name="android.service.voice.VoiceInteractionService" />
+            </intent-filter>
+        </service>
+        <service
+            android:name=".AnuSessionService"
+            android:exported="true"
+            android:permission="android.permission.BIND_VOICE_INTERACTION" />
+        <!--
+            Exported without a permission, like every recognizer: apps reach it through SpeechRecognizer, and
+            Android checks that the calling app holds RECORD_AUDIO before any audio is delivered.
+        -->
+        <service
+            android:name=".AnuRecognitionService"
+            android:exported="true"
+            tools:ignore="ExportedService">
+            <intent-filter>
+                <action android:name="android.speech.RecognitionService" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+            <meta-data
+                android:name="android.speech"
+                android:resource="@xml/recognition_service" />
+        </service>
+        <!-- "Hey Anu": opt-in, screen-on only, paused while Anu is open (ADR-045). -->
+        <service
+            android:name=".WakeWordService"
+            android:exported="false"
+            android:foregroundServiceType="microphone" />
+        <activity
+            android:name=".AssistantActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:taskAffinity=""
+            android:theme="@style/Theme.Anu.Sheet"
+            android:windowSoftInputMode="adjustResize" />
     </application>
 </manifest>

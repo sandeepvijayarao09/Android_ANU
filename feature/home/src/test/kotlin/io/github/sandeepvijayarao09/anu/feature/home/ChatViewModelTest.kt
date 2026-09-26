@@ -186,6 +186,11 @@ class ChatViewModelTest {
         assertEquals("Create \"Design review\" and invite maya@example.com", approval.summary)
         assertEquals(listOf("title: Design review", "attendees: maya@example.com"), payloadLines(approval.payload))
         assertEquals(listOf("title: x"), payloadLines(buildJsonObject { put("title", "x"); put("location", kotlinx.serialization.json.JsonNull) }))
+        val order = kotlinx.serialization.json.Json.parseToJsonElement("""{"store":"shoes.example.com","items":[{"item_id":"shoe_10","quantity":1},{"item_id":"sock_m","quantity":2}]}""")
+        assertEquals(
+            listOf("store: shoes.example.com", "items: item_id: shoe_10, quantity: 1; item_id: sock_m, quantity: 2"),
+            payloadLines(order as kotlinx.serialization.json.JsonObject),
+        )
         assertEquals(0, tool.created)
 
         scheduling.approve(approval.id)

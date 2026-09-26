@@ -152,4 +152,55 @@ class ToolBrokerTest {
         withdrawn.cancelAndJoin()
         assertTrue(center.requests.value.isEmpty())
     }
+
+    @Test
+    fun `tools that come and go are found, and follow the same policy`() = runTest {
+        val remote = FakeRemoteLookup()
+        var available = listOf<Tool<*, *>>()
+        val broker = ToolBroker(listOf(create, inbox), gate, dynamicTools = { available })
+        val lookup = ToolCall(remote.name, buildJsonObject { put("query", "groceries") })
+        assertTrue(broker.execute(lookup, run()) is ToolOutcome.Invalid)
+
+        available = listOf(remote)
+        assertEquals(listOf(remote.name), broker.specs(listOf(remote.name)).map { it.name })
+        assertTrue(broker.execute(lookup, run()) is ToolOutcome.Ok)
+        assertEquals(listOf("groceries"), remote.queries)
+        assertTrue("an untainted lookup runs without asking", gate.requests.isEmpty())
+    }
+
+    @Test
+    fun `once a run is tainted, a lookup that sends data to a third party needs approval`() = runTest {
+        val remote = FakeRemoteLookup()
+        val broker = ToolBroker(listOf(create, inbox, remote), gate)
+        val state = run()
+        assertTrue(broker.execute(search, state) is ToolOutcome.Ok) // reads text written by others
+        gate.decision = ApprovalDecision.Denied("no")
+        val outcome = broker.execute(ToolCall(remote.name, buildJsonObject { put("query", "my address") }), state)
+        assertTrue(outcome is ToolOutcome.Rejected)
+        assertEquals(RiskTier.READ, gate.requests.single().risk)
+        assertTrue(gate.requests.single().reason, gate.requests.single().reason.contains("notes.example.com"))
+        assertTrue(remote.queries.isEmpty())
+        // A lookup that stays on the phone still runs without asking.
+        assertTrue(broker.execute(search, state) is ToolOutcome.Ok)
+        assertEquals(1, gate.requests.size)
+    }
+
+    @Test
+    fun `an approval for a third party says where the data goes`() = runTest {
+        val order = object : Tool<QueryInput, ItemsOutput> {
+            override val name = "shop_checkout"
+            override val description = "Start a checkout"
+            override val input = QueryInput.serializer()
+            override val output = ItemsOutput.serializer()
+            override val dataClasses = setOf(io.github.sandeepvijayarao09.anu.core.model.DataClass.PERSONAL)
+            override val returnsUntrustedContent = true
+            override fun risk(input: QueryInput) = RiskTier.WRITE_EXTERNAL
+            override fun describe(input: QueryInput) = "Start a checkout for ${input.query}"
+            override fun sendsTo(input: QueryInput) = "shoes.example.com"
+            override suspend fun invoke(input: QueryInput, context: ToolContext) = ItemsOutput(listOf("chk_1"))
+        }
+        val broker = ToolBroker(listOf(order), gate)
+        assertTrue(broker.execute(ToolCall("shop_checkout", buildJsonObject { put("query", "shoes") }), run()) is ToolOutcome.Ok)
+        assertEquals("This goes to shoes.example.com, outside your phone", gate.requests.single().reason)
+    }
 }
