@@ -37,12 +37,38 @@ data class Bubble(
     val streaming: Boolean = false,
     val failed: Boolean = false,
     /** What really happened, from the Tool Broker's record, never from the model's words (ADR-027). */
-    val actions: List<String> = emptyList(),
+    val actions: List<Receipt> = emptyList(),
     /** Links a tool offered, such as a store's checkout page. Shown as buttons; only the user opens them (ADR-047). */
     val links: List<LinkAction> = emptyList(),
 )
 
 data class LinkAction(val label: String, val url: String)
+
+/**
+ * One action's receipt, written from the Tool Broker's record (ADR-027): the tool's own summary and what
+ * happened, never the model's words. The screen shows it with the tool's icon and where it happened.
+ */
+data class Receipt(val tool: String, val summary: String, val status: Status) {
+    enum class Status { DONE, NOT_DONE, FAILED }
+
+    /** Where it happened: tools that talk to the outside leave the phone (Gmail, replies, services, stores). */
+    val leftPhone: Boolean
+        get() = tool.startsWith("email_") || tool.startsWith("mcp_") || tool.startsWith("shop_") || tool == "messages_reply"
+
+    /** The kind of thing it touched, for its icon and its "Calendar · on device" line. */
+    val family: String
+        get() = when {
+            tool.startsWith("calendar_") -> "Calendar"
+            tool.startsWith("contacts_") -> "Contacts"
+            tool.startsWith("email_") -> "Gmail"
+            tool.startsWith("messages_") -> "Messages"
+            tool.startsWith("sms_") -> "Text messages"
+            tool.startsWith("memory_") -> "Memory"
+            tool.startsWith("shop_") -> "Store"
+            tool.startsWith("mcp_") -> "Service"
+            else -> "Anu"
+        }
+}
 
 data class ChatUiState(
     val bubbles: List<Bubble> = emptyList(),
@@ -286,7 +312,7 @@ class ChatViewModel(
                 if (speakTurn) speechOut?.stop()
                 spokenUpTo = 0
             }
-            is AgentEvent.Escalated -> edit(id) { it.copy(tier = event.to, note = "Trying ${event.to.label}…") }
+            is AgentEvent.Escalated -> edit(id) { it.copy(tier = event.to, note = "Trying ${event.to.model}…") }
             is AgentEvent.ConsentNeeded -> mutable.update { state ->
                 state.copy(bubbles = state.bubbles.filterNot { it.id == id }, consentFor = text)
             }
@@ -295,13 +321,13 @@ class ChatViewModel(
                 spokenUpTo = 0
             }
             is AgentEvent.ToolFinished -> {
-                actionLine(event.outcome)?.let { line -> edit(id) { it.copy(actions = it.actions + line) } }
+                receipt(event.call.name, event.outcome)?.let { line -> edit(id) { it.copy(actions = it.actions + line) } }
                 linkFrom(event.outcome)?.let { link -> edit(id) { it.copy(links = it.links + link) } }
             }
             // Only the final answer is kept. Text the model wrote before calling tools is scaffolding.
             is AgentEvent.Completed -> {
                 edit(id) {
-                    it.copy(text = event.text, tier = event.tier, note = null, actions = event.actions.map(::actionLine), failed = event.unverifiedClaim)
+                    it.copy(text = event.text, tier = event.tier, note = null, actions = event.actions.map(::receipt), failed = event.unverifiedClaim)
                 }
                 speakProgress(id, final = true)
             }
@@ -323,10 +349,10 @@ class ChatViewModel(
         sentences.forEach(out::speak)
     }
 
-    private fun actionLine(outcome: ToolOutcome): String? = when (outcome) {
-        is ToolOutcome.Ok -> "✓ ${outcome.summary}"
-        is ToolOutcome.Rejected -> "✗ Not done: ${outcome.summary}"
-        is ToolOutcome.Failed -> "! Failed: ${outcome.summary}"
+    private fun receipt(tool: String, outcome: ToolOutcome): Receipt? = when (outcome) {
+        is ToolOutcome.Ok -> Receipt(tool, outcome.summary, Receipt.Status.DONE)
+        is ToolOutcome.Rejected -> Receipt(tool, outcome.summary, Receipt.Status.NOT_DONE)
+        is ToolOutcome.Failed -> Receipt(tool, outcome.summary, Receipt.Status.FAILED)
         is ToolOutcome.Invalid -> null
     }
 
@@ -339,11 +365,15 @@ class ChatViewModel(
         return LinkAction(label.take(60), url)
     }
 
-    private fun actionLine(action: ActionRecord): String = when (action.status) {
-        ActionRecord.Status.DONE -> "✓ ${action.summary}"
-        ActionRecord.Status.NOT_DONE -> "✗ Not done: ${action.summary}"
-        ActionRecord.Status.FAILED -> "! Failed: ${action.summary}"
-    }
+    private fun receipt(action: ActionRecord): Receipt = Receipt(
+        action.tool,
+        action.summary,
+        when (action.status) {
+            ActionRecord.Status.DONE -> Receipt.Status.DONE
+            ActionRecord.Status.NOT_DONE -> Receipt.Status.NOT_DONE
+            ActionRecord.Status.FAILED -> Receipt.Status.FAILED
+        },
+    )
 
     /** What the user sees while a tool runs. */
     private fun activity(tool: String): String = when {
@@ -375,10 +405,18 @@ class ChatViewModel(
     }
 }
 
-/** How the UI names each tier, so users always know where an answer came from (§6). */
+/** How the UI names each tier, so users always know where an answer came from (§6, DESIGN.md). */
 val Tier.label: String
     get() = when (this) {
-        Tier.BASE -> "On-device · Base"
-        Tier.PRO -> "On-device · Pro"
+        Tier.BASE -> "On device · Gemma 4 E2B"
+        Tier.PRO -> "On device · Gemma 4 E4B"
         Tier.CLOUD -> "Cloud · Gemini"
+    }
+
+/** A tier's model, for notes such as "Trying Gemma 4 E4B…". */
+val Tier.model: String
+    get() = when (this) {
+        Tier.BASE -> "Gemma 4 E2B"
+        Tier.PRO -> "Gemma 4 E4B"
+        Tier.CLOUD -> "Gemini"
     }

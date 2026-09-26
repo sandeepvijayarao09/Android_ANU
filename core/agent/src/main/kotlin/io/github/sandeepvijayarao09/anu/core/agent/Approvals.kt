@@ -17,6 +17,10 @@ data class ApprovalRequest(
     val risk: RiskTier,
     /** Why approval is needed, for example "invites other people" or "the request read untrusted content". */
     val reason: String,
+    /** The third party the payload goes to, when the tool says ([Tool.sendsTo]), such as a store's host. */
+    val destination: String? = null,
+    /** The run read content written by others before asking (P4), so the sheet asks for a closer read. */
+    val tainted: Boolean = false,
 )
 
 sealed interface ApprovalDecision {

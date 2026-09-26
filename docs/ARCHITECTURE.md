@@ -1,6 +1,6 @@
 # Anu for Android: Architecture
 
-Version 1.8.0 · Draft · 2026-09-26
+Version 1.9.0 · Draft · 2026-09-26
 Status: proposed. OD-1 to OD-4 were resolved on 2026-09-25 (§16).
 Product intent lives in [VISION.md](VISION.md).
 
@@ -192,6 +192,7 @@ sequenceDiagram
 | `core:agent` | Agent loop, Tool Broker, policy, approvals, budgets, run store interface | **no** |
 | `core:router` | Router stages, features, scorer, telemetry interface | **no** |
 | `core:memory` | Event log, facts, profile, retrieval, memory pipeline and memory tools. Its store is in `core:data` and its scheduling in `app` (ADR-036) | **no** |
+| `core:ui` | The design system ([DESIGN.md](../DESIGN.md), ADR-048): theme tokens for light and dark, bundled Google Sans Flex and JetBrains Mono (OFL, licenses in its assets), the sphere, the privacy indicator, buttons, grouped lists, the tab bar and line icons. It knows nothing of brains, connectors or the agent: features pass it plain values | yes |
 | `core:voice` | Speech contracts, wake-phrase matching and the `WakeListener` loop in plain Kotlin, beside the Android engines: the on-device `SpeechRecognizer` and `TextToSpeech` (ADR-043, ADR-045) | yes |
 | `core:security` | `SecretRef`/`SecretUse` handles, PII detection, reversible redaction, egress gate, Privacy Ledger interface | **no** |
 | `core:vault` | Keystore + Tink vault store, host-bound HTTP injector (`withVault`), and the shared `KeystoreAead` primitive with its `KeyPolicy` | yes |
@@ -223,6 +224,7 @@ sequenceDiagram
 - Only `core:vault` can decrypt secrets. Only the vault's HTTP injector can attach one to a request.
 - Only `core:data` touches the database.
 - Nothing depends on `app` or on `feature:*`.
+- Every screen styles itself only through `core:ui` (DESIGN.md). `core:ui` depends on no other Anu module.
 - Code restricted to one flavor (SMS) lives in its own modules and is wired in only through `personalImplementation`. The `play` flavor must build and pass its tests without it, and its merged manifest must contain no SMS permissions.
 
 ### 4.3 Tech stack
@@ -768,7 +770,11 @@ Recommend a **paid** Gemini tier for personal data. Google's terms for unpaid Ge
 
 ## 13. Surfaces
 
-**Visual design (ADR-048).** [DESIGN.md](../DESIGN.md) is the source of truth for colors, type, components and motion ("quiet precision", approved 2026-09-26): neutral surfaces, Google Sans Flex, a procedural sphere as Anu's presence, and color reserved for privacy (green stays on the phone, orange leaves it). The screens below don't follow it yet: the redesign is Planned.
+**Visual design (ADR-048, ADR-049).** [DESIGN.md](../DESIGN.md) is the source of truth for colors, type, components and motion ("quiet precision", approved 2026-09-26): neutral surfaces, Google Sans Flex, a procedural sphere as Anu's presence, and color reserved for privacy (green stays on the phone, orange leaves it). The redesign is in progress:
+- **Built:** the theme and the sphere, Talk, the approval and cloud-consent sheets, the assistant card, the tab bar, and the privacy indicator on Talk.
+  - **Talk:** empty, the thread with receipts, listening, and the composer.
+  - **Privacy indicator:** its count comes from today's Privacy Ledger entries, and its orange arc from new ones.
+- **Not yet:** Memory, Settings and the Privacy report still have the 1.7 layout, restyled only by the new theme. The privacy indicator opens Settings, where the ledger is, until the Privacy report page exists.
 
 | Surface | How |
 |---|---|
@@ -1029,6 +1035,7 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 | 046 | 2026-09-26 | MCP servers the user adds become tools (`mcp_<server>_<tool>`) through a dual-era Streamable HTTP client: stateless 2026-07-28 first, a 2025 `initialize` session as the fallback. They are offered only in turns that name the server (at most six). Risk comes from annotations (unannotated tools need approval, as destructive). Results are untrusted, every call is ledgered, and tokens sit in the vault bound to the server's host. A READ tool that sends data to a third party needs approval once the run is tainted (`Tool.sendsTo`) | MCP is how services offer tools to agents. The definitions come from the server, so they can't lower the policy. Offering tools only when named keeps small models' prompts short, and keeps injected text from reaching a server the user didn't mention |
 | 047 | 2026-09-26 | Shopping through UCP 2026-08-25's REST binding: stores added by address and discovered at `/.well-known/ucp`, `shop_search` (READ, untrusted, ledgered) and `shop_checkout` (WRITE_EXTERNAL; the approval shows the items and the estimated total). Anu never completes a checkout or touches payment: the store's `continue_url` becomes a "Finish at…" button the user taps. `UCP-Agent` names an honest `.invalid` profile until Anu has a hosted one | Buying can't be undone and involves payment credentials, which Anu must never handle (I1). The continue URL is UCP's own hand-off to a person. A made-up profile URL would misrepresent Anu to stores |
 | 048 | 2026-09-26 | The UI follows DESIGN.md, "quiet precision": neutral surfaces, one type family (Google Sans Flex, bundled), a procedural pearl/obsidian sphere as Anu's presence with no mascot, and color reserved for privacy: green when data stays on the phone, orange when it leaves, shown in a privacy indicator on every page, in receipts, approvals and a Privacy report | The user asked for professional, Apple-grade standards and rejected a cartoon character. Research covered Meta Muse, ChatGPT, Gemini, Siri, Perplexity and Alexa+. Color that always means data location makes "trust you can see" literal, as Apple's privacy indicators do |
+| 049 | 2026-09-26 | The design system is a module, `core:ui`, that every screen styles itself through. Approval requests carry their destination (`Tool.sendsTo`) and whether the run was tainted, so the sheet says where data goes and asks for a closer read. Answers carry structured receipts (tool, summary, status) built from the broker's record | One place for tokens keeps screens consistent, and the fonts ship once. The sheet can't guess a destination from prose, and a receipt must never be the model's words (ADR-027) |
 
 ### Component status
 
@@ -1080,11 +1087,16 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 | "Hey Anu" (ADR-045): `WakeWordService`, the Settings switch | 4 | Implemented. On the Anu emulator it pauses while Anu is open and turns itself off without a language pack. Real wake-ups need the reference phone (S9) |
 | MCP connector (`connector:mcp`, ADR-046): dual-era client, tools per server, offered when named | 4 | Implemented. 9 JVM tests (both eras, SSE, headers, schemas, ledger). Verified by hand on the Anu emulator with E4B against the mock server: a read, an approved write, and the 2025 fallback. No real third-party server tried yet |
 | Shopping (`connector:shopping`, ADR-047): UCP discovery, `shop_search`, `shop_checkout` with the store's own finish page | 4 | Implemented. 4 JVM tests. Verified by hand on the Anu emulator with E4B against the mock store: search, an approved checkout, and the Finish button. No real UCP store tried yet; stores that require a fetchable platform profile won't work until Anu has one |
-| Visual redesign to DESIGN.md (ADR-048): the sphere, privacy indicator, receipts, approval sheet, assistant card, grouped Memory and Settings, Privacy report | 4 | Planned. The design and an HTML preview were approved on 2026-09-26; the app still has the 1.7 look |
+| Visual redesign to DESIGN.md (ADR-048, ADR-049): the sphere, privacy indicator, receipts, approval sheet, assistant card, grouped Memory and Settings, Privacy report | 4 | In progress. `core:ui`, Talk, the approval and consent sheets, the assistant card and the tab bar are built and checked on anu_api36 in light and dark, including a declined approval that sent nothing. Next: Memory, Settings, the Privacy report, card-only blur behind the assistant card, and a shader sphere for Android 13+ |
 | Proactive agents, learned router | 4 | Planned |
 | Hardening, release readiness | 5 | Planned |
 
 ### Changelog
+
+- **1.9.0** (2026-09-26): the redesign, first slice (ADR-049).
+  - `core:ui`: theme tokens, bundled Google Sans Flex with optical sizes and JetBrains Mono, the procedural sphere, and shared components.
+  - Talk rebuilt as one surface (empty state, thread with receipts, listening, composer). The approval and cloud-consent dialogs became sheets, and the assistant card was rebuilt. The tab bar has icons.
+  - Approval requests carry their destination and taint. Answers carry structured receipts. Tier labels name the model ("On device · Gemma 4 E4B").
 
 - **1.8.0** (2026-09-26): the UI design system.
   - DESIGN.md, "quiet precision", approved after researching Meta Muse, ChatGPT, Gemini, Siri, Perplexity and Alexa+ (ADR-048).

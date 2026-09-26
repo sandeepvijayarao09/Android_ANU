@@ -44,6 +44,7 @@ android {
 
 dependencies {
     implementation(project(":feature:home"))
+    implementation(project(":core:ui"))
     implementation(project(":feature:settings"))
     implementation(project(":feature:memory"))
     implementation(project(":feature:writing"))

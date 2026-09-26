@@ -7,10 +7,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
+import io.github.sandeepvijayarao09.anu.core.ui.AnuTheme
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.sandeepvijayarao09.anu.feature.writing.WritingSheet
 import io.github.sandeepvijayarao09.anu.feature.writing.WritingViewModel
@@ -28,7 +25,7 @@ class WritingActivity : ComponentActivity() {
         val text = intent.getCharSequenceExtra(Intent.EXTRA_PROCESS_TEXT)?.toString().orEmpty()
         val readOnly = intent.getBooleanExtra(Intent.EXTRA_PROCESS_TEXT_READONLY, false)
         setContent {
-            MaterialTheme(colorScheme = if (isSystemInDarkTheme()) darkColorScheme() else lightColorScheme()) {
+            AnuTheme {
                 val writing = viewModel {
                     WritingViewModel(
                         cascade = graph.writing,

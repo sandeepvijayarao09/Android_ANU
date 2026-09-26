@@ -186,7 +186,7 @@ class ToolBroker(
         }
         if (approvalReason != null) {
             val decision = withTimeoutOrNull(approvalTimeoutMillis) {
-                approvals.request(ApprovalRequest(key, tool.name, summary, payload, risk, approvalReason))
+                approvals.request(ApprovalRequest(key, tool.name, summary, payload, risk, approvalReason, destination, run.tainted))
             }
             if (decision == null) {
                 record("no answer in time", approved = false)

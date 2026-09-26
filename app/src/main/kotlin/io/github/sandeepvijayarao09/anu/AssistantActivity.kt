@@ -4,6 +4,9 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import android.content.Intent
+import io.github.sandeepvijayarao09.anu.feature.home.AssistantCard
+import io.github.sandeepvijayarao09.anu.core.ui.AnuTheme
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -11,17 +14,10 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
+import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -33,7 +29,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.sandeepvijayarao09.anu.feature.home.ChatViewModel
-import io.github.sandeepvijayarao09.anu.feature.home.TalkScreen
 
 /**
  * The assistant overlay (ADR-044): the orb in a sheet over whatever app is showing. It listens at once,
@@ -46,7 +41,7 @@ class AssistantActivity : ComponentActivity() {
         val graph = (application as AnuApp).graph
         val query = intent.getStringExtra(AnuVoiceInteractionService.EXTRA_QUERY)?.takeIf(String::isNotBlank)
         setContent {
-            MaterialTheme(colorScheme = if (isSystemInDarkTheme()) darkColorScheme() else lightColorScheme()) {
+            AnuTheme {
                 val chat = viewModel { ChatViewModel(graph.chat, graph.device::current, graph.approvals, graph.speechIn, graph.speechOut) }
                 var micGranted by remember { mutableStateOf(checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) }
                 val askMic = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -60,19 +55,22 @@ class AssistantActivity : ComponentActivity() {
                         else -> askMic.launch(Manifest.permission.RECORD_AUDIO)
                     }
                 }
+                // The app underneath stays visible and lightly dimmed; tapping it closes the card.
                 Box(
-                    Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.32f))
+                    Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.12f))
                         .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = ::finish),
                     contentAlignment = Alignment.BottomCenter,
                 ) {
-                    Surface(
-                        Modifier.fillMaxWidth().fillMaxHeight(0.62f)
-                            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {},
-                        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
-                        tonalElevation = 3.dp,
-                    ) {
-                        TalkScreen(chat, micGranted, onRequestMic = { askMic.launch(Manifest.permission.RECORD_AUDIO) }, Modifier.navigationBarsPadding(), compact = true)
-                    }
+                    AssistantCard(
+                        chat,
+                        micGranted,
+                        onRequestMic = { askMic.launch(Manifest.permission.RECORD_AUDIO) },
+                        onOpenApp = {
+                            startActivity(Intent(this@AssistantActivity, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                            finish()
+                        },
+                        modifier = Modifier.navigationBarsPadding().padding(start = 10.dp, end = 10.dp, bottom = 16.dp),
+                    )
                 }
             }
         }

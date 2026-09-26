@@ -179,6 +179,7 @@ class ToolBrokerTest {
         assertTrue(outcome is ToolOutcome.Rejected)
         assertEquals(RiskTier.READ, gate.requests.single().risk)
         assertTrue(gate.requests.single().reason, gate.requests.single().reason.contains("notes.example.com"))
+        assertTrue("the sheet can ask for a closer read", gate.requests.single().tainted)
         assertTrue(remote.queries.isEmpty())
         // A lookup that stays on the phone still runs without asking.
         assertTrue(broker.execute(search, state) is ToolOutcome.Ok)
@@ -202,5 +203,7 @@ class ToolBrokerTest {
         val broker = ToolBroker(listOf(order), gate)
         assertTrue(broker.execute(ToolCall("shop_checkout", buildJsonObject { put("query", "shoes") }), run()) is ToolOutcome.Ok)
         assertEquals("This goes to shoes.example.com, outside your phone", gate.requests.single().reason)
+        assertEquals("shoes.example.com", gate.requests.single().destination)
+        assertEquals(false, gate.requests.single().tainted)
     }
 }
