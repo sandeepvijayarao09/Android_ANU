@@ -15,6 +15,7 @@ jobs:
           distribution: temurin
           java-version: "21"
       - uses: gradle/actions/setup-gradle@v6
-      # Unit tests for every module, plus both flavors (ADR-012). Real-model tests need a device and
-      # a pushed model, so they run locally (see CLAUDE.md), not here.
-      - run: ./gradlew test assemblePersonalDebug assemblePlayDebug :brain:litertlm:assembleDebugAndroidTest
+      # Unit tests for every module, plus both flavors (ADR-012). Building a play variant also runs the
+      # check that its manifest has no SMS permission. Device tests need an emulator and, for the real
+      # model, a pushed model file, so they run locally (see CLAUDE.md); here they are only compiled.
+      - run: ./gradlew test assemblePersonalDebug assemblePlayDebug :brain:litertlm:assembleDebugAndroidTest :connector:messages:assembleDebugAndroidTest

@@ -3,6 +3,7 @@ package io.github.sandeepvijayarao09.anu.brain.gemini
 import io.github.sandeepvijayarao09.anu.core.model.BrainEvent
 import io.github.sandeepvijayarao09.anu.core.model.BrainRequest
 import io.github.sandeepvijayarao09.anu.core.model.ChatMessage
+import io.github.sandeepvijayarao09.anu.core.model.userText
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.addJsonObject
@@ -24,7 +25,7 @@ internal object GeminiWire {
         request.system?.let { system ->
             putJsonObject("systemInstruction") { putJsonArray("parts") { addJsonObject { put("text", system) } } }
         }
-        putJsonArray("contents") { request.transcript.forEach { add(content(it)) } }
+        putJsonArray("contents") { request.transcript.indices.forEach { add(content(request, it)) } }
         if (request.tools.isNotEmpty()) {
             putJsonArray("tools") {
                 addJsonObject {
@@ -55,10 +56,10 @@ internal object GeminiWire {
         outputTokens = metadata["candidatesTokenCount"].int(),
     )
 
-    private fun content(message: ChatMessage): JsonObject = when (message) {
+    private fun content(request: BrainRequest, index: Int): JsonObject = when (val message = request.transcript[index]) {
         is ChatMessage.User -> buildJsonObject {
             put("role", "user")
-            putJsonArray("parts") { addJsonObject { put("text", message.text) } }
+            putJsonArray("parts") { addJsonObject { put("text", request.userText(index)) } }
         }
         is ChatMessage.Model -> buildJsonObject {
             put("role", "model")

@@ -87,7 +87,10 @@ class ChatSessionTest {
         scheduling.send("Book a meeting with Maya tomorrow afternoon", device).toList()
         val request = pro.requests.single()
         assertEquals(listOf(create.name), request.tools.map { it.name })
-        assertTrue(request.system!!, request.system!!.contains("Friday, 25 September 2026, 10:31 (America/New_York)"))
+        assertTrue(request.system!!, request.system!!.contains("Friday, 25 September 2026 (America/New_York)"))
+        assertEquals("Fri 2026-09-25 10:31", request.sentAt)
+        assertTrue(request.system!!.contains("call calendar_create_event"))
+        assertTrue("hints for tools it wasn't given", "messages_reply" !in request.system!!)
 
         // A fresh conversation: "Hello there" right after scheduling would count as a follow-up and keep the tools.
         val plain = ChatSession(
@@ -98,6 +101,28 @@ class ChatSessionTest {
         base.enqueue(Step.Reply("Hi!"))
         plain.send("Hello there", device).toList()
         assertTrue(base.requests.single().tools.isEmpty())
+    }
+
+    @Test
+    fun `the system prompt stays the same from turn to turn, and the time travels with the message`() = runTest {
+        var now = java.time.ZonedDateTime.parse("2026-09-25T10:31:00-04:00[America/New_York]")
+        val chat = ChatSession(agent(mapOf(Tier.BASE to base)), clock = { now })
+        base.enqueue(Step.Reply("Hi!"), Step.Reply("Sure."))
+        chat.send("Hello", device).toList()
+        now = now.plusMinutes(7)
+        chat.send("And now?", device).toList()
+        // A prompt that changed every minute would make the on-device model re-read the whole chat (ADR-018).
+        assertEquals(base.requests[0].system, base.requests[1].system)
+        assertEquals(listOf("Fri 2026-09-25 10:31", "Fri 2026-09-25 10:38"), base.requests.map { it.sentAt })
+    }
+
+    @Test
+    fun `a reply after reading texts keeps the messaging tools`() = runTest {
+        val skills = mutableListOf<io.github.sandeepvijayarao09.anu.core.router.Skill>()
+        val chat = ChatSession(agent(mapOf(Tier.BASE to base, Tier.PRO to pro)), toolsFor = { skills += it; emptyList() })
+        repeat(3) { base.enqueue(Step.Reply("Okay.")); pro.enqueue(Step.Reply("Okay.")) }
+        listOf("Any new texts from Maya?", "Reply that 1 works", "Make it 1:30").forEach { chat.send(it, device).toList() }
+        assertEquals(List(3) { io.github.sandeepvijayarao09.anu.core.router.Skill.MESSAGES }, skills)
     }
 
     @Test

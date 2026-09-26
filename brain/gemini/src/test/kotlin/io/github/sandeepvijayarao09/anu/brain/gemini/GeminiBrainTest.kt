@@ -144,6 +144,20 @@ class GeminiBrainTest {
     }
 
     @Test
+    fun `the newest user message carries the time it was sent`() = runBlocking {
+        server.enqueue(sse(text("ok", 5)))
+        brain.stream(
+            BrainRequest(
+                transcript = listOf(ChatMessage.User("Hi"), ChatMessage.Model("Hello!"), ChatMessage.User("What time is it?")),
+                sentAt = "Fri 2026-09-25 14:46",
+            ),
+        ).toList()
+        val contents = Json.parseToJsonElement(server.takeRequest().body!!.utf8()).jsonObject.getValue("contents").jsonArray
+        val texts = contents.map { it.jsonObject.getValue("parts").jsonArray.single().jsonObject.getValue("text").jsonPrimitive.content }
+        assertEquals(listOf("Hi", "Hello!", "[Fri 2026-09-25 14:46] What time is it?"), texts)
+    }
+
+    @Test
     fun `http errors surface as GeminiException`() {
         server.enqueue(MockResponse.Builder().code(429).body("""{"error":{"message":"quota"}}""").build())
         val error = assertThrows(GeminiException::class.java) { runBlocking { brain.stream(hello).toList() } }

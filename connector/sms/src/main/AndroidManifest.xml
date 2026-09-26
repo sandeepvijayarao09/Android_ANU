@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- SMS connector, personal flavor only (ADR-012, ADR-032). Read-only: never SEND_SMS. -->
+    <uses-permission android:name="android.permission.READ_SMS" />
+</manifest>

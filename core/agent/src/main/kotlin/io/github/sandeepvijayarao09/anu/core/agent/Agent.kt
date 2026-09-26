@@ -85,6 +85,8 @@ class Agent(
         tools: List<String>,
         turnKey: String,
         runId: String = turnKey,
+        /** When the user sent the newest message. Brains show it with that message (ADR-018). */
+        sentAt: String? = null,
     ): Flow<AgentEvent> = flow {
         var route = route
         var decision = when (val result = router.route(route, device)) {
@@ -136,6 +138,7 @@ class Agent(
                 dataClasses = route.dataClasses,
                 purpose = route.skill.name.lowercase(),
                 sampling = if (repaired) Sampling.Precise else Sampling.Default,
+                sentAt = sentAt,
             )
             val text = StringBuilder()
             val calls = mutableListOf<ToolCall>()

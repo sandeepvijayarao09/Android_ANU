@@ -35,6 +35,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.sandeepvijayarao09.anu.core.agent.ToolAuditEntry
 import io.github.sandeepvijayarao09.anu.core.model.BrainId
@@ -74,6 +75,8 @@ fun SettingsScreen(viewModel: SettingsViewModel, modifier: Modifier = Modifier) 
         HorizontalDivider()
         ConnectorsSection()
         GmailRow(viewModel)
+        MessagingRow(viewModel)
+        if (viewModel.smsAvailable) SmsRow()
 
         HorizontalDivider()
         Section(
@@ -106,7 +109,7 @@ fun SettingsScreen(viewModel: SettingsViewModel, modifier: Modifier = Modifier) 
         }
 
         HorizontalDivider()
-        Section("Activity", "What Anu did with your calendar and contacts, including what it asked you to approve.")
+        Section("Activity", "What Anu did with your calendar, contacts, email and messages, including what it asked you to approve.")
         if (toolActions.isEmpty()) {
             Text("Nothing yet.", style = MaterialTheme.typography.bodyMedium)
         } else {
@@ -195,7 +198,62 @@ private fun GmailRow(viewModel: SettingsViewModel) {
     }
 }
 
+/** Chat apps reach Anu through their notifications, which Android lets the user switch on in its settings (ADR-031). */
+@Composable
+private fun MessagingRow(viewModel: SettingsViewModel) {
+    val enabled by viewModel.messagingEnabled.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    // The user turns access on in Android's settings, so check again whenever they come back.
+    LifecycleResumeEffect(Unit) {
+        viewModel.refreshMessaging()
+        onPauseOrDispose {}
+    }
+    val current = enabled ?: return
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text("Messaging apps", style = MaterialTheme.typography.bodyLarge)
+            Text(
+                "Reads chats from their notifications, such as Messages and WhatsApp. Replies always ask you first.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        if (current) {
+            Text("Connected", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+        } else {
+            Button(onClick = { viewModel.messagingSettings().firstOrNull { runCatching { context.startActivity(it) }.isSuccess } }) {
+                Text("Connect")
+            }
+        }
+    }
+}
+
+/** The phone's SMS history, read-only. Only the `personal` build has this row (ADR-032). */
+@Composable
+private fun SmsRow() {
+    val context = LocalContext.current
+    fun granted() = context.checkSelfPermission(Manifest.permission.READ_SMS) == PackageManager.PERMISSION_GRANTED
+    var allowed by remember { mutableStateOf(granted()) }
+    val request = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { allowed = granted() }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text("Text message history", style = MaterialTheme.typography.bodyLarge)
+            Text(
+                "Searches your SMS on this phone. Anu can't send SMS, and codes are hidden.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        if (allowed) {
+            Text("Connected", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+        } else {
+            Button(onClick = { request.launch(Manifest.permission.READ_SMS) }) { Text("Connect") }
+        }
+    }
+}
+
 private fun outcomeLabel(action: ToolAuditEntry): String = when {
+    action.outcome == "no answer in time" -> "Not answered in time, so not done"
     action.approved == false -> "You declined"
     action.outcome == "ok" && action.approved == true -> "Approved and done"
     action.outcome == "ok" -> "Done"

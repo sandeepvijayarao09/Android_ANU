@@ -5,14 +5,22 @@ import com.google.ai.edge.litertlm.Contents
 import com.google.ai.edge.litertlm.Message
 import com.google.ai.edge.litertlm.OpenApiTool
 import com.google.ai.edge.litertlm.SamplerConfig
+import io.github.sandeepvijayarao09.anu.core.model.BrainRequest
 import io.github.sandeepvijayarao09.anu.core.model.ChatMessage
 import io.github.sandeepvijayarao09.anu.core.model.Sampling
 import io.github.sandeepvijayarao09.anu.core.model.ToolCall
 import io.github.sandeepvijayarao09.anu.core.model.ToolSpec
+import io.github.sandeepvijayarao09.anu.core.model.userText
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import com.google.ai.edge.litertlm.ToolCall as LiteRtToolCall
+
+/** The transcript message at [index] as LiteRT-LM sees it, with the newest user message's time (ADR-018). */
+internal fun BrainRequest.messageAt(index: Int): Message = when (val message = transcript[index]) {
+    is ChatMessage.User -> Message.user(userText(index))
+    else -> message.toLiteRt()
+}
 
 internal fun ChatMessage.toLiteRt(): Message = when (this) {
     is ChatMessage.User -> Message.user(text)

@@ -1,6 +1,6 @@
 # Anu for Android: Architecture
 
-Version 1.1.0 · Draft · 2026-09-25
+Version 1.2.0 · Draft · 2026-09-25
 Status: proposed. OD-1 to OD-4 were resolved on 2026-09-25 (§16).
 Product intent lives in [VISION.md](VISION.md).
 
@@ -281,6 +281,7 @@ Application ID: `io.github.sandeepvijayarao09.anu`. It can change until the firs
     - The KV cache lives in a LiteRT-LM `Conversation`, reused across the turns of a run.
     - Our persisted transcript is the source of truth.
     - `cancelProcess()` does not roll back conversation state. After a cancel or an error, the conversation is closed and later rebuilt from the transcript (`initialMessages`).
+    - **The system prompt stays the same between turns (ADR-033).** The cache is reused only when a request extends what the conversation has already seen, with the same system prompt and tools. So per-turn facts never go in the system prompt. The current time travels with the newest user message (`BrainRequest.sentAt`, shown to the model as `[Fri 2026-09-25 14:46] …`), and the prompt carries only the date. On the emulator, a prompt with the time to the minute made every turn re-read the whole chat: one reply took over six minutes on CPU. With the time on the message, the same turn took 15–27 s.
   - **Streaming and cancellation.**
     - `sendMessageAsync(…, MessageCallback)` is wrapped in `callbackFlow`.
     - `awaitClose` calls `cancelProcess()`. The native side then reports `onError(CancellationException)`.
@@ -428,6 +429,11 @@ Tool names are snake_case `<connector>_<verb>`, for example `email_get_thread`. 
 - **Planner.** There is none in v1. A plan-then-execute mode is added only if evals show the tool loop failing on multi-step tasks.
 - **As built (`ToolBroker`, `Agent`):**
   - **Outcomes, not exceptions.** Every call returns an outcome: `Ok`, `Invalid`, `Rejected` or `Failed`. Each is sent back to the model as the tool's result, so the model can correct itself. Two invalid rounds in a row escalate.
+  - **Refusals say why, in words the model can act on (ADR-035).** A rejection carries a code:
+    - `declined`: the user saw it and said no;
+    - `no_answer`: nobody answered the approval within 10 minutes;
+    - `not_allowed`: policy.
+    On the emulator, a plain `not_allowed` for a declined reply made the model blame "the system". An invalid call names what would work, for example the recent chats when a chat isn't found.
   - **Validation is strict about types and required fields, and ignores unknown keys.** Input that fails while the tool assesses it, such as an end time before the start, is `Invalid` and is never shown for approval.
   - **Idempotency keys are content-based:** `sha256(turn key | tool | canonical payload)`. Re-sending the same turn after consent replays the stored result instead of acting twice.
   - **Approvals go through `ApprovalCenter`,** which the chat screen observes. v1 offers approve or deny only; editing is Planned. A timeout (10 minutes) counts as a denial.
@@ -448,6 +454,8 @@ The context builder assembles each prompt within a **per-tier token budget that 
 Untrusted content goes in clearly delimited data blocks. Budgets are set per tier from spike S1 measurements.
 
 **Dates for scheduling.** Small models are poor at date arithmetic. S1 on the emulator saw E4B turn "tomorrow" into the wrong day. So scheduling prompts include a small table: today, tomorrow, and the next seven days with weekday names and ISO dates. They also say that calling `calendar_create_event` *is* how to ask the user, because the approval sheet is the confirmation.
+
+**Time and tool hints (ADR-033).** The system prompt carries the date, never the time: the time goes with the newest user message, so the on-device KV cache survives between turns. Each tool hint is given only when its tool is offered. For example, "call `messages_reply` with the final text; it takes the chat's name or phone number" appears only with the messaging tools.
 
 ### 7.4 Output handling
 
@@ -533,8 +541,8 @@ All connectors implement a single contract: an auth method, a sync mode, tools (
 | Calendar | `CalendarContract` provider (every account synced to the phone: Google, Exchange, Samsung) | `READ_CALENDAR`, `WRITE_CALENDAR` | ContentObserver + periodic reconcile | list/search, find free slots (READ); own event (WRITE_PRIVATE); event with attendees (WRITE_EXTERNAL) | The account's sync adapter sends invites, so they count as external |
 | Contacts | `ContactsContract` | `READ_CONTACTS` | Observer + periodic | resolve person (READ) | Feeds entity resolution |
 | Gmail | Gmail API via `AuthorizationClient` | Least scopes per skill; reading mail needs restricted scopes | `history.list` incremental polling (≥15 min, plus on open); backfill window defaults to 90 days | search/read thread (READ); draft, label (WRITE_PRIVATE); send/reply (WRITE_EXTERNAL); delete (DESTRUCTIVE) | `personal` runs in Google's OAuth testing mode, which allows up to 100 test users. `play` needs Google verification. Push notifications need a server (Pub/Sub), so v1 polls |
-| Messages | `NotificationListenerService`, reading `MessagingStyle` from any messaging app; reply through the notification's `RemoteInput` action | Notification access, granted in Settings | Real time while the listener is bound | summarize, suggest reply (READ); reply (WRITE_EXTERNAL) | Sees only messages that arrive as notifications; no history backfill. WhatsApp and RCS offer no third-party API |
-| SMS (`personal` only) | `Telephony` SMS provider + `SMS_RECEIVED` broadcast | `READ_SMS`, `RECEIVE_SMS` | ContentObserver + broadcast + periodic reconcile | read/search history, summarize threads (READ) | Replies go through the notification reply action, or through an intent that opens the SMS app with a prefilled message. There is no `SEND_SMS` in v1. Play restricts SMS permissions to default handlers, so the `play` flavor leaves this module out |
+| Messages | `NotificationListenerService`, reading `MessagingStyle` from any messaging app; reply through the notification's `RemoteInput` action | Notification access, granted in Settings | Real time while the listener is bound | list and read chats (READ); reply (WRITE_EXTERNAL) | Sees only messages that arrive as notifications; no history backfill. WhatsApp and RCS offer no third-party API. Android 15+ hides one-time-code notifications from listeners |
+| SMS (`personal` only) | `Telephony` SMS provider | `READ_SMS` only | Queried when a tool asks (v1) | search history (READ) | Replies go through the notification reply action. There is no `SEND_SMS` in v1. Play restricts SMS permissions to default handlers, so the `play` flavor leaves this module out |
 
 **As built in Phase 2:**
 - **`connector:calendar`:** three tools on `CalendarContract`, with recurring events expanded through Instances:
@@ -554,20 +562,43 @@ All connectors implement a single contract: an auth method, a sync mode, tools (
   - **Header injection is refused.** CR/LF in any header value, invalid addresses, and more than 20 recipients are all rejected before approval. Messages are built by Anu's own RFC 5322 writer, never from model-written raw MIME.
 - **Permissions** are requested from Settings → Connectors. Without them, tools fail cleanly and the model is told.
 
+- **`connector:messages` (ADR-031):** a `NotificationListenerService` that keeps only `MessagingStyle` conversations. Other notifications are ignored and never stored, and so are Anu's own.
+  - **Tools:**
+    - `messages_list_conversations` (READ, untrusted);
+    - `messages_read_conversation` (READ, untrusted);
+    - `messages_reply` (`WRITE_EXTERNAL`). It sends through the notification's own `RemoteInput` reply action, as Android Auto and Wear do, so it works with any app that offers a reply action.
+  - **Naming a chat (ADR-035).** A chat is found by its id, or else by the one chat whose name or phone number matches. Numbers match on their last digits, so "+1 555-123-4567" is "(555) 123-4567". Part of a name, such as "Patel", needs at least three letters. If two chats match, neither is guessed. An unknown chat is refused before any approval, and the refusal lists the recent chats so the model can correct itself. The approval sheet names the chat that was found.
+  - **App names.** Android 11+ hides other apps' names. The module declares `<queries>` for 14 well-known chat apps and for whichever app handles `smsto:`, never all apps, so the approval sheet says "Reply in Messages to …" rather than showing a package name.
+  - **Messages Android hides (Android 15+).** Android gives notification listeners a stand-in text instead of sensitive content such as one-time codes, and marks it as the user's own message. Anu recognizes the stand-in, `android:string/redacted_notification_message` in the phone's language, and records the message as received and hidden: "(Android hid this message from Anu. It may contain a verification code.)". When Android also removes the sender, the chat is called "Someone". The emulator confirmed both.
+  - **Titles.** A chat's title is its conversation title, or else the newest other sender, or else the notification's title, but never the user's own name. Android puts the user's name there when an app names the user on their own messages.
+  - **Storage.** v1 keeps an in-memory window: the last 30 conversations, 50 messages each. It's lost when the process dies. When the listener reconnects, it recaptures the notifications still showing. Persisting chats through the memory pipeline is Phase 3.
+  - **Access.** Settings → Messaging apps opens Android's notification-access page for Anu, or the list page on phones that lack it. Granting access is the user's own step. The row checks again when Settings resumes. After a force-stop, Android binds the listener again when Anu next starts (verified on the emulator).
+- **`connector:sms` (`personal` only, ADR-032):** read-only, from the `Telephony` provider.
+  - **Tools:** `sms_search` (READ, untrusted): newest first, received and sent, by words or sender. `sms_read_thread` is Planned.
+  - **One form per number.** Numbers are normalized to E.164. The provider stores "+15551234567" for received texts and "5551234567" for sent ones, and the emulator showed the model taking them for two people.
+  - **Replies.** There is no `SEND_SMS`. Replies go through `messages_reply` on the SMS app's notification, and `messages_reply` accepts the number found in a text.
+  - **Permission.** Only the `personal` build shows the Settings row. Android's dialog says "send and view SMS messages" because it names the whole SMS group, but Anu asks only for `READ_SMS`.
+  - **Play safety (ADR-012).** `verify<Variant>HasNoSms` runs with `check`, `assemble` and `bundle` of every `play` variant, including CI's `assemblePlayDebug`, and fails the build if the merged manifest declares any SMS permission. A test with an injected `READ_SMS` failed the build as intended.
+- **Verification codes are secrets (S3).** One-time codes in messages and SMS ("Your code is 482913") are masked before any tool returns them. No model, on-device or cloud, ever sees one (I1). On the emulator, a search for the code returned "Your Anu test verification code is ••••••".
+
 **Sideloaded installs.** Android can block notification access (and, on newer versions, other sensitive permissions) for apps installed from an APK file until the user turns on **Allow restricted settings** in App info. Installs from Android Studio or `adb` are normally not affected. Spike S5 checks this on the reference device.
 
 Outlook / Microsoft 365 is not in v1 (OD-2). The connector contract allows adding it later without changing the design.
 
 ## 10. Skills
 
-**Skill detection** (`SkillDetector`, v1): keyword rules choose Scheduling or Chat. A short follow-up (80 characters or fewer, such as "yes please") keeps the previous turn's skill, so the tools stay available. The emulator run found this bug: "yes please" dropped the calendar tools, and the model then wrote raw tool-call markup as text. Answers containing control markup (for example `<|tool_call>`) are treated as invalid output: repaired once, then escalated.
+**Skill detection** (`SkillDetector`, v1): keyword rules choose Email, Messages, Scheduling or Chat (ADR-028, ADR-034).
+- **Words that mean one thing decide it.** "Inbox" and "email" mean email. "Texts", "WhatsApp" and "group chat" mean messages. Bare "text" and "chat" don't, because "shorten this text" is writing. A message that starts with "text", "message" or "DM" is messaging ("Text Maya I'm late").
+- **Shared words follow the conversation.** "Reply", "draft" and "unread" keep messaging if the chat is about texts or names a phone number, and otherwise mean email. They come before scheduling, so a reply that proposes a time keeps its reply tools.
+- **Replay.** The skill is found by replaying the last 20 user turns, so "check my texts", then "reply that 7 works", then "make it 7:30" all keep the messaging tools. A short follow-up (80 characters or fewer, such as "yes please") keeps the previous skill, at most three times in a row. The emulator found the first bug: "yes please" dropped the calendar tools, and the model wrote raw tool-call markup as text.
+- Answers containing control markup (for example `<|tool_call>`) are treated as invalid output: repaired once, then escalated.
 
 | Skill | Does | Typical tier | Uses | Approval |
 |---|---|---|---|---|
 | AI Writing | Compose, rewrite (tone, length), proofread, summarize, translate, in the user's voice for each recipient | Base for short text; Pro for long-form | memory (style) | None; the output is text the user controls |
 | AI Email | Priority inbox, thread summaries, drafts in the user's voice, follow-up tracking, turning email into tasks or events | Base to triage, Pro to draft | email, calendar, memory | Send |
 | AI Scheduling | Natural-language events, free slots that respect learned preferences, conflict fixes, meeting prep | Pro | calendar, contacts, email, memory | Invites |
-| AI Messages | Summarize busy chats, suggest replies, reply from the notification | Base | messages, memory | Reply |
+| AI Messages | Summarize busy chats, find texts, suggest replies, reply from the notification | Base | messages, SMS (`personal`), contacts, memory | Reply |
 | Daily Brief | Schedule, email that needs you, follow-ups, commitments | Pro, scheduled while charging | calendar, email, memory | None |
 | Memory | "Remember…", "What do you know about…", corrections | Base | memory | Deletions confirmed |
 
@@ -615,7 +646,7 @@ Outlook / Microsoft 365 is not in v1 (OD-2). The connector contract allows addin
 | S0 General | No personal data | Any tier |
 | S1 Personal | Names, schedules, email and message content | Device tiers; Cloud with consent and minimization |
 | S2 Sensitive | Health, finance, precise location, IDs, intimate content | Device only, unless consented per request |
-| S3 Secret | Credentials | Vault only; never in any model context (I1) |
+| S3 Secret | Credentials, and one-time verification codes seen in messages | Vault only, or masked at the source; never in any model context (I1) |
 
 ### 12.2 Egress pipeline (the only path to the cloud, I3)
 
@@ -728,6 +759,17 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 
 **Spike log.** Measured results only, newest first.
 
+- **Messaging end to end, 2026-09-25.** Anu emulator, E4B CPU, Google Messages as the SMS app, and SMS from made-up numbers sent with `adb emu sms send`. Notification access was granted with `cmd notification allow_listener` after checking that the Settings button opens Android's page for Anu.
+  - **Read:** "Any new texts?" found Maya's text through the notification. On another run the model used `sms_search` for the same question.
+  - **Reply, run 1:** correct call and exact payload, but each turn re-read the whole chat because the system prompt held the time to the minute: over six minutes for the reply turn. Led to ADR-033. After the fix, reply turns took 15–27 s.
+  - **Reply, run 2:** the model found the text with `sms_search`, passed the phone number as the chat id, and was refused, so it asked the user for an "ID". Led to ADR-035.
+  - **Reply, run 3:** approved. The reply went out through Google Messages' reply button, and the SMS provider shows it as sent. The action line matched.
+  - **Declined:** nothing was sent. The model first blamed "the system", and after ADR-035 said the user declined.
+  - **"Text the 555 number that I am running late":** first no tools at all (ADR-034), then a search that returned the number in two forms. After ADR-034, ADR-035 and E.164 numbers: search, reply by number, approval, and sent.
+  - **Codes:** Android 15+ hid the code's notification from Anu, and the SMS search masked the code.
+  - **Found and fixed:** a conversation title that showed the user's own name; the chat app shown by package name; a hidden code attributed to the user.
+  - **Test-harness notes.** A `jdb` breakpoint on the main thread froze input long enough for an ANR dialog that kept coming back until the app restarted. `emu-type.sh` now escapes shell characters such as apostrophes. Android's SMS store can be checked with `adb shell content query --uri content://sms`.
+
 - **Phase 2 end to end, 2026-09-25.** Anu emulator, E4B CPU, a local calendar and a made-up contact "Maya Chen". Request: "Schedule a 30 minute design review with Maya tomorrow afternoon".
   - **Run 1:** the model looked up Maya and searched the wrong day (the 27th), then claimed it had scheduled and invited. **Nothing was created**; the broker had not been asked. Led to ADR-027 and the date table.
   - **Run 2:** correct day, honest proposal. The follow-up "yes please" lost its tools, and the model wrote raw tool-call markup. Led to ADR-028.
@@ -829,13 +871,18 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 | 028 | 2026-09-25 | A short follow-up keeps the previous skill; scheduling prompts carry a table of dates; leaked control markup is invalid output | Emulator findings: "yes please" lost the tools, "tomorrow" became the wrong day, and raw `<\|tool_call>` text reached the chat |
 | 029 | 2026-09-25 | Gmail through REST with Play services' `AuthorizationClient` tokens, attached by a host-bound interceptor, never stored; read, compose and send scopes requested together at Connect in v1 | No token storage to protect; the same host-binding as the vault; one consent screen for the owner's personal build |
 | 030 | 2026-09-25 | Connector traffic to the user's own provider is ledgered but not redacted; email content is untrusted and taints the run | Redaction would break search and sending. The ledger keeps I3 honest. Inbound email is the main prompt-injection channel (P4) |
+| 031 | 2026-09-25 | Messages: a notification listener keeps only MessagingStyle conversations in memory (v1); replies go through the notification's own RemoteInput action, always approval-gated | The only official way to reach many chat apps. Nothing else is kept. Persistence arrives with the memory pipeline |
+| 032 | 2026-09-25 | SMS is read-only in `personal`, with no `SEND_SMS`; a build check keeps SMS permissions out of `play`; one-time codes are masked before any model sees them | Play restricts SMS permissions. Replies already work through notifications. OTP codes act as credentials (I1) |
+| 033 | 2026-09-25 | Per-turn facts never go in the system prompt: the time travels with the newest user message (`BrainRequest.sentAt`), and tool hints appear only with their tools | A prompt that changed every minute defeated the KV cache (ADR-018). One reply took over six minutes on the emulator, and 15–27 s after the fix |
+| 034 | 2026-09-25 | Skills are found by replaying recent user turns. Shared words such as "reply" follow the conversation, a phone number or a leading "text" means messaging, and a skill carries over at most three follow-ups | On the emulator, "Reply that 1 works" after reading texts needed the messaging tools, and "Text the 555 number…" got no tools at all |
+| 035 | 2026-09-25 | Tools accept what small models naturally have, such as a chat's name or number, when exactly one thing matches; refusals say how to recover (`declined`, `no_answer`, the known chats) | On the emulator, E4B passed a phone number as the chat id, then asked the user for an "ID", and blamed a declined reply on "the system" |
 
 ### Component status
 
 | Component | Phase | Status |
 |---|---|---|
 | Project scaffold: Gradle 9.6, AGP 9.4.1, Kotlin 2.4.20; `app` with `personal` and `play` flavors | 0 | Implemented. Both flavors build |
-| CI workflow (`.github/workflows/ci.yml`) | 0 | Implemented, not yet run (the repo hasn't been pushed) |
+| CI workflow (`.github/workflows/ci.yml`), including the Play SMS-permission check | 0 | Implemented, not yet run (the repo hasn't been pushed). The SMS check runs locally |
 | Spike S1 (runtime on device) | 0 | In progress. Run 2 on the Anu emulator passed: contract, tools, schema, cancel, memory. Speed on the reference phone is still pending |
 | Spike S2 (model delivery) | 0 | Partly done: ungated, and per-backend files found |
 | Spikes S3–S7 | 0 | Planned |
@@ -845,7 +892,7 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 | Residency: one model at a time (`OnDeviceBrains`) | 1 | Implemented. Not device-tested; thresholds come from S1 |
 | `core:security`: PII detection, redaction, `EgressGate`, ledger interface | 1 | Implemented, with 9 unit tests. The ledger is persisted by `core:data` |
 | `brain:gemini` | 1 | Implemented, with 6 unit tests against a fake server. Not verified against the live API (S8) |
-| Router v1: `core:router` stages A and B, and escalation | 1 | Implemented, with 13 unit tests. Not yet Verified: there's no router eval set yet (§15) |
+| Router v1: `core:router` stages A and B, escalation, and skill detection | 1 | Implemented, with 17 unit tests. Not yet Verified: there's no router eval set yet (§15) |
 | Cascade (Stage C: validate, repair, escalate, consent stop) in `core:agent` | 1 | Implemented, with 9 unit tests using `ScriptedBrain` |
 | Direct tier (deterministic handlers) | 2 | Planned. Needs connectors |
 | `core:vault`: store, Keystore protector, `SecretInjector` | 1 | Implemented. 10 JVM tests, plus 2 device tests with the real Keystore on the Anu emulator. The device tests found and fixed a hidden screen-lock error. Recovery passphrase Planned |
@@ -855,13 +902,14 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 | Chat UI (`feature:home`): streaming, tier badge, Retry with Pro, cloud consent dialog, Stop, Markdown | 1 | Implemented. It runs end to end on the Anu emulator with E4B, and has 11 JVM tests. The cloud consent dialog isn't exercised on a device yet (needs a Gemini key) |
 | Save the answering tier with each message (restored answers currently lose their badge) | 1 | Planned: schema v2 |
 | Open the database off the main thread (44–95 ms today) | 1 | Planned |
-| `ChatSession` (transcript as the truth, consent resend, take back last) in `core:agent` | 1 | Implemented, with 4 unit tests |
-| Settings UI (`feature:settings`): models (with delete confirmation), Gemini key into the vault, vault activity, Privacy Ledger | 1 | Implemented. It runs on the Anu emulator |
+| `ChatSession` (transcript as the truth, consent resend, take back last, stable prompt, skill replay) in `core:agent` | 1 | Implemented, with 8 unit tests |
+| Settings UI (`feature:settings`): models (with delete confirmation), Gemini key into the vault, connectors (calendar and contacts, Gmail, messaging apps, SMS in `personal`), activity, vault activity, Privacy Ledger | 1 | Implemented. It runs on the Anu emulator |
 | App wiring (`AppGraph`, device state, no-backup rules) | 1 | Implemented; lint clean (two warnings: newer Gradle available, no app icon yet) |
 | Agent loop, Tool Broker, approvals, taint, claim check (`core:agent`) | 2 | Implemented. 33 JVM tests, and works end to end on the Anu emulator with E4B: lookups, free slots, and an approval-gated invite |
 | Connectors: calendar, contacts | 2 | Implemented. JVM tests, plus provider tests on the Anu emulator (real `CalendarContract` and `ContactsContract`) |
 | Gmail connector (`connector:gmail`): search, thread, draft, send; host-bound tokens; MIME writer; ledgered egress | 2 | Implemented. 8 JVM tests (fake server). On the emulator the Connect button starts Google's own consent flow, and cancelling is handled. **Live Gmail untested:** it needs the owner's one-time Google Cloud setup ([GMAIL_SETUP.md](GMAIL_SETUP.md)) and their Google account on the device |
-| Connectors: messages (notifications), SMS (`personal`) | 2 | Planned |
+| Connectors: messages (notifications), SMS (`personal`) | 2 | **Verified on the Anu emulator** with E4B and Google Messages: reading a real SMS from its notification, an approved reply sent through the notification's reply button (confirmed in the SMS provider), a declined reply that sent nothing, SMS search, and code masking. 4 instrumented tests and 10 JVM tests. WhatsApp and Telegram are untested (S5) |
+| AI Messages v1: messaging skill, list, read and reply tools, SMS search (`personal`), Settings rows | 2 | Implemented. Verified by hand on the emulator; no eval set yet (§15) |
 | AI Scheduling v1 (chat with calendar and contacts tools) | 2 | Implemented. Verified by hand on the emulator; no eval set yet (§15) |
 | AI Email v1: email skill detection, email tools plus contacts and calendar lookups, drafts and approval-gated sends | 2 | Implemented. Not yet run against a real mailbox (see the Gmail row) |
 | Tool audit and idempotency persistence (schema v2), Activity in Settings | 2 | Implemented. Migration test passes on the emulator |
@@ -872,6 +920,15 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 
 ### Changelog
 
+- **1.2.0** (2026-09-25): messaging, and what the emulator taught.
+  - `connector:messages`: a notification listener, three tools, and replies through the notification's own reply button (ADR-031). It handles messages Android 15+ hides, and names chat apps through targeted `<queries>`.
+  - `connector:sms` in `personal` only: `sms_search` with E.164 numbers; a build check that keeps SMS permissions out of `play` (ADR-032).
+  - One-time codes masked before any model sees them (`OneTimeCodes`).
+  - The time moves from the system prompt to the newest user message, so the KV cache survives between turns (ADR-033).
+  - Skill detection for messages, with conversation replay (ADR-034).
+  - Tools accept a chat's name or number; refusals carry `declined` or `no_answer` (ADR-035).
+  - Settings rows for messaging apps and SMS; progress notes for message and email tools.
+  - Verified end to end on the emulator: read, approved reply, declined reply, SMS search, code masking.
 - **1.1.0** (2026-09-25): Gmail.
   - `connector:gmail`: four tools, `AuthorizationClient` tokens attached by a host-bound interceptor (ADR-029), and a header-injection-proof MIME writer.
   - Connector egress is ledgered but not redacted (ADR-030).

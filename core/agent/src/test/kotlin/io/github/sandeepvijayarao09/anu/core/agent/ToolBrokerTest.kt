@@ -9,6 +9,8 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.yield
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import org.junit.Assert.assertEquals
@@ -71,7 +73,15 @@ class ToolBrokerTest {
     fun `a denial blocks the call and tells the model why`() = runTest {
         gate.decision = ApprovalDecision.Denied("wrong day")
         val outcome = broker().execute(event("Design review", "maya@example.com"), run())
-        assertEquals(ToolOutcome.Rejected("The user did not approve this: wrong day", "Create \"Design review\" and invite maya@example.com"), outcome)
+        assertEquals(
+            ToolOutcome.Rejected(
+                "The user was shown this and declined (wrong day), so nothing was done. Don't try again unless they ask.",
+                "Create \"Design review\" and invite maya@example.com",
+                code = "declined",
+            ),
+            outcome,
+        )
+        assertEquals("declined", (outcome as ToolOutcome.Rejected).toResultJson().jsonObject["error"]!!.jsonPrimitive.content)
         assertTrue(create.created.isEmpty())
         assertEquals(false, audit.last().approved)
     }
@@ -79,8 +89,9 @@ class ToolBrokerTest {
     @Test
     fun `no answer in time counts as a denial`() = runTest {
         val outcome = broker(RecordingGate(decision = null), timeout = 50).execute(event("Standup", "raj@example.com"), run())
-        assertTrue(outcome is ToolOutcome.Rejected)
+        assertEquals("no_answer", (outcome as ToolOutcome.Rejected).code)
         assertTrue(create.created.isEmpty())
+        assertEquals("no answer in time", audit.last().outcome)
     }
 
     @Test

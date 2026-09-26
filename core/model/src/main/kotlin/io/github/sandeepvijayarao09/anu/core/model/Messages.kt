@@ -28,6 +28,12 @@ data class BrainRequest(
     val dataClasses: Set<DataClass> = emptySet(),
     /** Why this request is made, for example "chat" or "email". Shown in the Privacy Ledger. */
     val purpose: String = "chat",
+    /**
+     * The user's local time when they sent the newest user message, for example "Fri 2026-09-25 14:46".
+     * Brains show it with that message (see [userText]) rather than in [system], so the system prompt
+     * stays the same all day and the on-device KV cache survives from one turn to the next (ADR-018).
+     */
+    val sentAt: String? = null,
 ) {
     init {
         require(transcript.isNotEmpty()) { "transcript must not be empty" }
@@ -43,4 +49,13 @@ data class Sampling(val temperature: Double, val topP: Double, val topK: Int, va
         /** Greedy decoding, for structured output and repair attempts (P6). */
         val Precise = Sampling(temperature = 0.0, topP = 1.0, topK = 1)
     }
+}
+
+/** Index of the newest user message in [BrainRequest.transcript], the one [BrainRequest.sentAt] belongs to. */
+val BrainRequest.newestUserIndex: Int get() = transcript.indexOfLast { it is ChatMessage.User }
+
+/** The text a brain shows the model for the user message at [index]: the newest one starts with [BrainRequest.sentAt]. */
+fun BrainRequest.userText(index: Int): String {
+    val text = (transcript[index] as ChatMessage.User).text
+    return if (sentAt != null && index == newestUserIndex) "[$sentAt] $text" else text
 }

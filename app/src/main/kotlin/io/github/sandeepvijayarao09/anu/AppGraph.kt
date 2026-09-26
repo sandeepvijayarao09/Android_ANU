@@ -1,11 +1,13 @@
 package io.github.sandeepvijayarao09.anu
 
 import android.content.Context
+import android.content.Intent
 import android.content.SharedPreferences
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.BatteryManager
 import android.os.PowerManager
+import android.provider.Settings
 import androidx.core.content.edit
 import io.github.sandeepvijayarao09.anu.brain.gemini.GeminiBrain
 import io.github.sandeepvijayarao09.anu.brain.litertlm.ModelManager
@@ -29,6 +31,11 @@ import io.github.sandeepvijayarao09.anu.connector.gmail.PlayServicesTokens
 import io.github.sandeepvijayarao09.anu.connector.gmail.SearchEmailTool
 import io.github.sandeepvijayarao09.anu.connector.gmail.SendEmailTool
 import io.github.sandeepvijayarao09.anu.connector.gmail.gmailHttpClient
+import io.github.sandeepvijayarao09.anu.connector.messages.AnuNotificationListener
+import io.github.sandeepvijayarao09.anu.connector.messages.ListConversationsTool
+import io.github.sandeepvijayarao09.anu.connector.messages.MessagingHub
+import io.github.sandeepvijayarao09.anu.connector.messages.ReadConversationTool
+import io.github.sandeepvijayarao09.anu.connector.messages.ReplyTool
 import io.github.sandeepvijayarao09.anu.core.agent.ChatSession
 import io.github.sandeepvijayarao09.anu.core.data.AnuDatabase
 import io.github.sandeepvijayarao09.anu.core.data.RoomPrivacyLedger
@@ -52,6 +59,7 @@ import io.github.sandeepvijayarao09.anu.core.vault.Vault
 import io.github.sandeepvijayarao09.anu.core.vault.withVault
 import io.github.sandeepvijayarao09.anu.feature.settings.AccountConnection
 import io.github.sandeepvijayarao09.anu.feature.settings.CloudKeySettings
+import io.github.sandeepvijayarao09.anu.feature.settings.NotificationAccess
 import io.github.sandeepvijayarao09.anu.feature.settings.VaultActivity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -110,9 +118,19 @@ class AppGraph(private val context: Context) {
     val gmailConnection = object : AccountConnection {
         override suspend fun isConnected() = gmailAccess.isConnected()
         override suspend fun beginConnect() = gmailAccess.beginConnect()
-        override fun finishConnect(data: android.content.Intent?) = gmailAccess.finishConnect(data)
+        override fun finishConnect(data: Intent?) = gmailAccess.finishConnect(data)
     }
     private val gmail by lazy { GmailClient(gmailHttpClient(), gmailAccess, ledger) }
+
+    /** Messaging apps reach Anu through their notifications, once the user allows it in Android's settings (ADR-031). */
+    val messagingAccess = object : NotificationAccess {
+        override fun isGranted() = AnuNotificationListener.isEnabled(context)
+        override fun settingsIntents() = listOf(
+            Intent(Settings.ACTION_NOTIFICATION_LISTENER_DETAIL_SETTINGS)
+                .putExtra(Settings.EXTRA_NOTIFICATION_LISTENER_COMPONENT_NAME, AnuNotificationListener.component(context).flattenToString()),
+            Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS),
+        )
+    }
 
     /** Every tool Anu has. Each skill offers only its own subset to the model (§7.3). */
     private val tools: List<Tool<*, *>> by lazy {
@@ -126,7 +144,10 @@ class AppGraph(private val context: Context) {
             GetThreadTool(gmail),
             CreateDraftTool(gmail),
             SendEmailTool(gmail),
-        )
+            ListConversationsTool(MessagingHub.store, zone),
+            ReadConversationTool(MessagingHub.store, zone),
+            ReplyTool(MessagingHub.store),
+        ) + Flavor.tools(context, zone)
     }
 
     private fun toolsFor(skill: Skill): List<String> = when (skill) {
@@ -135,6 +156,10 @@ class AppGraph(private val context: Context) {
             "email_search", "email_get_thread", "email_create_draft", "email_send",
             "contacts_find", "calendar_list_events", "calendar_find_free_slots",
         )
+        Skill.MESSAGES -> listOf(
+            "messages_list_conversations", "messages_read_conversation", "messages_reply",
+            "contacts_find", "calendar_find_free_slots",
+        ) + if (Flavor.HAS_SMS) listOf("sms_search") else emptyList()
         else -> emptyList()
     }
 

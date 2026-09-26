@@ -25,8 +25,11 @@ sealed interface ToolOutcome {
     /** Unknown tool or arguments that don't match the schema. Never executed (I6). The model may try again. */
     data class Invalid(val reason: String) : ToolOutcome
 
-    /** Blocked by policy, or the user said no. */
-    data class Rejected(val reason: String, val summary: String = "") : ToolOutcome
+    /**
+     * Blocked by policy, or the user said no. [code] tells the model which: it read a plain
+     * "not_allowed" for a declined reply as a system rule, as the emulator showed.
+     */
+    data class Rejected(val reason: String, val summary: String = "", val code: String = "not_allowed") : ToolOutcome
 
     /** The tool itself threw. */
     data class Failed(val reason: String, val summary: String = "") : ToolOutcome
@@ -34,7 +37,7 @@ sealed interface ToolOutcome {
     fun toResultJson(): JsonElement = when (this) {
         is Ok -> result as? JsonObject ?: buildJsonObject { put("result", result) }
         is Invalid -> error("invalid_call", reason)
-        is Rejected -> error("not_allowed", reason)
+        is Rejected -> error(code, reason)
         is Failed -> error("tool_failed", reason)
     }
 
@@ -170,10 +173,18 @@ class ToolBroker(
         if (approvalReason != null) {
             val decision = withTimeoutOrNull(approvalTimeoutMillis) {
                 approvals.request(ApprovalRequest(key, tool.name, summary, payload, risk, approvalReason))
-            } ?: ApprovalDecision.Denied("No answer in time")
+            }
+            if (decision == null) {
+                record("no answer in time", approved = false)
+                return ToolOutcome.Rejected("Nobody answered the approval in time, so nothing was done.", summary, code = "no_answer")
+            }
             if (decision is ApprovalDecision.Denied) {
                 record("denied: ${decision.reason}", approved = false)
-                return ToolOutcome.Rejected("The user did not approve this: ${decision.reason}", summary)
+                return ToolOutcome.Rejected(
+                    "The user was shown this and declined (${decision.reason}), so nothing was done. Don't try again unless they ask.",
+                    summary,
+                    code = "declined",
+                )
             }
         }
 

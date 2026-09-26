@@ -118,10 +118,47 @@ class RouterTest {
     @Test
     fun `skills are detected from the request, and follow-ups keep them`() {
         assertEquals(Skill.EMAIL, SkillDetector.detect("Reply to Maya's email and suggest Thursday"))
+        assertEquals(Skill.MESSAGES, SkillDetector.detect("What did Maya text me?"))
+        assertEquals(Skill.MESSAGES, SkillDetector.detect("Summarize the family group chat"))
+        assertEquals(Skill.MESSAGES, SkillDetector.detect("Any new messages on WhatsApp?"))
+        assertEquals(Skill.MESSAGES, SkillDetector.detect("Draft a text to Mom saying I'm late"))
+        assertEquals(Skill.MESSAGES, SkillDetector.detect("What was Raj's last text about?"))
+        // The emulator showed "Text the 555 number…" getting no tools, so Anu only asked.
+        assertEquals(Skill.MESSAGES, SkillDetector.detect("Text the 555 number that I am running late"))
+        assertEquals(Skill.MESSAGES, SkillDetector.detect("please dm Raj the address"))
+        assertEquals(Skill.MESSAGES, SkillDetector.detect("Reply to +1 555-123-4567 saying yes"))
         assertEquals(Skill.EMAIL, SkillDetector.detect("Anything important in my inbox?"))
         assertEquals(Skill.SCHEDULING, SkillDetector.detect("Book a meeting with Raj on Monday"))
         assertEquals(Skill.CHAT, SkillDetector.detect("Tell me a joke"))
         assertEquals(Skill.EMAIL, SkillDetector.detect("Yes, send it", previous = Skill.EMAIL))
+    }
+
+    @Test
+    fun `writing about text and chatting in general don't offer message tools`() {
+        assertEquals(Skill.CHAT, SkillDetector.detect("Shorten this text so it fits in a tweet, and keep the tone friendly please"))
+        assertEquals(Skill.CHAT, SkillDetector.detect("Can we chat about dinner ideas? Something quick and vegetarian would be great"))
+        assertEquals(Skill.CHAT, SkillDetector.detect("I'm really looking forward to the long weekend, any ideas for a day trip nearby?"))
+        assertEquals(Skill.CHAT, SkillDetector.detect("Text of the speech is below. Can you make it shorter and punchier for a wedding toast?"))
+    }
+
+    @Test
+    fun `a reply follows the conversation it belongs to`() {
+        assertEquals(Skill.MESSAGES, SkillDetector.detect("Reply to her that 7 works", previous = Skill.MESSAGES))
+        assertEquals(Skill.EMAIL, SkillDetector.detect("Reply to her that 7 works", previous = Skill.EMAIL))
+        assertEquals(Skill.EMAIL, SkillDetector.detect("Reply to her that 7 works"))
+        assertEquals(Skill.EMAIL, SkillDetector.detect("Reply to Raj that 2026-09-26 works for the offsite"))
+        // Before scheduling, so a reply that proposes a meeting keeps its reply tools.
+        assertEquals(Skill.MESSAGES, SkillDetector.detect("Reply and suggest a meeting on Monday", previous = Skill.MESSAGES))
+    }
+
+    @Test
+    fun `replaying the conversation settles replies and ends a run of follow-ups`() {
+        val chat = listOf("Any new texts from Maya?", "Reply that 1 works", "Actually make it 1:30", "Thanks", "Great", "One more thing")
+        assertEquals(
+            listOf(Skill.MESSAGES, Skill.MESSAGES, Skill.MESSAGES, Skill.MESSAGES, Skill.MESSAGES, Skill.CHAT),
+            chat.indices.map { SkillDetector.detect(chat.take(it + 1)) },
+        )
+        assertEquals(Skill.EMAIL, SkillDetector.detect(listOf("Anything from Raj in my inbox?", "Reply that 1 works")))
     }
 
     @Test

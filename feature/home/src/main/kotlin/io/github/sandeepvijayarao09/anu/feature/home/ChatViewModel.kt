@@ -105,7 +105,7 @@ class ChatViewModel(
 
     fun approve(id: String) = approvals.decide(id, ApprovalDecision.Approved)
 
-    fun deny(id: String) = approvals.decide(id, ApprovalDecision.Denied("The user said no"))
+    fun deny(id: String) = approvals.decide(id, ApprovalDecision.Denied("they tapped Don't do it"))
 
     fun stop() {
         running?.cancel()
@@ -167,6 +167,10 @@ class ChatViewModel(
         tool.startsWith("calendar_create") -> "Preparing the event…"
         tool.startsWith("calendar_") -> "Checking your calendar…"
         tool.startsWith("contacts_") -> "Looking up contacts…"
+        tool == "messages_reply" -> "Preparing the reply…"
+        tool.startsWith("messages_") || tool.startsWith("sms_") -> "Checking your messages…"
+        tool == "email_send" || tool == "email_create_draft" -> "Preparing the email…"
+        tool.startsWith("email_") -> "Checking your email…"
         else -> "Working…"
     }
 

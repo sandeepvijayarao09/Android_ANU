@@ -71,5 +71,11 @@ export JAVA_HOME=/opt/homebrew/opt/openjdk@21
   - a local calendar "Personal" (`account_type=LOCAL`);
   - a made-up contact "Maya Chen", `maya.chen@example.com`.
   Only use made-up `example.com` people.
-- **Typing into the app from adb:** use `scripts/emu-type.sh <serial> "<text>"`, because fast `input text` loses characters on Gboard.
+- **Typing into the app from adb:** use `scripts/emu-type.sh <serial> "<text>"`, because fast `input text` loses characters on Gboard. It escapes shell characters such as apostrophes.
+- **Messaging on the emulator** (made-up numbers only):
+  - Grant notification access to the debug app: `adb shell cmd notification allow_listener io.github.sandeepvijayarao09.anu.personal/io.github.sandeepvijayarao09.anu.connector.messages.AnuNotificationListener`.
+  - Receive a text: `adb emu sms send 5551234567 "…"`. Google Messages is the SMS app and posts the notification.
+  - Check what was really sent: `adb shell content query --uri content://sms --projection address:body:type` (type 2 is sent).
+  - Android 15+ hides one-time-code notifications from Anu, so test code masking through `sms_search`.
+- **Debugging a stuck turn:** the app is debuggable, so `adb forward tcp:8711 jdwp:<pid>` and `jdb` can print the pending approvals. Don't hold a breakpoint on the main thread while touching the screen: the ANR dialog that follows keeps coming back until the app restarts.
 - **Resetting the chat without re-copying the model:** `adb shell run-as io.github.sandeepvijayarao09.anu.personal rm -rf no_backup/db`, with the app stopped.

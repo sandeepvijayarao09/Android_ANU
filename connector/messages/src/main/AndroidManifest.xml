@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!--
+        Lets Anu read the names of the chat apps it answers through, such as "Messages" or "WhatsApp",
+        for the approval sheet. Android 11+ hides other apps' names otherwise. Only these apps and the
+        phone's SMS app become visible: never every installed app (ADR-031).
+    -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.SENDTO" />
+            <data android:scheme="smsto" />
+        </intent>
+        <package android:name="com.google.android.apps.messaging" />
+        <package android:name="com.samsung.android.messaging" />
+        <package android:name="com.whatsapp" />
+        <package android:name="com.whatsapp.w4b" />
+        <package android:name="org.telegram.messenger" />
+        <package android:name="org.thoughtcrime.securesms" />
+        <package android:name="com.facebook.orca" />
+        <package android:name="com.instagram.android" />
+        <package android:name="com.google.android.apps.dynamite" />
+        <package android:name="com.Slack" />
+        <package android:name="com.discord" />
+        <package android:name="com.microsoft.teams" />
+        <package android:name="jp.naver.line.android" />
+        <package android:name="com.viber.voip" />
+    </queries>
+
+    <application>
+        <!-- Messaging connector (ARCHITECTURE §9, ADR-031). It runs only after the user grants notification access. -->
+        <service
+            android:name=".AnuNotificationListener"
+            android:exported="true"
+            android:label="Anu messaging"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.service.notification.default_filter_types"
+                android:value="conversations" />
+        </service>
+    </application>
+</manifest>

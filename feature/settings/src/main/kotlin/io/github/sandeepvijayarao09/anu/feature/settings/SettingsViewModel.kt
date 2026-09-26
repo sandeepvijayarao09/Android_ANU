@@ -44,6 +44,17 @@ interface AccountConnection {
     fun finishConnect(data: Intent?): Boolean
 }
 
+/**
+ * Notification access for the messaging connector. Only Android's own settings can grant it, never a
+ * dialog, so the screen sends the user there (ADR-031).
+ */
+interface NotificationAccess {
+    fun isGranted(): Boolean
+
+    /** Android's settings pages for the access, most specific first: some phones lack the detail page. */
+    fun settingsIntents(): List<Intent>
+}
+
 /** One use of a vault secret, as the audit trail records it: never the value (§11). */
 data class VaultActivity(val label: String, val caller: String, val host: String, val at: Instant)
 
@@ -54,7 +65,20 @@ class SettingsViewModel(
     vaultActivity: Flow<List<VaultActivity>>,
     toolActivity: Flow<List<ToolAuditEntry>> = kotlinx.coroutines.flow.flowOf(emptyList()),
     private val gmail: AccountConnection? = null,
+    private val messaging: NotificationAccess? = null,
+    /** SMS is only in the `personal` build (ADR-012, ADR-032). */
+    val smsAvailable: Boolean = false,
 ) : ViewModel() {
+
+    /** Null when there is no messaging connector. Re-checked with [refreshMessaging] when the screen resumes. */
+    private val mutableMessaging = MutableStateFlow(messaging?.isGranted())
+    val messagingEnabled: StateFlow<Boolean?> = mutableMessaging.asStateFlow()
+
+    fun refreshMessaging() {
+        mutableMessaging.value = messaging?.isGranted()
+    }
+
+    fun messagingSettings(): List<Intent> = messaging?.settingsIntents().orEmpty()
 
     /** Null while checking. */
     private val mutableGmail = MutableStateFlow<Boolean?>(null)

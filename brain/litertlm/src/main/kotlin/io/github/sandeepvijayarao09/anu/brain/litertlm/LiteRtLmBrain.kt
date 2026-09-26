@@ -90,7 +90,7 @@ class LiteRtLmBrain(
             }
             try {
                 active.conversation.sendMessageAsync(
-                    request.transcript.last().toLiteRt(),
+                    request.messageAt(request.transcript.lastIndex),
                     callback,
                     maxOutputToken = request.maxOutputTokens,
                     responseFormat = request.responseSchema?.let { ResponseFormat.json(it.toString()) },
@@ -126,7 +126,7 @@ class LiteRtLmBrain(
         val conversation = engine.createConversation(
             ConversationConfig(
                 systemInstruction = request.system?.let { Contents.of(it) },
-                initialMessages = history.map { it.toLiteRt() },
+                initialMessages = history.indices.map(request::messageAt),
                 tools = request.tools.map { tool(DeclaredTool(it)) },
                 samplerConfig = request.sampling.toLiteRt(),
                 automaticToolCalling = false,
