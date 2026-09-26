@@ -34,6 +34,12 @@ data class BrainRequest(
      * stays the same all day and the on-device KV cache survives from one turn to the next (ADR-018).
      */
     val sentAt: String? = null,
+    /**
+     * What Anu remembers about the user, as a ready-to-read block (§8.3). On-device brains add it to
+     * the system instruction ([onDeviceSystem]). Cloud brains never send it: the profile stays on the
+     * phone (§8.4, ADR-038).
+     */
+    val memory: String? = null,
 ) {
     init {
         require(transcript.isNotEmpty()) { "transcript must not be empty" }
@@ -59,3 +65,7 @@ fun BrainRequest.userText(index: Int): String {
     val text = (transcript[index] as ChatMessage.User).text
     return if (sentAt != null && index == newestUserIndex) "[$sentAt] $text" else text
 }
+
+/** The system instruction an on-device brain uses: [BrainRequest.system], then [BrainRequest.memory]. */
+val BrainRequest.onDeviceSystem: String?
+    get() = listOfNotNull(system, memory).takeIf { it.isNotEmpty() }?.joinToString("\n\n")

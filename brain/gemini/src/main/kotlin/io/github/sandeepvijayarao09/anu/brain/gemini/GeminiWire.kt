@@ -21,6 +21,7 @@ import kotlinx.serialization.json.putJsonObject
  */
 internal object GeminiWire {
 
+    /** [BrainRequest.memory] is never sent: the profile stays on the phone (§8.4, ADR-038). */
     fun body(request: BrainRequest): JsonObject = buildJsonObject {
         request.system?.let { system ->
             putJsonObject("systemInstruction") { putJsonArray("parts") { addJsonObject { put("text", system) } } }

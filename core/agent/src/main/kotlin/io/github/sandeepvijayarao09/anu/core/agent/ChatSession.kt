@@ -8,6 +8,7 @@ import io.github.sandeepvijayarao09.anu.core.router.Skill
 import io.github.sandeepvijayarao09.anu.core.router.SkillDetector
 import io.github.sandeepvijayarao09.anu.core.router.Tier
 import io.github.sandeepvijayarao09.anu.core.security.PiiDetector
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.sync.Mutex
@@ -29,9 +30,17 @@ class ChatSession(
     private val clock: () -> ZonedDateTime = ZonedDateTime::now,
     private val sessionId: String = "main",
     private val basePrompt: String = DEFAULT_SYSTEM,
+    /** What Anu remembers about the user, as a block for on-device brains (§8.3). */
+    private val memory: suspend () -> String? = { null },
+    /**
+     * Offered the user's message after each completed turn, so memory can learn from it later (§8.2).
+     * Memory commands ("Remember that…") are not offered: the memory tools already carried them out.
+     */
+    private val onTurnCompleted: suspend (text: String, turnKey: String) -> Unit = { _, _ -> },
 ) {
     private val lock = Mutex()
     private var transcript: MutableList<ChatMessage>? = null
+
 
     /** The saved conversation, loaded from [store] on first use. */
     suspend fun history(): List<ChatMessage> = lock.withLock { loaded().toList() }
@@ -44,20 +53,33 @@ class ChatSession(
             val skill = SkillDetector.detect(transcript.filterIsInstance<ChatMessage.User>().map { it.text } + text)
             val tools = toolsFor(skill)
             val system = systemPrompt(tools)
+            val now = clock()
+            val memoryBlock = currentMemory()
             val route = RouteRequest(
                 text = text,
                 skill = skill,
                 dataClasses = dataClassesOf(turn),
-                promptTokens = estimateTokens(system, turn),
+                promptTokens = estimateTokens(system, turn) + (memoryBlock?.length ?: 0) / 4,
                 pinnedTier = pinned,
                 cloudConsented = cloudConsented,
             )
-            val sentAt = SENT_AT.format(clock())
-            agent.run(route, device, system, turn, tools, turnKey = "$sessionId:${transcript.size}", sentAt = sentAt).collect { event ->
+            val turnKey = "$sessionId:${transcript.size}"
+            agent.run(route, device, system, turn, tools, turnKey = turnKey, sentAt = SENT_AT.format(now), memory = memoryBlock).collect { event ->
                 if (event is AgentEvent.Completed) {
                     val exchange = listOf(ChatMessage.User(text)) + event.added
                     store.append(exchange)
                     transcript += exchange
+                    // Memory commands are carried out by the memory tools. Learning from them again made a
+                    // duplicate of a remembered fact on the emulator, and could re-learn a forgotten one.
+                    // Memory must never break the chat.
+                    if (skill != Skill.MEMORY) {
+                        try {
+                            onTurnCompleted(text, turnKey)
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (_: Exception) {
+                        }
+                    }
                 }
                 emit(event)
             }
@@ -96,12 +118,29 @@ class ChatSession(
             if (senders.isNotEmpty()) {
                 append(" Call ").append(senders.joinToString(" or ")).append(" with the final text rather than asking first: the user is shown it and approves it.")
             }
+            if ("memory_remember" in tools) {
+                append(" To keep something the user asks you to remember, call memory_remember once for each fact.")
+                append(" To forget, find the facts with memory_search, then call memory_forget with their ids: the user approves exactly what is deleted.")
+            }
             if ("messages_reply" in tools) {
                 append(" messages_reply takes the chat's name or phone number, so a number found in a text is enough to answer it.")
             }
             append(" Only say something was done if a tool result confirms it.")
             append(" When you talk to the user, say dates and times in plain words, like \"Saturday at 1:00 PM\".")
         }
+    }
+
+    /**
+     * The memory block for this turn, read fresh, so an edit in the Memory tab counts at once. It changes
+     * rarely during a chat, because learning runs after the user leaves the app (ADR-037), so the
+     * on-device KV cache survives (ADR-033, ADR-038). A failure means no memory, never a failed chat.
+     */
+    private suspend fun currentMemory(): String? = try {
+        memory()
+    } catch (e: CancellationException) {
+        throw e
+    } catch (_: Exception) {
+        null
     }
 
     /** Callers hold [lock]. */

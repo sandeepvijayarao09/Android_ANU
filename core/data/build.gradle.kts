@@ -30,12 +30,14 @@ room {
 
 dependencies {
     api(project(":core:agent"))
+    api(project(":core:memory"))
     api(project(":core:vault"))
     api(libs.androidx.room.runtime) // AnuDatabase extends RoomDatabase
     implementation(libs.androidx.sqlite)
     implementation(libs.sqlcipher.android)
     ksp(libs.androidx.room.compiler)
 
+    testImplementation(testFixtures(project(":core:model")))
     testImplementation(libs.junit)
     testImplementation(libs.robolectric)
     testImplementation(libs.androidx.test.core)

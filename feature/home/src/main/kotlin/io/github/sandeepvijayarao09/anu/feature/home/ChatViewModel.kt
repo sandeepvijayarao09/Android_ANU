@@ -170,6 +170,9 @@ class ChatViewModel(
         tool == "messages_reply" -> "Preparing the reply…"
         tool.startsWith("messages_") || tool.startsWith("sms_") -> "Checking your messages…"
         tool == "email_send" || tool == "email_create_draft" -> "Preparing the email…"
+        tool == "memory_remember" -> "Remembering…"
+        tool == "memory_forget" -> "Finding what to forget…"
+        tool == "memory_search" -> "Checking what I remember…"
         tool.startsWith("email_") -> "Checking your email…"
         else -> "Working…"
     }

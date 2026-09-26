@@ -18,4 +18,4 @@ jobs:
       # Unit tests for every module, plus both flavors (ADR-012). Building a play variant also runs the
       # check that its manifest has no SMS permission. Device tests need an emulator and, for the real
       # model, a pushed model file, so they run locally (see CLAUDE.md); here they are only compiled.
-      - run: ./gradlew test assemblePersonalDebug assemblePlayDebug :brain:litertlm:assembleDebugAndroidTest :connector:messages:assembleDebugAndroidTest
+      - run: ./gradlew test assemblePersonalDebug assemblePlayDebug :brain:litertlm:assembleDebugAndroidTest :connector:messages:assembleDebugAndroidTest :core:data:assembleDebugAndroidTest

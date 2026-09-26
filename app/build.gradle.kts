@@ -45,6 +45,7 @@ android {
 dependencies {
     implementation(project(":feature:home"))
     implementation(project(":feature:settings"))
+    implementation(project(":feature:memory"))
     implementation(project(":brain:litertlm"))
     implementation(project(":brain:gemini"))
     implementation(project(":core:vault"))
@@ -55,6 +56,7 @@ dependencies {
     implementation(project(":connector:messages"))
     // SMS is Play-restricted, so only the owner's build links it (ADR-012, ADR-032).
     "personalImplementation"(project(":connector:sms"))
+    implementation(libs.androidx.work.runtime) // memory learning (ADR-037)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)

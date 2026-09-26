@@ -22,6 +22,8 @@ import androidx.compose.ui.Modifier
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.sandeepvijayarao09.anu.feature.home.ChatScreen
 import io.github.sandeepvijayarao09.anu.feature.home.ChatViewModel
+import io.github.sandeepvijayarao09.anu.feature.memory.MemoryScreen
+import io.github.sandeepvijayarao09.anu.feature.memory.MemoryViewModel
 import io.github.sandeepvijayarao09.anu.feature.settings.SettingsScreen
 import io.github.sandeepvijayarao09.anu.feature.settings.SettingsViewModel
 
@@ -42,6 +44,7 @@ class MainActivity : ComponentActivity() {
 private fun AnuHome(graph: AppGraph) {
     var tab by rememberSaveable { mutableIntStateOf(0) }
     val chat = viewModel { ChatViewModel(graph.chat, graph.device::current, graph.approvals) }
+    val memory = viewModel { MemoryViewModel(graph.memory) }
     val settings = viewModel {
         SettingsViewModel(
             graph.models, graph.geminiKey, graph.ledger, graph.vaultActivity, graph.toolActivity,
@@ -54,12 +57,14 @@ private fun AnuHome(graph: AppGraph) {
         bottomBar = {
             NavigationBar {
                 NavigationBarItem(selected = tab == 0, onClick = { tab = 0 }, icon = {}, label = { Text("Chat") })
-                NavigationBarItem(selected = tab == 1, onClick = { tab = 1 }, icon = {}, label = { Text("Settings") })
+                NavigationBarItem(selected = tab == 1, onClick = { tab = 1 }, icon = {}, label = { Text("Memory") })
+                NavigationBarItem(selected = tab == 2, onClick = { tab = 2 }, icon = {}, label = { Text("Settings") })
             }
         },
     ) { padding ->
         when (tab) {
             0 -> ChatScreen(chat, Modifier.padding(padding))
+            1 -> MemoryScreen(memory, Modifier.padding(padding))
             else -> SettingsScreen(settings, Modifier.padding(padding))
         }
     }

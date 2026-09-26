@@ -117,6 +117,51 @@ class ChatSessionTest {
     }
 
     @Test
+    fun `every turn carries the current memory, and is offered to memory when it completes`() = runTest {
+        var block = "- diet: vegetarian"
+        val offered = mutableListOf<Pair<String, String>>()
+        val chat = ChatSession(
+            agent(mapOf(Tier.BASE to base)),
+            memory = { block },
+            onTurnCompleted = { text, key -> offered += text to key },
+        )
+        base.enqueue(Step.Reply("Hi!"), Step.Reply("Sure."), Step.Reply("Noted."))
+        chat.send("Hello", device).toList()
+        chat.send("And now?", device).toList()
+        block = "- diet: vegan" // corrected in the Memory tab
+        chat.send("Dinner ideas?", device).toList()
+        assertEquals(listOf("- diet: vegetarian", "- diet: vegetarian", "- diet: vegan"), base.requests.map { it.memory })
+        // An unchanged block keeps the system prompt identical, so the on-device cache survives (ADR-038).
+        assertEquals(base.requests[0].system, base.requests[1].system)
+        assertEquals(listOf("Hello" to "main:0", "And now?" to "main:2", "Dinner ideas?" to "main:4"), offered)
+    }
+
+    @Test
+    fun `memory commands are not offered to memory again`() = runTest {
+        val offered = mutableListOf<String>()
+        val chat = ChatSession(agent(mapOf(Tier.BASE to base)), onTurnCompleted = { text, _ -> offered += text })
+        base.enqueue(Step.Reply("Noted."), Step.Reply("Done."), Step.Reply("Nice."))
+        chat.send("Remember that I prefer mornings", device).toList()
+        chat.send("Forget that I'm vegan", device).toList()
+        chat.send("I just adopted a cat called Miso, and she is very curious about everything in the flat", device).toList()
+        assertEquals(listOf("I just adopted a cat called Miso, and she is very curious about everything in the flat"), offered)
+    }
+
+    @Test
+    fun `broken memory never breaks the chat`() = runTest {
+        val chat = ChatSession(
+            agent(mapOf(Tier.BASE to base)),
+            memory = { error("database locked") },
+            onTurnCompleted = { _, _ -> error("database locked") },
+        )
+        base.enqueue(Step.Reply("Hi!"))
+        val events = chat.send("Hello", device).toList()
+        assertTrue(events.last() is AgentEvent.Completed)
+        assertEquals(null, base.requests.single().memory)
+        assertEquals(2, chat.history().size)
+    }
+
+    @Test
     fun `a reply after reading texts keeps the messaging tools`() = runTest {
         val skills = mutableListOf<io.github.sandeepvijayarao09.anu.core.router.Skill>()
         val chat = ChatSession(agent(mapOf(Tier.BASE to base, Tier.PRO to pro)), toolsFor = { skills += it; emptyList() })

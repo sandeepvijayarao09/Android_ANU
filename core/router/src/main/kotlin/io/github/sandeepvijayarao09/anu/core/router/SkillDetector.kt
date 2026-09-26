@@ -6,6 +6,16 @@ package io.github.sandeepvijayarao09.anu.core.router
  * which offers no tools.
  */
 object SkillDetector {
+    /**
+     * Asking Anu to remember, recall or forget something about the user (§10): "Remember that…",
+     * "What do you know about me?", "Forget that…", but not "forget it" or "I can't remember".
+     */
+    private val MEMORY = Regex(
+        "^\\W*(please\\s+)?(remember|don'?t forget|note that|keep in mind|forget (that|about|what|my|i)\\b)|" +
+            "\\b(what do you (know|remember) about|what have you learned|do you remember)\\b",
+        RegexOption.IGNORE_CASE,
+    )
+
     /** Words that only mean email. */
     private val EMAIL = Regex(
         "\\b(e-?mails?|e-?mailed|gmail|inbox|mail from|newsletter|subject line|cc)\\b",
@@ -75,6 +85,8 @@ object SkillDetector {
     }
 
     private fun byKeywords(text: String, previous: Skill?): Skill? = when {
+        // First: "Remember Maya's email is…" is about memory, not email.
+        MEMORY.containsMatchIn(text) -> Skill.MEMORY
         EMAIL.containsMatchIn(text) -> Skill.EMAIL
         MESSAGES.containsMatchIn(text) || TEXT_COMMAND.containsMatchIn(text) -> Skill.MESSAGES
         // Before scheduling: a reply that proposes a time needs the reply tools, which include the calendar lookups.

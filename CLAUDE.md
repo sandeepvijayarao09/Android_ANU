@@ -77,5 +77,6 @@ export JAVA_HOME=/opt/homebrew/opt/openjdk@21
   - Receive a text: `adb emu sms send 5551234567 "…"`. Google Messages is the SMS app and posts the notification.
   - Check what was really sent: `adb shell content query --uri content://sms --projection address:body:type` (type 2 is sent).
   - Android 15+ hides one-time-code notifications from Anu, so test code masking through `sms_search`.
+- **Memory on the emulator:** memory learns after you leave the app (`adb logcat -s WM-WorkerWrapper` shows `MemoryWorker`), or with "Learn now" in the Memory tab. Plain chat about yourself is learned from; requests and "Remember that…" commands are not (the tools handle those). Resetting the chat database wipes memory too.
 - **Debugging a stuck turn:** the app is debuggable, so `adb forward tcp:8711 jdwp:<pid>` and `jdb` can print the pending approvals. Don't hold a breakpoint on the main thread while touching the screen: the ANR dialog that follows keeps coming back until the app restarts.
 - **Resetting the chat without re-copying the model:** `adb shell run-as io.github.sandeepvijayarao09.anu.personal rm -rf no_backup/db`, with the app stopped.

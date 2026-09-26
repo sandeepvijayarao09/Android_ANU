@@ -18,6 +18,7 @@ import io.github.sandeepvijayarao09.anu.core.model.Sampling
 import io.github.sandeepvijayarao09.anu.core.model.StopReason
 import io.github.sandeepvijayarao09.anu.core.model.ToolCall
 import io.github.sandeepvijayarao09.anu.core.model.ToolSpec
+import io.github.sandeepvijayarao09.anu.core.model.onDeviceSystem
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -117,7 +118,8 @@ class LiteRtLmBrain(
     }
 
     private fun acquire(engine: Engine, request: BrainRequest): CachedConversation {
-        val key = ConversationKey(request.system, request.tools, request.sampling)
+        val system = request.onDeviceSystem
+        val key = ConversationKey(system, request.tools, request.sampling)
         val history = request.transcript.dropLast(1)
         val previous = cached
         cached = null
@@ -125,7 +127,7 @@ class LiteRtLmBrain(
         previous?.conversation?.close()
         val conversation = engine.createConversation(
             ConversationConfig(
-                systemInstruction = request.system?.let { Contents.of(it) },
+                systemInstruction = system?.let { Contents.of(it) },
                 initialMessages = history.indices.map(request::messageAt),
                 tools = request.tools.map { tool(DeclaredTool(it)) },
                 samplerConfig = request.sampling.toLiteRt(),

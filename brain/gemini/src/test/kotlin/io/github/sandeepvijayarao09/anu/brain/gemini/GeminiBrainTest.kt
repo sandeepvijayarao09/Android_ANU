@@ -158,6 +158,20 @@ class GeminiBrainTest {
     }
 
     @Test
+    fun `memory never leaves the phone`() = runBlocking {
+        server.enqueue(sse(text("ok", 5)))
+        brain.stream(
+            BrainRequest(
+                system = "You are Anu.",
+                transcript = listOf(ChatMessage.User("Book lunch")),
+                memory = "What you know about the user:\n- manager: Maya Chen",
+            ),
+        ).toList()
+        val body = server.takeRequest().body!!.utf8()
+        assertTrue(body, "Maya Chen" !in body && "What you know" !in body)
+    }
+
+    @Test
     fun `http errors surface as GeminiException`() {
         server.enqueue(MockResponse.Builder().code(429).body("""{"error":{"message":"quota"}}""").build())
         val error = assertThrows(GeminiException::class.java) { runBlocking { brain.stream(hello).toList() } }

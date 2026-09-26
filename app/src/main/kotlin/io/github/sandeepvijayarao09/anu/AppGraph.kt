@@ -8,6 +8,7 @@ import android.net.NetworkCapabilities
 import android.os.BatteryManager
 import android.os.PowerManager
 import android.provider.Settings
+import android.util.Log
 import androidx.core.content.edit
 import io.github.sandeepvijayarao09.anu.brain.gemini.GeminiBrain
 import io.github.sandeepvijayarao09.anu.brain.litertlm.ModelManager
@@ -40,7 +41,13 @@ import io.github.sandeepvijayarao09.anu.core.agent.ChatSession
 import io.github.sandeepvijayarao09.anu.core.data.AnuDatabase
 import io.github.sandeepvijayarao09.anu.core.data.RoomPrivacyLedger
 import io.github.sandeepvijayarao09.anu.core.data.RoomToolAudit
+import io.github.sandeepvijayarao09.anu.core.data.RoomMemoryStore
 import io.github.sandeepvijayarao09.anu.core.data.RoomToolResultStore
+import io.github.sandeepvijayarao09.anu.core.memory.FactExtractor
+import io.github.sandeepvijayarao09.anu.core.memory.ForgetMemoryTool
+import io.github.sandeepvijayarao09.anu.core.memory.MemoryPipeline
+import io.github.sandeepvijayarao09.anu.core.memory.RememberTool
+import io.github.sandeepvijayarao09.anu.core.memory.SearchMemoryTool
 import io.github.sandeepvijayarao09.anu.core.data.RoomTranscriptStore
 import io.github.sandeepvijayarao09.anu.core.data.RoomVaultAudit
 import io.github.sandeepvijayarao09.anu.core.model.BrainId
@@ -61,6 +68,7 @@ import io.github.sandeepvijayarao09.anu.feature.settings.AccountConnection
 import io.github.sandeepvijayarao09.anu.feature.settings.CloudKeySettings
 import io.github.sandeepvijayarao09.anu.feature.settings.NotificationAccess
 import io.github.sandeepvijayarao09.anu.feature.settings.VaultActivity
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -132,6 +140,14 @@ class AppGraph(private val context: Context) {
         )
     }
 
+    /**
+     * Memory (§8): learned on the phone only, from the user's own words, with an on-device model. The
+     * smaller model is used when it's installed.
+     */
+    val memory by lazy {
+        MemoryPipeline(RoomMemoryStore(db), FactExtractor({ onDevice.brainFor(BrainId.BASE) ?: onDevice.brainFor(BrainId.PRO) }))
+    }
+
     /** Every tool Anu has. Each skill offers only its own subset to the model (§7.3). */
     private val tools: List<Tool<*, *>> by lazy {
         val calendar = ProviderCalendar(context.contentResolver)
@@ -147,6 +163,9 @@ class AppGraph(private val context: Context) {
             ListConversationsTool(MessagingHub.store, zone),
             ReadConversationTool(MessagingHub.store, zone),
             ReplyTool(MessagingHub.store),
+            RememberTool(memory),
+            SearchMemoryTool(memory),
+            ForgetMemoryTool(memory),
         ) + Flavor.tools(context, zone)
     }
 
@@ -160,6 +179,7 @@ class AppGraph(private val context: Context) {
             "messages_list_conversations", "messages_read_conversation", "messages_reply",
             "contacts_find", "calendar_find_free_slots",
         ) + if (Flavor.HAS_SMS) listOf("sms_search") else emptyList()
+        Skill.MEMORY -> listOf("memory_remember", "memory_search", "memory_forget")
         else -> emptyList()
     }
 
@@ -170,6 +190,18 @@ class AppGraph(private val context: Context) {
             agent = Agent(Router(), brains, broker),
             store = RoomTranscriptStore(db.transcripts(), conversationId = "main"),
             toolsFor = ::toolsFor,
+            memory = {
+                // The chat carries on without memory if it fails. The log names the failure, never the content.
+                try {
+                    memory.memoryBlock()
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Log.w(TAG, "Memory block unavailable", e)
+                    null
+                }
+            },
+            onTurnCompleted = { text, turnKey -> memory.captureChat(text, turnKey) },
         )
     }
 
@@ -185,6 +217,8 @@ class AppGraph(private val context: Context) {
     }
 
     private companion object {
+        const val TAG = "Anu"
+
         /** An alias, so the ID doesn't go stale (ADR-022). It becomes a setting once S8 confirms it. */
         const val GEMINI_MODEL = "gemini-flash-latest"
     }

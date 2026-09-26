@@ -134,6 +134,16 @@ class RouterTest {
     }
 
     @Test
+    fun `remembering, recalling and forgetting offer the memory tools`() {
+        assertEquals(Skill.MEMORY, SkillDetector.detect("Remember that my manager is Maya Chen"))
+        assertEquals(Skill.MEMORY, SkillDetector.detect("What do you know about me?"))
+        assertEquals(Skill.MEMORY, SkillDetector.detect("Forget that I'm vegetarian"))
+        assertEquals(Skill.MEMORY, SkillDetector.detect("Remember Maya's email is maya@example.com"))
+        assertEquals(Skill.CHAT, SkillDetector.detect("Forget it, never mind. Let's talk about something else for a bit instead"))
+        assertEquals(Skill.CHAT, SkillDetector.detect("I can't remember the name of that café near the station, any ideas how to find it?"))
+    }
+
+    @Test
     fun `writing about text and chatting in general don't offer message tools`() {
         assertEquals(Skill.CHAT, SkillDetector.detect("Shorten this text so it fits in a tweet, and keep the tone friendly please"))
         assertEquals(Skill.CHAT, SkillDetector.detect("Can we chat about dinner ideas? Something quick and vegetarian would be great"))

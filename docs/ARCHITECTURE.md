@@ -1,6 +1,6 @@
 # Anu for Android: Architecture
 
-Version 1.2.0 · Draft · 2026-09-25
+Version 1.3.0 · Draft · 2026-09-25
 Status: proposed. OD-1 to OD-4 were resolved on 2026-09-25 (§16).
 Product intent lives in [VISION.md](VISION.md).
 
@@ -188,7 +188,7 @@ sequenceDiagram
 | `core:model` | Brain contracts, `BrainEvent`, messages, `ToolCall`, schema generation, `DataClass` (S0–S3); test fixtures such as `ScriptedBrain` | **no** |
 | `core:agent` | Agent loop, Tool Broker, policy, approvals, budgets, run store interface | **no** |
 | `core:router` | Router stages, features, scorer, telemetry interface | **no** |
-| `core:memory` | Event log, entities, facts, profile, retrieval, memory pipeline | yes (WorkManager) |
+| `core:memory` | Event log, facts, profile, retrieval, memory pipeline and memory tools. Its store is in `core:data` and its scheduling in `app` (ADR-036) | **no** |
 | `core:security` | `SecretRef`/`SecretUse` handles, PII detection, reversible redaction, egress gate, Privacy Ledger interface | **no** |
 | `core:vault` | Keystore + Tink vault store, host-bound HTTP injector (`withVault`), and the shared `KeystoreAead` primitive with its `KeyPolicy` | yes |
 | `core:data` | Room database on SQLCipher (ADR-024), DAOs, and the stores behind `TranscriptStore`, `PrivacyLedger` and `VaultAudit` | yes |
@@ -211,7 +211,7 @@ sequenceDiagram
 
 ### 4.2 Dependency rules (enforced by module boundaries)
 
-- `core:model`, `core:agent`, `core:router`, `core:security` and `brain:gemini` are pure Kotlin with no `android.*` imports. They are unit-tested on the JVM and can later become Kotlin Multiplatform modules for iOS.
+- `core:model`, `core:agent`, `core:router`, `core:security`, `core:memory` and `brain:gemini` are pure Kotlin with no `android.*` imports. They are unit-tested on the JVM and can later become Kotlin Multiplatform modules for iOS.
 - Features depend on core contracts, never on a concrete brain or connector. Implementations are bound in `app` (`AppGraph`). For example, screens see models only through `OnDeviceModels` in `core:model`, which `ModelManager` implements.
 - Connectors never call brains, and brains never call connectors. They meet only in the agent runtime.
 - Only `core:vault` can decrypt secrets. Only the vault's HTTP injector can attach one to a request.
@@ -281,6 +281,7 @@ Application ID: `io.github.sandeepvijayarao09.anu`. It can change until the firs
     - The KV cache lives in a LiteRT-LM `Conversation`, reused across the turns of a run.
     - Our persisted transcript is the source of truth.
     - `cancelProcess()` does not roll back conversation state. After a cancel or an error, the conversation is closed and later rebuilt from the transcript (`initialMessages`).
+    - **Memory is part of the on-device system instruction only (ADR-038).** `BrainRequest.memory` is appended after the system prompt by on-device brains and is part of the cache key. The Gemini brain never sends it.
     - **The system prompt stays the same between turns (ADR-033).** The cache is reused only when a request extends what the conversation has already seen, with the same system prompt and tools. So per-turn facts never go in the system prompt. The current time travels with the newest user message (`BrainRequest.sentAt`, shown to the model as `[Fri 2026-09-25 14:46] …`), and the prompt carries only the date. On the emulator, a prompt with the time to the minute made every turn re-read the whole chat: one reply took over six minutes on CPU. With the time on the message, the same turn took 15–27 s.
   - **Streaming and cancellation.**
     - `sendMessageAsync(…, MessageCallback)` is wrapped in `callbackFlow`.
@@ -455,6 +456,8 @@ Untrusted content goes in clearly delimited data blocks. Budgets are set per tie
 
 **Dates for scheduling.** Small models are poor at date arithmetic. S1 on the emulator saw E4B turn "tomorrow" into the wrong day. So scheduling prompts include a small table: today, tomorrow, and the next seven days with weekday names and ISO dates. They also say that calling `calendar_create_event` *is* how to ask the user, because the approval sheet is the confirmation.
 
+**Memory (ADR-038).** The memory block is read fresh for every turn and goes to on-device brains only. It changes rarely during a chat, because learning runs after the user leaves the app (ADR-037), so the KV cache survives. Its header says it is kept up to date and wins over older messages in the chat, unless the user has just said otherwise. On the emulator, the model otherwise trusted an old "I'm vegetarian" over the user's own correction to "vegan".
+
 **Time and tool hints (ADR-033).** The system prompt carries the date, never the time: the time goes with the newest user message, so the on-device KV cache survives between turns. Each tool hint is given only when its tool is offered. For example, "call `messages_reply` with the final text; it takes the chat's name or phone number" appears only with the messaging tools.
 
 ### 7.4 Output handling
@@ -532,6 +535,28 @@ flowchart LR
 - **Deletion cascades (I5):** deleting a source re-evaluates everything derived from it.
 - **The profile never leaves the device by default.** Cloud requests receive only the minimal, policy-approved facts, and each one is ledgered (I3).
 
+### 8.5 As built in Phase 3 (v1)
+
+- **Where it lives (ADR-036).** The pipeline, its rules and the memory tools are pure Kotlin in `core:memory`, tested on the JVM. `RoomMemoryStore` in `core:data` keeps it in the encrypted database (schema v3). `MemoryWorker` in `app` runs it in the background. The Memory tab is `feature:memory`, which sees only the `MemoryInspector` contract.
+- **What it learns from (ADR-039).** v1 learns only from the user's own words:
+  - chat messages where the user talks about themself or people in their life ("my manager…", "I'm vegetarian");
+  - "Remember that…" statements, through `memory_remember`;
+  - confirmations and corrections in the Memory tab.
+  Requests such as "Book lunch with Maya" aren't captured, and neither are memory commands, which the memory tools already carry out. On the emulator, learning from a "Remember that…" message again made a duplicate fact. Learning from email, messages and calendar is Planned. It needs a quarantined extraction call and never-learn rules.
+- **Never kept (I1).** Messages about passwords, PINs or verification codes are not captured at all. Card, bank and ID numbers are cut from what is stored. A fact is refused if its relation or value carries one, including in snake_case such as `wifi_password`, which a unit test caught.
+- **Extract.** An on-device model only, never the cloud, with no tools, greedy sampling and a strict JSON schema generated from `ExtractedFact`. It gets one example and today's date. Invalid output gets one repair (P6). A fact is kept only if its quote, or else its value, is really in the message, which catches invented facts. A failed event waits for the next run, because an immediate retry would fail the same way, and is dropped after 3 attempts.
+- **Reconcile.**
+  - The same fact again adds a source and raises confidence: 0.6, then +0.15 per mention, up to 0.95.
+  - A new value for a one-at-a-time relation (employer, manager, home city, diet…) supersedes the old fact, which is kept in history.
+  - Inferred facts never override the user's own word; user-stated facts have confidence 1.0.
+  - A deleted fact leaves only a SHA-256 fingerprint of subject, relation and value, so it isn't learned again.
+- **Profile.** Each section is rendered from its facts, most important first: the user's own facts, then confidence, then recency. A new version is saved only when the text changes. Model-written summaries are Planned for nightly consolidation.
+- **When (ADR-037).** Never mid-chat. After the user leaves the app, if the battery isn't low; twice a day while charging; or "Learn now" in the Memory tab. A background run stops between messages if the user returns, and frees the model when done (P8).
+- **Retrieval v1.** The memory block holds the most important facts, grouped by section, within about 1,500 characters, for on-device brains only (ADR-038). `memory_search` finds facts by name or topic. Entity matching and vector search are Planned; vectors wait for spike S3.
+- **Tools.** `memory_remember` (`WRITE_PRIVATE`: automatic unless the run is tainted), `memory_search` (READ), `memory_forget` (`DESTRUCTIVE`: the approval sheet lists the exact facts, and only those are deleted, even if memory changes in between).
+- **Memory tab.** Facts by section, each with where it came from ("You said so", or learned from what you wrote) and a "because of" list of its source messages, with dates and the user's words. Controls: That's right, Correct, Delete, and Forget on a source message. Forgetting a message removes what came only from it and restores what it had replaced (I5). A fact the user confirmed survives, because the confirmation is also a source (I4).
+- **Planned:** entities with aliases and a link to contacts; episodes and nightly consolidation (dedupe, decay); never-learn rules; retention for event content; a memory eval (§15); windowing long chats, with memory carrying what falls out of the window.
+
 ## 9. Connectors
 
 All connectors implement a single contract: an auth method, a sync mode, tools (with risk tiers), and emitted events. All connector content is **tainted** (P4).
@@ -587,7 +612,8 @@ Outlook / Microsoft 365 is not in v1 (OD-2). The connector contract allows addin
 
 ## 10. Skills
 
-**Skill detection** (`SkillDetector`, v1): keyword rules choose Email, Messages, Scheduling or Chat (ADR-028, ADR-034).
+**Skill detection** (`SkillDetector`, v1): keyword rules choose Memory, Email, Messages, Scheduling or Chat (ADR-028, ADR-034).
+- **Memory comes first.** A message that starts with "remember", "don't forget", "note that" or "forget that", or asks "what do you know about…", gets the memory tools. "Remember Maya's email is…" is about memory, not email. "Forget it" and "I can't remember…" are not memory commands.
 - **Words that mean one thing decide it.** "Inbox" and "email" mean email. "Texts", "WhatsApp" and "group chat" mean messages. Bare "text" and "chat" don't, because "shorten this text" is writing. A message that starts with "text", "message" or "DM" is messaging ("Text Maya I'm late").
 - **Shared words follow the conversation.** "Reply", "draft" and "unread" keep messaging if the chat is about texts or names a phone number, and otherwise mean email. They come before scheduling, so a reply that proposes a time keeps its reply tools.
 - **Replay.** The skill is found by replaying the last 20 user turns, so "check my texts", then "reply that 7 works", then "make it 7:30" all keep the messaging tools. A short follow-up (80 characters or fewer, such as "yes please") keeps the previous skill, at most three times in a row. The emulator found the first bug: "yes please" dropped the calendar tools, and the model wrote raw tool-call markup as text.
@@ -650,6 +676,8 @@ Outlook / Microsoft 365 is not in v1 (OD-2). The connector contract allows addin
 
 ### 12.2 Egress pipeline (the only path to the cloud, I3)
 
+The memory block is never part of a cloud request (ADR-038). A unit test checks that the Gemini request body never contains it.
+
 1. **Minimize:** include only the context the task needs.
 2. **Classify:** assign S-classes.
 3. **Redact** (`core:security` `EgressGate` + `RedactionSession`): tokenize reversibly and rehydrate locally.
@@ -693,7 +721,7 @@ Recommend a **paid** Gemini tier for personal data. Google's terms for unpaid Ge
 
 | Store | Contents | Protection | Backup |
 |---|---|---|---|
-| Main database (Room + SQLCipher) | Now: transcripts (`messages`), Privacy Ledger (`ledger`), vault audit (`vault_audit`). Later: events, entities, facts, episodes, profile versions, runs, approvals, router telemetry | Database key wrapped by Keystore (ADR-024) | Excluded |
+| Main database (Room + SQLCipher) | Now: transcripts (`messages`), Privacy Ledger (`ledger`), vault audit (`vault_audit`), tool audit and results, memory (`memory_events`, `facts`, `fact_sources`, `rejected_facts`, `profile_versions`). Later: entities, episodes, runs, approvals, router telemetry | Database key wrapped by Keystore (ADR-024) | Excluded |
 | Vault store (separate files) | Vault items | Tink keyset per protection level, wrapped by Keystore master keys (§11) | Excluded |
 | Blob store | Large content (email bodies, attachments), cached for extraction | Tink streaming AEAD | Excluded |
 | Settings (`SharedPreferences`) | Non-sensitive values only, such as vault handles | None needed | Excluded |
@@ -706,7 +734,7 @@ Recommend a **paid** Gemini tier for personal data. Google's terms for unpaid Ge
   - At rest, the data is protected three ways: Android's credential-encrypted storage (unreadable until the first unlock after boot), SQLCipher, and a hardware-bound key. A copied database file, with or without `key.bin`, is unreadable on any other device.
 - **Opening.** SQLCipher gets the key in raw-key form (`x'…'`). The key is already random, so passphrase stretching is skipped and opening is faster.
 - **Location.** The database lives at `noBackupFilesDir/db/anu.db`. Backup and device transfer are excluded for all data (`data_extraction_rules.xml`).
-- **Schemas** are exported to `core/data/schemas` and committed, so every migration can be reviewed. Version 1 is the current schema.
+- **Schemas** are exported to `core/data/schemas` and committed, so every migration can be reviewed. Version 3 is the current schema. Each version adds tables through an automatic migration, and a device test checks each step with data in place.
 - **Tests.**
   - JVM (Robolectric): the store logic runs against Room's real SQL, unencrypted.
   - Device: `EncryptedDatabaseTest` checks that the file has no plain SQLite header and no canary text, and that a wrong key can't open it. It needs a device dedicated to Anu.
@@ -722,7 +750,7 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
   - Secret canaries are planted and checked for in every prompt, log and payload.
   - Approval-bypass attempts are made.
   - Egress without a ledger entry is checked for.
-  - Deletion cascades are verified.
+  - Deletion cascades are verified. For memory, JVM and Robolectric tests check that every fact keeps a source (I4) and that forgetting a source removes or restores what came from it (I5).
 - **Evals** (`eval/`), each with a separately authored held-out split:
   - **Router:** tier accuracy, how often it under- or over-routes, and latency.
   - **Tools:** state-based scoring (the final state of the fake accounts), with **real** approval handling. Approvals are never auto-approved in safety evals.
@@ -758,6 +786,15 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 | S8 | Gemini API with the owner's key: `parametersJsonSchema` and `responseJsonSchema` accepted, thought-signature round trip, the `-latest` aliases, and the SSE framing |
 
 **Spike log.** Measured results only, newest first.
+
+- **Memory end to end, 2026-09-25.** Anu emulator, E4B CPU.
+  - **Upgrade:** installing over the existing v2 database kept the chat and added the memory tables. The v2→v3 device test passes.
+  - **Background learning:** "I'm vegetarian, and my manager is Maya Chen" in plain chat. Leaving the app started `MemoryWorker` within a second. It finished in 22 s, including loading the model. The Memory tab then showed "manager: Maya Chen" and "diet: vegetarian", each with the message behind it.
+  - **In use:** "Book a 30 minute 1:1 with my manager tomorrow at 10am" led to the contact lookup and a proposed invite for maya.chen@example.com.
+  - **Correction:** "diet" corrected to "vegan" in the Memory tab. The model first still trusted the older "I'm vegetarian" in the chat, and the header change fixed it (ADR-038): it then suggested vegan recipes.
+  - **Tools:** "Remember that my sister Priya lives in Pune" made two facts without asking, as a private write should. "What do you know about me?" answered from memory. "Forget that I'm vegan" showed "Forget diet: vegan" for approval, then deleted exactly that.
+  - **Memory tab:** That's right, Correct, Delete and Learn now all worked. Forgetting the message behind a confirmed fact kept the fact, backed by the confirmation (I4, I5).
+  - **Found and fixed:** memory commands were learned from again, which made a duplicate (ADR-039); the extracted value repeated its relation, fixed with examples in the tool description; a credential relation in snake_case passed the filter (unit test).
 
 - **Messaging end to end, 2026-09-25.** Anu emulator, E4B CPU, Google Messages as the SMS app, and SMS from made-up numbers sent with `adb emu sms send`. Notification access was granted with `cmd notification allow_listener` after checking that the Settings button opens Android's page for Anu.
   - **Read:** "Any new texts?" found Maya's text through the notification. On another run the model used `sms_search` for the same question.
@@ -876,6 +913,10 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 | 033 | 2026-09-25 | Per-turn facts never go in the system prompt: the time travels with the newest user message (`BrainRequest.sentAt`), and tool hints appear only with their tools | A prompt that changed every minute defeated the KV cache (ADR-018). One reply took over six minutes on the emulator, and 15–27 s after the fix |
 | 034 | 2026-09-25 | Skills are found by replaying recent user turns. Shared words such as "reply" follow the conversation, a phone number or a leading "text" means messaging, and a skill carries over at most three follow-ups | On the emulator, "Reply that 1 works" after reading texts needed the messaging tools, and "Text the 555 number…" got no tools at all |
 | 035 | 2026-09-25 | Tools accept what small models naturally have, such as a chat's name or number, when exactly one thing matches; refusals say how to recover (`declined`, `no_answer`, the known chats) | On the emulator, E4B passed a phone number as the chat id, then asked the user for an "ID", and blamed a declined reply on "the system" |
+| 036 | 2026-09-25 | Memory's pipeline, rules and tools are pure Kotlin in `core:memory`; its store is in `core:data` and its scheduling in `app` | The rules are tested on the JVM; only `core:data` touches the database; only `app` knows Android's lifecycle |
+| 037 | 2026-09-25 | Memory learns after the user leaves the app (battery not low), twice a day while charging, or on "Learn now"; never mid-chat | Extraction shares the on-device model, and running it between turns would throw away the chat's KV cache (ADR-033). A session's few messages take one short call each |
+| 038 | 2026-09-25 | The memory block goes to on-device brains only, read fresh each turn; its header says it is current and wins over older chat messages unless the user has just said otherwise | The profile stays on the phone (§8.4). On the emulator, the model trusted an old message over the user's correction. Memory rarely changes mid-chat, so the cache survives |
+| 039 | 2026-09-25 | v1 learns only from the user's own words; each fact needs its quote in the message; secrets and card, bank and ID numbers are never kept; memory commands aren't learned from again; inferred facts never override the user's; a deleted fact leaves only a fingerprint | P5, I1 and I4. On the emulator, learning from a "Remember that…" message again made a duplicate |
 
 ### Component status
 
@@ -892,17 +933,18 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 | Residency: one model at a time (`OnDeviceBrains`) | 1 | Implemented. Not device-tested; thresholds come from S1 |
 | `core:security`: PII detection, redaction, `EgressGate`, ledger interface | 1 | Implemented, with 9 unit tests. The ledger is persisted by `core:data` |
 | `brain:gemini` | 1 | Implemented, with 6 unit tests against a fake server. Not verified against the live API (S8) |
-| Router v1: `core:router` stages A and B, escalation, and skill detection | 1 | Implemented, with 17 unit tests. Not yet Verified: there's no router eval set yet (§15) |
+| Router v1: `core:router` stages A and B, escalation, and skill detection | 1 | Implemented, with 18 unit tests. Not yet Verified: there's no router eval set yet (§15) |
 | Cascade (Stage C: validate, repair, escalate, consent stop) in `core:agent` | 1 | Implemented, with 9 unit tests using `ScriptedBrain` |
 | Direct tier (deterministic handlers) | 2 | Planned. Needs connectors |
 | `core:vault`: store, Keystore protector, `SecretInjector` | 1 | Implemented. 10 JVM tests, plus 2 device tests with the real Keystore on the Anu emulator. The device tests found and fixed a hidden screen-lock error. Recovery passphrase Planned |
 | Vault UI and biometric prompt (`feature:vault`) | 1 | Planned |
-| Encrypted database (`core:data`): Room 2.8 + SQLCipher 4.19, key wrapping, transcript, ledger and audit stores | 1 | **Verified on the Anu emulator**: the encryption-at-rest device test passes (no plain header, no canary, wrong key refused). Plus 8 JVM tests |
+| Encrypted database (`core:data`): Room 2.8 + SQLCipher 4.19, key wrapping, transcript, ledger, audit and memory stores; schema v3 | 1 | **Verified on the Anu emulator**: the encryption-at-rest and migration device tests pass (no plain header, no canary, wrong key refused; v1→v2 and v2→v3 keep data). Plus 11 JVM tests |
 | Persistence wired: chat history restored at launch, ledger persisted, vault activity shown in Settings | 1 | Implemented, with a ViewModel test for restore. Not yet run on a device |
+| App shell: Chat, Memory and Settings tabs | 1 | Implemented. Runs on the Anu emulator |
 | Chat UI (`feature:home`): streaming, tier badge, Retry with Pro, cloud consent dialog, Stop, Markdown | 1 | Implemented. It runs end to end on the Anu emulator with E4B, and has 11 JVM tests. The cloud consent dialog isn't exercised on a device yet (needs a Gemini key) |
 | Save the answering tier with each message (restored answers currently lose their badge) | 1 | Planned: schema v2 |
 | Open the database off the main thread (44–95 ms today) | 1 | Planned |
-| `ChatSession` (transcript as the truth, consent resend, take back last, stable prompt, skill replay) in `core:agent` | 1 | Implemented, with 8 unit tests |
+| `ChatSession` (transcript as the truth, consent resend, take back last, stable prompt, skill replay, memory block, turns offered to memory) in `core:agent` | 1 | Implemented, with 11 unit tests |
 | Settings UI (`feature:settings`): models (with delete confirmation), Gemini key into the vault, connectors (calendar and contacts, Gmail, messaging apps, SMS in `personal`), activity, vault activity, Privacy Ledger | 1 | Implemented. It runs on the Anu emulator |
 | App wiring (`AppGraph`, device state, no-backup rules) | 1 | Implemented; lint clean (two warnings: newer Gradle available, no app icon yet) |
 | Agent loop, Tool Broker, approvals, taint, claim check (`core:agent`) | 2 | Implemented. 33 JVM tests, and works end to end on the Anu emulator with E4B: lookups, free slots, and an approval-gated invite |
@@ -913,13 +955,23 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 | AI Scheduling v1 (chat with calendar and contacts tools) | 2 | Implemented. Verified by hand on the emulator; no eval set yet (§15) |
 | AI Email v1: email skill detection, email tools plus contacts and calendar lookups, drafts and approval-gated sends | 2 | Implemented. Not yet run against a real mailbox (see the Gmail row) |
 | Tool audit and idempotency persistence (schema v2), Activity in Settings | 2 | Implemented. Migration test passes on the emulator |
-| Memory pipeline, profile, Memory Inspector | 3 | Planned |
+| Memory pipeline v1 (`core:memory`): capture, on-device extraction, reconcile, versioned profile, memory block, memory tools, background learning (ADR-036 to ADR-039) | 3 | Implemented. 19 JVM tests, 2 Robolectric tests on the real schema, and a v2→v3 migration device test. Verified by hand on the Anu emulator with E4B: learning after leaving the app, use in chat, corrections, remember and approval-gated forget. No memory eval yet (§15), so not Verified |
+| Memory Inspector (`feature:memory`): facts by section, sources, That's right, Correct, Delete, Forget a message, Learn now | 3 | Implemented. Every control checked by hand on the Anu emulator |
+| Memory, later: entities and aliases, episodes, nightly consolidation, vector retrieval (S3), never-learn rules, learning from connectors, retention, memory eval | 3 | Planned |
 | AI Writing everywhere (PROCESS_TEXT) | 3 | Planned |
 | Proactive agents, voice, assistant role | 4 | Planned |
 | Hardening, release readiness | 5 | Planned |
 
 ### Changelog
 
+- **1.3.0** (2026-09-25): memory, first slice (Phase 3).
+  - `core:memory`: events, facts with sources, a versioned profile, and the pipeline: capture, on-device extraction with a strict schema and a quote check, reconcile, profile (ADR-036, ADR-039).
+  - Learning after the user leaves the app, twice a day while charging, or on "Learn now"; never mid-chat (ADR-037).
+  - The memory block for on-device brains only, read fresh each turn, with a header that makes the user's corrections win (ADR-038).
+  - `memory_remember`, `memory_search`, and approval-gated `memory_forget`; skill detection for memory.
+  - The Memory tab: sources, That's right, Correct, Delete, Forget a message (I5), Learn now.
+  - Schema v3 with memory tables; `RoomMemoryStore`.
+  - Verified end to end on the emulator; see the spike log.
 - **1.2.0** (2026-09-25): messaging, and what the emulator taught.
   - `connector:messages`: a notification listener, three tools, and replies through the notification's own reply button (ADR-031). It handles messages Android 15+ hides, and names chat apps through targeted `<queries>`.
   - `connector:sms` in `personal` only: `sms_search` with E.164 numbers; a build check that keeps SMS permissions out of `play` (ADR-032).
