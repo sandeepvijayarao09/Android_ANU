@@ -1,6 +1,6 @@
 # Anu for Android: Architecture
 
-Version 1.7.0 · Draft · 2026-09-26
+Version 1.8.0 · Draft · 2026-09-26
 Status: proposed. OD-1 to OD-4 were resolved on 2026-09-25 (§16).
 Product intent lives in [VISION.md](VISION.md).
 
@@ -768,6 +768,8 @@ Recommend a **paid** Gemini tier for personal data. Google's terms for unpaid Ge
 
 ## 13. Surfaces
 
+**Visual design (ADR-048).** [DESIGN.md](../DESIGN.md) is the source of truth for colors, type, components and motion ("quiet precision", approved 2026-09-26): neutral surfaces, Google Sans Flex, a procedural sphere as Anu's presence, and color reserved for privacy (green stays on the phone, orange leaves it). The screens below don't follow it yet: the redesign is Planned.
+
 | Surface | How |
 |---|---|
 | Talk page (ADR-043) | The first of three pages: Talk, Memory and Settings, swiped or chosen in the bar. An orb breathes when idle, swells with the user's voice, swirls while Anu thinks and pulses while it speaks; captions show what was heard and the answer. The whole chat, with typing, opens in a sheet. Voice uses only the on-device `SpeechRecognizer` (a missing language pack is downloaded only when the user taps) and `TextToSpeech`, spoken sentence by sentence as the answer streams; Mute and Stop are one tap. Only the visible page is composed, so keyboard focus can't jump the pager. Whether Gemma 4's own audio input can replace speech recognition is spike S6 |
@@ -1026,6 +1028,7 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 | 045 | 2026-09-26 | "Hey Anu" is opt-in: a microphone foreground service, with a notification, runs the on-device recognizer in rounds while the screen is on and no Anu screen shows. What it hears is checked for the wake phrase and dropped. It needs Anu to be the assistant, starts only from an Anu screen, backs off on errors, and turns itself off with a notice when speech is unavailable | The system's low-power hotword detectors need a privileged permission third-party apps can't hold. Android lets a microphone service start only while the app is on screen. The user chose the assistant plus opt-in listening |
 | 046 | 2026-09-26 | MCP servers the user adds become tools (`mcp_<server>_<tool>`) through a dual-era Streamable HTTP client: stateless 2026-07-28 first, a 2025 `initialize` session as the fallback. They are offered only in turns that name the server (at most six). Risk comes from annotations (unannotated tools need approval, as destructive). Results are untrusted, every call is ledgered, and tokens sit in the vault bound to the server's host. A READ tool that sends data to a third party needs approval once the run is tainted (`Tool.sendsTo`) | MCP is how services offer tools to agents. The definitions come from the server, so they can't lower the policy. Offering tools only when named keeps small models' prompts short, and keeps injected text from reaching a server the user didn't mention |
 | 047 | 2026-09-26 | Shopping through UCP 2026-08-25's REST binding: stores added by address and discovered at `/.well-known/ucp`, `shop_search` (READ, untrusted, ledgered) and `shop_checkout` (WRITE_EXTERNAL; the approval shows the items and the estimated total). Anu never completes a checkout or touches payment: the store's `continue_url` becomes a "Finish at…" button the user taps. `UCP-Agent` names an honest `.invalid` profile until Anu has a hosted one | Buying can't be undone and involves payment credentials, which Anu must never handle (I1). The continue URL is UCP's own hand-off to a person. A made-up profile URL would misrepresent Anu to stores |
+| 048 | 2026-09-26 | The UI follows DESIGN.md, "quiet precision": neutral surfaces, one type family (Google Sans Flex, bundled), a procedural pearl/obsidian sphere as Anu's presence with no mascot, and color reserved for privacy: green when data stays on the phone, orange when it leaves, shown in a privacy indicator on every page, in receipts, approvals and a Privacy report | The user asked for professional, Apple-grade standards and rejected a cartoon character. Research covered Meta Muse, ChatGPT, Gemini, Siri, Perplexity and Alexa+. Color that always means data location makes "trust you can see" literal, as Apple's privacy indicators do |
 
 ### Component status
 
@@ -1077,10 +1080,15 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 | "Hey Anu" (ADR-045): `WakeWordService`, the Settings switch | 4 | Implemented. On the Anu emulator it pauses while Anu is open and turns itself off without a language pack. Real wake-ups need the reference phone (S9) |
 | MCP connector (`connector:mcp`, ADR-046): dual-era client, tools per server, offered when named | 4 | Implemented. 9 JVM tests (both eras, SSE, headers, schemas, ledger). Verified by hand on the Anu emulator with E4B against the mock server: a read, an approved write, and the 2025 fallback. No real third-party server tried yet |
 | Shopping (`connector:shopping`, ADR-047): UCP discovery, `shop_search`, `shop_checkout` with the store's own finish page | 4 | Implemented. 4 JVM tests. Verified by hand on the Anu emulator with E4B against the mock store: search, an approved checkout, and the Finish button. No real UCP store tried yet; stores that require a fetchable platform profile won't work until Anu has one |
+| Visual redesign to DESIGN.md (ADR-048): the sphere, privacy indicator, receipts, approval sheet, assistant card, grouped Memory and Settings, Privacy report | 4 | Planned. The design and an HTML preview were approved on 2026-09-26; the app still has the 1.7 look |
 | Proactive agents, learned router | 4 | Planned |
 | Hardening, release readiness | 5 | Planned |
 
 ### Changelog
+
+- **1.8.0** (2026-09-26): the UI design system.
+  - DESIGN.md, "quiet precision", approved after researching Meta Muse, ChatGPT, Gemini, Siri, Perplexity and Alexa+ (ADR-048).
+  - Planned: rebuild Talk, the assistant card, approvals, Memory, Settings and the Privacy report to match.
 
 - **1.7.0** (2026-09-26): voice from any app, and services and shopping.
   - Three pages: Talk, with an orb that reacts to voice, plus Memory and Settings. Speech on the phone only, spoken sentence by sentence (ADR-043).
