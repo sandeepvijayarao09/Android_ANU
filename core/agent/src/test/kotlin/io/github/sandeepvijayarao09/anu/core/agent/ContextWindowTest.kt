@@ -56,6 +56,14 @@ class ContextWindowTest {
     }
 
     @Test
+    fun `a calibrated scale counts in the runtime's tokens`() {
+        // At twice the raw estimate, 100 + 3 × 208 = 724 raw is 1,448: over 1,000. Down to 700, one exchange
+        // stays: (100 + 208) × 2 = 616.
+        assertEquals(0, ContextWindow(budget = 1_000).start(exchanges(3), previous = 0, fixed = 100, scale = 1.0))
+        assertEquals(4, ContextWindow(budget = 1_000, refill = 0.7).start(exchanges(3), previous = 0, fixed = 100, scale = 2.0))
+    }
+
+    @Test
     fun `if not even the newest exchange fits, only the new message is sent`() {
         val huge = listOf(ChatMessage.User("u".repeat(3_500)), ChatMessage.Model("m".repeat(3_500)))
         assertEquals(2, ContextWindow(budget = 500).start(huge, previous = 0, fixed = 100))
@@ -67,10 +75,12 @@ class ContextWindowTest {
     }
 
     @Test
-    fun `tokens are counted on the safe side, tool calls and results included`() {
+    fun `tokens are counted on the safe side, and JSON costs more than prose`() {
         assertEquals(0, Tokens.of(null as String?))
         assertEquals(29, Tokens.of("a".repeat(100)))
-        val call = ChatMessage.Model("", listOf(ToolCall("x_y", buildJsonObject { put("q", "a".repeat(100)) })))
-        assertTrue(Tokens.of(call) > Tokens.of("a".repeat(100)))
+        val arguments = buildJsonObject { put("q", "a".repeat(100)) }
+        val call = ChatMessage.Model("", listOf(ToolCall("x_y", arguments)))
+        // 4 for the turn markers, 2 for the name, and the arguments at 2.5 characters a token.
+        assertEquals(4 + 2 + kotlin.math.ceil(arguments.toString().length / 2.5).toInt(), Tokens.of(call))
     }
 }

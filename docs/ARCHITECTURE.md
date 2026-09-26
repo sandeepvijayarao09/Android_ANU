@@ -1,6 +1,6 @@
 # Anu for Android: Architecture
 
-Version 1.4.0 · Draft · 2026-09-25
+Version 1.5.0 · Draft · 2026-09-25
 Status: proposed. OD-1 to OD-4 were resolved on 2026-09-25 (§16).
 Product intent lives in [VISION.md](VISION.md).
 
@@ -464,7 +464,12 @@ Untrusted content goes in clearly delimited data blocks. Budgets are set per tie
 #### Conversation window (ADR-040)
 
 The chat is one long conversation. The model sees only its newest part that fits the prompt budget. The whole chat stays saved and on screen.
-- **What counts.** The system prompt, the memory block, the definitions of the offered tools, the new message and the shown history. Tokens are estimated at 3.5 characters each, on the safe side for English and for the JSON of tool calls. Calibrating against the runtime's own counts is Planned.
+- **What counts.** The system prompt, the memory block, the definitions of the offered tools, the new message and the shown history.
+- **Estimated, then calibrated (ADR-041).** Raw estimates are on the safe side: prose at 3.5 characters a token, and JSON (tool definitions, tool calls and results) at 2.5. After each on-device turn, the agent compares the raw estimate of exactly what was sent and generated with the runtime's own count (`getTokenCount()`).
+  - The first ratio is taken as is. Later ones are smoothed in (0.3) and clamped (0.5–2.5). Turns under 200 tokens are skipped, because the template's markers dominate them.
+  - Budgets multiply raw estimates by the ratio plus a 5% margin. The ratio is saved in the app's settings, so it survives restarts.
+  - Cloud counts are not used: Gemini's tokenizer isn't the one the device budgets are for.
+  - On the emulator, E4B counted about 12% fewer tokens than the raw estimate on prose, which is about 4 characters a token. A single 3.5 rate underestimated a tool turn by about 20% after prose turns (ratios 0.88 against 1.08). With the separate JSON rate, prose and tool turns came out at 0.93–0.96, so one ratio covers both.
 - **Whole exchanges only.** An exchange starts at a user message, so a tool call is never separated from its result.
 - **Trimmed in chunks.** The start stays where it was while everything fits, so the KV cache keeps matching (ADR-033). When the next turn wouldn't fit, the oldest exchanges go until the rest fits in 60% of the budget, which puts the next trim several turns away. On the emulator, the turn that trimmed took 34 s and the next same-skill turn 4 s.
 - **The model is told.** Once messages are left out, the system prompt says so, and to ask the user about anything earlier. The chat screen shows a quiet line: "Long chat: Anu reads the latest messages here. What it learned earlier is in Memory."
@@ -735,7 +740,7 @@ Recommend a **paid** Gemini tier for personal data. Google's terms for unpaid Ge
 | Main database (Room + SQLCipher) | Now: transcripts (`messages`), Privacy Ledger (`ledger`), vault audit (`vault_audit`), tool audit and results, memory (`memory_events`, `facts`, `fact_sources`, `rejected_facts`, `profile_versions`). Later: entities, episodes, runs, approvals, router telemetry | Database key wrapped by Keystore (ADR-024) | Excluded |
 | Vault store (separate files) | Vault items | Tink keyset per protection level, wrapped by Keystore master keys (§11) | Excluded |
 | Blob store | Large content (email bodies, attachments), cached for extraction | Tink streaming AEAD | Excluded |
-| Settings (`SharedPreferences`) | Non-sensitive values only, such as vault handles | None needed | Excluded |
+| Settings (`SharedPreferences`) | Non-sensitive values only, such as vault handles and the learned token ratio (ADR-041) | None needed | Excluded |
 | Model files | `.litertlm` and embedding models | SHA-256 verified | Excluded (`noBackupFilesDir`) |
 
 **Database encryption (ADR-024)**
@@ -797,6 +802,12 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 | S8 | Gemini API with the owner's key: `parametersJsonSchema` and `responseJsonSchema` accepted, thought-signature round trip, the `-latest` aliases, and the SSE framing |
 
 **Spike log.** Measured results only, newest first.
+
+- **Token calibration, 2026-09-25.** Anu emulator, E4B CPU. Each turn logged the raw estimate against the runtime's count.
+  - **Prose, 3.5 characters a token for everything:** 2,330 against 2,050, 2,436 against 2,151, 2,484 against 2,208. A ratio of about 0.88, so Gemma averages about 4 characters a token on English.
+  - **A calendar turn at the same rate:** 1,597 against 1,726, a ratio of 1.08. Tool definitions and JSON cost more tokens per character, so after prose turns a tool turn was underestimated by about 20%.
+  - **With JSON at 2.5 characters a token:** a prose turn at 0.93 and two calendar turns at 0.95 and 0.96. The learned scale settled at about 0.98.
+  - Turns reusing the cache took 5 s; the first after an install took 39–74 s.
 
 - **Chat trimming end to end, 2026-09-25.** Anu emulator, E4B CPU. The existing test chat of 38 messages, with long recipe answers, was estimated at 2,139 of 2,560 tokens and sent whole.
   - **Overflow:** after a 250-word answer, the next turn dropped the oldest 28 messages at once and sent 14 (about 1,522 tokens). The long-chat line appeared. The turn took 34 s, re-reading the new window.
@@ -935,6 +946,7 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 | 038 | 2026-09-25 | The memory block goes to on-device brains only, read fresh each turn; its header says it is current and wins over older chat messages unless the user has just said otherwise | The profile stays on the phone (§8.4). On the emulator, the model trusted an old message over the user's correction. Memory rarely changes mid-chat, so the cache survives |
 | 039 | 2026-09-25 | v1 learns only from the user's own words; each fact needs its quote in the message; secrets and card, bank and ID numbers are never kept; memory commands aren't learned from again; inferred facts never override the user's; a deleted fact leaves only a fingerprint | P5, I1 and I4. On the emulator, learning from a "Remember that…" message again made a duplicate |
 | 040 | 2026-09-25 | One on-device context size sets the engines, the router budgets and the chat window. The model sees the newest whole exchanges that fit, trimmed in chunks down to 60% of the budget, and is told when older ones are left out; the whole chat stays saved and on screen | A long chat overflowed the 4,096-token engines, and the router's 6,000-token Pro budget didn't match them. Chunked trimming keeps the KV cache matching between trims (ADR-033). Memory carries what falls out |
+| 041 | 2026-09-25 | Token estimates are calibrated against the on-device runtime's own counts: a ratio learned from each turn (first taken as is, then smoothed and clamped, with a 5% margin), saved across restarts. Prose and JSON have separate raw rates. Cloud counts aren't used | Budgets must fit the real context. The emulator showed a raw estimate 12% high on prose and 8% low on a tool turn; separate rates made the two agree within about 3% |
 
 ### Component status
 
@@ -963,7 +975,8 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 | Save the answering tier with each message (restored answers currently lose their badge) | 1 | Planned: schema v2 |
 | Open the database off the main thread (44–95 ms today) | 1 | Planned |
 | `ChatSession` (transcript as the truth, consent resend, take back last, stable prompt, skill replay, memory block, turns offered to memory) in `core:agent` | 1 | Implemented, with 12 unit tests |
-| Conversation window (`ContextWindow`, `Tokens`): whole exchanges, chunked trimming, the long-chat note (ADR-040) | 3 | Implemented, with 7 unit tests plus chat and screen tests. Verified by hand on the Anu emulator: trimming at overflow, a steady start with cache reuse, and memory for what fell out. Token estimates aren't calibrated against the runtime yet |
+| Conversation window (`ContextWindow`, `Tokens`): whole exchanges, chunked trimming, the long-chat note (ADR-040) | 3 | Implemented, with 8 unit tests plus chat and screen tests. Verified by hand on the Anu emulator: trimming at overflow, a steady start with cache reuse, and memory for what fell out |
+| Token calibration (`TokenCalibration`, `TokenSample`): runtime counts against raw estimates, separate prose and JSON rates, saved across restarts (ADR-041) | 3 | Implemented, with 4 unit tests plus agent and chat tests. Measured on the Anu emulator with E4B; the reference phone's numbers are still to come |
 | Settings UI (`feature:settings`): models (with delete confirmation), Gemini key into the vault, connectors (calendar and contacts, Gmail, messaging apps, SMS in `personal`), activity, vault activity, Privacy Ledger | 1 | Implemented. It runs on the Anu emulator |
 | App wiring (`AppGraph`, device state, no-backup rules) | 1 | Implemented; lint clean (two warnings: newer Gradle available, no app icon yet) |
 | Agent loop, Tool Broker, approvals, taint, claim check (`core:agent`) | 2 | Implemented. 33 JVM tests, and works end to end on the Anu emulator with E4B: lookups, free slots, and an approval-gated invite |
@@ -983,6 +996,10 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 
 ### Changelog
 
+- **1.5.0** (2026-09-25): token calibration.
+  - The agent reports each on-device turn's raw estimate against the runtime's count (`TokenSample`), and `TokenCalibration` learns the ratio that budgets use (ADR-041).
+  - Separate raw rates for prose (3.5 characters a token) and JSON (2.5), after the emulator showed tool turns underestimated.
+  - The learned ratio is saved in the app's settings; the debug log shows estimate, count and scale for each turn, never content.
 - **1.4.0** (2026-09-25): chat trimming.
   - `ContextWindow` and `Tokens` in `core:agent`: the model sees the newest whole exchanges that fit, trimmed in chunks so the KV cache keeps matching between trims (ADR-040).
   - One on-device context size sets the engines, the router's prompt budgets (`TierBudgets.forContext`) and the chat window; the old 6,000-token Pro budget was larger than the engine's context.

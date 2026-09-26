@@ -1,5 +1,6 @@
 package io.github.sandeepvijayarao09.anu.core.agent
 
+import io.github.sandeepvijayarao09.anu.core.model.Brain
 import io.github.sandeepvijayarao09.anu.core.model.BrainEvent
 import io.github.sandeepvijayarao09.anu.core.model.BrainLocation
 import io.github.sandeepvijayarao09.anu.core.model.BrainRequest
@@ -48,7 +49,8 @@ sealed interface AgentEvent {
     /**
      * [added] holds every message this run produced, including tool turns, in transcript order.
      * [actions] is what really happened. [unverifiedClaim] is true when the answer still claims an action
-     * that didn't happen, after repair and escalation. The text then carries a warning.
+     * that didn't happen, after repair and escalation. The text then carries a warning. [tokens] compares
+     * the estimate of the final request and answer with the runtime's count (ADR-041).
      */
     data class Completed(
         val tier: Tier,
@@ -56,6 +58,7 @@ sealed interface AgentEvent {
         val added: List<ChatMessage>,
         val actions: List<ActionRecord> = emptyList(),
         val unverifiedClaim: Boolean = false,
+        val tokens: TokenSample? = null,
     ) : AgentEvent
 
     data class Failed(val reasons: List<String>) : AgentEvent
@@ -77,6 +80,16 @@ class Agent(
     private val broker: ToolBroker,
     private val budgets: Budgets = Budgets(),
 ) {
+
+    /** The final request and answer as estimated, against what the runtime counted after them (ADR-041). */
+    private fun sample(request: BrainRequest, brain: Brain, answer: CharSequence, usage: BrainEvent.Usage?): TokenSample? =
+        usage?.let {
+            TokenSample(
+                estimated = Tokens.ofRequest(request) + Tokens.of(ChatMessage.Model(answer.toString())),
+                counted = it.contextTokens,
+                onDevice = brain.capabilities.location == BrainLocation.ON_DEVICE,
+            )
+        }
 
     /** The definitions of [tools] as the model will see them, so their size can be budgeted (§7.3). */
     fun toolSpecs(tools: List<String>): List<ToolSpec> = broker.specs(tools)
@@ -149,6 +162,7 @@ class Agent(
             )
             val text = StringBuilder()
             val calls = mutableListOf<ToolCall>()
+            var usage: BrainEvent.Usage? = null
             try {
                 brain.stream(request).collect { event ->
                     when (event) {
@@ -157,7 +171,8 @@ class Agent(
                             emit(AgentEvent.TextDelta(decision.tier, event.text))
                         }
                         is BrainEvent.ToolCallRequested -> calls += event.call
-                        is BrainEvent.Usage, is BrainEvent.Finished -> Unit
+                        is BrainEvent.Usage -> usage = event
+                        is BrainEvent.Finished -> Unit
                     }
                 }
             } catch (e: CancellationException) {
@@ -208,10 +223,12 @@ class Agent(
                     }
                     val warned = "$text\n\n${ActionClaims.NOT_DONE_WARNING}"
                     added += ChatMessage.Model(warned)
-                    return@flow emit(AgentEvent.Completed(decision.tier, warned, added.toList(), actions.toList(), unverifiedClaim = true))
+                    return@flow emit(
+                        AgentEvent.Completed(decision.tier, warned, added.toList(), actions.toList(), unverifiedClaim = true, tokens = sample(request, brain, text, usage)),
+                    )
                 }
                 added += ChatMessage.Model(text.toString())
-                return@flow emit(AgentEvent.Completed(decision.tier, text.toString(), added.toList(), actions.toList()))
+                return@flow emit(AgentEvent.Completed(decision.tier, text.toString(), added.toList(), actions.toList(), tokens = sample(request, brain, text, usage)))
             }
 
             added += ChatMessage.Model(text.toString(), calls.toList())

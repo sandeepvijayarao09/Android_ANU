@@ -54,6 +54,17 @@ class AgentTest {
     }
 
     @Test
+    fun `a completed turn reports its estimate against the runtime's count`() = runTest {
+        base.enqueue(Step.Reply(listOf(""), toolCalls = listOf(createDentist)), Step.Reply("Added."))
+        val completed = run().last() as AgentEvent.Completed
+        val final = base.requests[1]
+        assertEquals(
+            TokenSample(Tokens.ofRequest(final) + Tokens.of(ChatMessage.Model("Added.")), counted = "Added.".length, onDevice = true),
+            completed.tokens,
+        )
+    }
+
+    @Test
     fun `escalation continues the same transcript, so side effects never repeat`() = runTest {
         base.enqueue(Step.Reply(listOf(""), toolCalls = listOf(createDentist)), Step.Fail(IllegalStateException("out of memory")))
         pro.enqueue(Step.Reply("Done, it's on your calendar."))

@@ -17,6 +17,7 @@ import io.github.sandeepvijayarao09.anu.core.agent.BrainProvider
 import io.github.sandeepvijayarao09.anu.core.agent.Agent
 import io.github.sandeepvijayarao09.anu.core.agent.ApprovalCenter
 import io.github.sandeepvijayarao09.anu.core.agent.ContextWindow
+import io.github.sandeepvijayarao09.anu.core.agent.TokenCalibration
 import io.github.sandeepvijayarao09.anu.core.agent.Tool
 import io.github.sandeepvijayarao09.anu.core.agent.ToolAuditEntry
 import io.github.sandeepvijayarao09.anu.core.agent.ToolBroker
@@ -108,6 +109,12 @@ class AppGraph(private val context: Context) {
 
     /** Prompt budgets from the same context, so what the router sends to a device tier fits it (ADR-040). */
     private val budgets = TierBudgets.forContext(ON_DEVICE_CONTEXT)
+
+    /** Token estimates learned from the on-device runtime's own counts, kept across restarts (ADR-041). */
+    private val tokenCalibration = TokenCalibration(
+        initial = prefs.getFloat(KEY_TOKEN_RATIO, Float.NaN).takeUnless { it.isNaN() }?.toDouble(),
+        onChange = { ratio -> prefs.edit { putFloat(KEY_TOKEN_RATIO, ratio.toFloat()) } },
+    )
     val geminiKey = GeminiKeySettings(vault, prefs)
     val device = DeviceStateProvider(context, models, geminiKey)
 
@@ -210,11 +217,15 @@ class AppGraph(private val context: Context) {
             },
             onTurnCompleted = { text, turnKey -> memory.captureChat(text, turnKey) },
             window = ContextWindow(budget = budgets.pro),
+            tokens = tokenCalibration,
         ).also { session ->
-            // How much of the chat the model sees. Sizes only, never content.
+            // How much of the chat the model sees, and how the estimates compare. Sizes only, never content.
             if (BuildConfig.DEBUG) {
                 scope.launch {
-                    session.context.collect { Log.d(TAG, "Context: from message ${it.shownFrom} of ${it.messages}, ~${it.tokens} of ${it.budget} tokens") }
+                    session.context.collect { view ->
+                        val sample = view.lastSample?.let { " · last turn estimated ${it.estimated}, runtime counted ${it.counted}" }.orEmpty()
+                        Log.d(TAG, "Context: from message ${view.shownFrom} of ${view.messages}, ~${view.tokens} of ${view.budget} tokens, scale ${"%.2f".format(view.scale)}$sample")
+                    }
                 }
             }
         }
@@ -236,6 +247,8 @@ class AppGraph(private val context: Context) {
 
         /** The on-device engines' context, in tokens. S1 on the reference phone may raise it (ADR-040). */
         const val ON_DEVICE_CONTEXT = 4_096
+
+        const val KEY_TOKEN_RATIO = "token_ratio"
 
         /** An alias, so the ID doesn't go stale (ADR-022). It becomes a setting once S8 confirms it. */
         const val GEMINI_MODEL = "gemini-flash-latest"

@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.time.ZonedDateTime
+import kotlin.math.ceil
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
@@ -44,6 +45,8 @@ class ChatSession(
     private val onTurnCompleted: suspend (text: String, turnKey: String) -> Unit = { _, _ -> },
     /** Which past messages the model sees. The default shows them all. */
     private val window: ContextWindow = ContextWindow(),
+    /** Turns raw token estimates into the runtime's tokens, learning from every on-device turn (ADR-041). */
+    private val tokens: TokenCalibration = TokenCalibration.NONE,
 ) {
     private val lock = Mutex()
     private var transcript: MutableList<ChatMessage>? = null
@@ -72,12 +75,13 @@ class ChatSession(
             // either way, so adding it can't push a turn over the budget.
             val fixed = Tokens.of(systemPrompt(tools, trimmed = true)) + Tokens.of(memoryBlock) +
                 Tokens.ofTools(agent.toolSpecs(tools)) + Tokens.of(message)
-            windowStart = window.start(transcript, windowStart, fixed)
+            val scale = tokens.scale
+            windowStart = window.start(transcript, windowStart, fixed, scale)
             val shown = transcript.subList(windowStart, transcript.size).toList()
             val system = systemPrompt(tools, trimmed = windowStart > 0)
             val turn = shown + message
-            val promptTokens = fixed + Tokens.of(shown)
-            mutableContext.value = ContextView(windowStart, transcript.size, promptTokens, window.budget)
+            val promptTokens = ceil((fixed + Tokens.of(shown)) * scale).toInt()
+            mutableContext.value = ContextView(windowStart, transcript.size, promptTokens, window.budget, scale, mutableContext.value.lastSample)
             val route = RouteRequest(
                 text = text,
                 skill = skill,
@@ -89,6 +93,10 @@ class ChatSession(
             val turnKey = "$sessionId:${transcript.size}"
             agent.run(route, device, system, turn, tools, turnKey = turnKey, sentAt = SENT_AT.format(now), memory = memoryBlock).collect { event ->
                 if (event is AgentEvent.Completed) {
+                    event.tokens?.let { sample ->
+                        tokens.observe(sample)
+                        if (sample.onDevice) mutableContext.value = mutableContext.value.copy(lastSample = sample)
+                    }
                     val exchange = listOf(ChatMessage.User(text)) + event.added
                     store.append(exchange)
                     transcript += exchange

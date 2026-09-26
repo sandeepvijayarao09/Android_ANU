@@ -162,6 +162,24 @@ class ChatSessionTest {
     }
 
     @Test
+    fun `each on-device turn teaches the calibration, and its scale sizes the window`() = runTest {
+        val calibration = TokenCalibration()
+        val chat = ChatSession(agent(mapOf(Tier.BASE to base)), tokens = calibration, window = ContextWindow(budget = 5_000))
+        // ScriptedBrain counts one token per answer character, far more than the raw estimate of the turn.
+        base.enqueue(Step.Reply("r".repeat(2_000)))
+        chat.send("Hello " + "x".repeat(1_000), device).toList()
+        val sample = chat.context.value.lastSample!!
+        assertEquals(2_000, sample.counted)
+        assertEquals(sample.counted.toDouble() / sample.estimated, calibration.ratio, 1e-9)
+
+        base.enqueue(Step.Reply("ok"))
+        chat.send("And now?", device).toList()
+        val view = chat.context.value
+        assertEquals(calibration.ratio * 1.05, view.scale, 1e-9)
+        assertTrue("the prompt is counted in the runtime's tokens", view.tokens > Tokens.of(chat.history().take(2)))
+    }
+
+    @Test
     fun `memory commands are not offered to memory again`() = runTest {
         val offered = mutableListOf<String>()
         val chat = ChatSession(agent(mapOf(Tier.BASE to base)), onTurnCompleted = { text, _ -> offered += text })
