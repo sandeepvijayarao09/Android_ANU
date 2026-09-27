@@ -383,7 +383,8 @@ private fun Composer(
 
 /**
  * The assistant card over any app (DESIGN.md, ADR-044): the sphere, what you asked, Anu's answer and its
- * receipts, and a plain statement that it isn't reading the screen. Tapping the card opens the app.
+ * receipts, and a plain statement that it isn't reading the screen. Tapping the card opens the app. It
+ * draws no surface of its own: its window is the frosted card (ADR-051).
  */
 @Composable
 fun AssistantCard(
@@ -398,7 +399,7 @@ fun AssistantCard(
     val asked = state.bubbles.lastOrNull { it.fromUser }?.text
     val answer = state.bubbles.lastOrNull { !it.fromUser }
     val cloud = answer?.tier == Tier.CLOUD
-    Column(modifier.fillMaxWidth().anuCard(AnuShapes.xl).clickable(onClickLabel = "Open Anu", onClick = onOpenApp).padding(18.dp)) {
+    Column(modifier.fillMaxWidth().clip(AnuShapes.xl).clickable(onClickLabel = "Open Anu", onClick = onOpenApp).padding(18.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Sphere(state.voice.sphere(), 28.dp, level = state.level)
             Text(if (state.listening) "Listening…" else "Anu", style = AnuTheme.type.label, color = colors.textMuted)

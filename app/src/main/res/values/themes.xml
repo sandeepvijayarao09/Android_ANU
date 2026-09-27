@@ -8,4 +8,15 @@
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
     </style>
+
+    <!-- The assistant card (DESIGN.md, ADR-051): a floating window the size of the card, so the system's
+         blur frosts only what's behind the card. Its size, dim and frosted background are set in code
+         (useFrostedCardWindow), because they follow whether the system allows blurs right now. -->
+    <style name="Theme.Anu.Card" parent="@android:style/Theme.Material.Light.Dialog.NoActionBar">
+        <item name="android:windowIsFloating">true</item>
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowElevation">0dp</item>
+        <item name="android:windowAnimationStyle">@android:style/Animation.Translucent</item>
+    </style>
 </resources>

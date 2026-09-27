@@ -1,6 +1,6 @@
 # Anu for Android: Architecture
 
-Version 1.10.0 · Draft · 2026-09-26
+Version 1.11.0 · Draft · 2026-09-26
 Status: proposed. OD-1 to OD-4 were resolved on 2026-09-25 (§16).
 Product intent lives in [VISION.md](VISION.md).
 
@@ -192,7 +192,7 @@ sequenceDiagram
 | `core:agent` | Agent loop, Tool Broker, policy, approvals, budgets, run store interface | **no** |
 | `core:router` | Router stages, features, scorer, telemetry interface | **no** |
 | `core:memory` | Event log, facts, profile, retrieval, memory pipeline and memory tools. Its store is in `core:data` and its scheduling in `app` (ADR-036) | **no** |
-| `core:ui` | The design system ([DESIGN.md](../DESIGN.md), ADR-048): theme tokens for light and dark, bundled Google Sans Flex and JetBrains Mono (OFL, licenses in its assets), the sphere, the privacy indicator, pages (`AnuPage`), buttons, grouped lists, sheets, dialogs, text and search fields, the tab bar and line icons. It knows nothing of brains, connectors or the agent: features pass it plain values | yes |
+| `core:ui` | The design system ([DESIGN.md](../DESIGN.md), ADR-048): theme tokens for light and dark, bundled Google Sans Flex and JetBrains Mono (OFL, licenses in its assets), the sphere, the privacy indicator, pages (`AnuPage`), buttons, grouped lists, sheets, dialogs, text and search fields, the tab bar, line icons, and the frosted card window. It knows nothing of brains, connectors or the agent: features pass it plain values | yes |
 | `core:voice` | Speech contracts, wake-phrase matching and the `WakeListener` loop in plain Kotlin, beside the Android engines: the on-device `SpeechRecognizer` and `TextToSpeech` (ADR-043, ADR-045) | yes |
 | `core:security` | `SecretRef`/`SecretUse` handles, PII detection, reversible redaction, egress gate, Privacy Ledger interface | **no** |
 | `core:vault` | Keystore + Tink vault store, host-bound HTTP injector (`withVault`), and the shared `KeystoreAead` primitive with its `KeyPolicy` | yes |
@@ -770,7 +770,7 @@ Recommend a **paid** Gemini tier for personal data. Google's terms for unpaid Ge
 
 ## 13. Surfaces
 
-**Visual design (ADR-048 to ADR-050).** [DESIGN.md](../DESIGN.md) is the source of truth for colors, type, components and motion ("quiet precision", approved 2026-09-26): neutral surfaces, Google Sans Flex, a procedural sphere as Anu's presence, and color reserved for privacy (green stays on the phone, orange leaves it). The redesign is in progress:
+**Visual design (ADR-048 to ADR-051).** [DESIGN.md](../DESIGN.md) is the source of truth for colors, type, components and motion ("quiet precision", approved 2026-09-26): neutral surfaces, Google Sans Flex, a procedural sphere as Anu's presence, and color reserved for privacy (green stays on the phone, orange leaves it). The redesign is in progress:
 - **Built:** the theme and the sphere; Talk, the approval and cloud-consent sheets, the assistant card and the tab bar; Memory, Settings and the Privacy report.
   - **Talk:** empty, the thread with receipts, listening, and the composer.
   - **Pages** (`AnuPage`): a bar with the privacy indicator, which no page can hide, and a large title that collapses into the bar on scroll. Pages inside Settings have a back button named for where it goes.
@@ -778,15 +778,16 @@ Recommend a **paid** Gemini tier for personal data. Google's terms for unpaid Ge
   - **Settings:** four short groups (Voice, Connections, Intelligence, Privacy) with values on the right. Connection rows carry a privacy dot: green for calendar, contacts, chats and SMS; orange, with a count, for Gmail, services and stores, which TalkBack reads as "reached over the internet". Services, Stores, Models, Activity and Vault activity are pages; a server, a store, the Gemini key and adding things are sheets.
   - **Privacy report** (ADR-050): opens over the current page, from the privacy indicator or Settings. Today's count, a seven-day row of real counts, and each send by period (today, this week, earlier) with its destination, purpose, size and what was replaced first, all from the Privacy Ledger.
   - **Privacy indicator:** its count comes from today's Privacy Ledger entries, and its orange arc from new ones.
+  - **Assistant card** (ADR-051): its own floating window, the size of the card, 26dp from the bottom over a 12% dim. The system's cross-window blur frosts the app behind the card only, under the `material` tint. When the system turns blurs off (battery saver, media tunneling, the developer option), the card turns opaque.
 - **Not yet:**
   - the report's count of requests handled on the phone, which needs each answer's tier saved (Planned, §17);
   - an approval state on each report entry, which the ledger doesn't record;
-  - card-only blur behind the assistant card, a shader sphere for Android 13+, and Edit in the approval sheet.
+  - a shader sphere for Android 13+, and Edit in the approval sheet.
 
 | Surface | How |
 |---|---|
 | Talk page (ADR-043) | The first of three pages: Talk, Memory and Settings, swiped or chosen in the bar. The sphere (DESIGN.md) breathes when idle, follows the voice level, turns its light while tokens stream, pulses while Anu speaks, and sweeps an orange arc when a ledger entry is written. Voice and typing share one surface: the empty state with suggestions, the thread with receipts and the answering model, the listening layout with live speech, and the composer. Voice uses only the on-device `SpeechRecognizer` (a missing language pack is downloaded only when the user taps) and `TextToSpeech`, spoken sentence by sentence as the answer streams; Mute and Stop are one tap. Only the visible page is composed, so keyboard focus can't jump the pager. Whether Gemma 4's own audio input can replace speech recognition is spike S6 |
-| Assistant overlay (ADR-044) | Anu can be the phone's digital assistant (`ROLE_ASSISTANT`), chosen in Android's settings from Settings → Voice → Set up. Holding the power button, or the corner swipe, opens `AssistantActivity`: a sheet over the current app that listens at once and shares the one conversation. Screen content (assist data) is ignored in v1 |
+| Assistant overlay (ADR-044) | Anu can be the phone's digital assistant (`ROLE_ASSISTANT`), chosen in Android's settings from Settings → Voice → Set up. Holding the power button, or the corner swipe, opens `AssistantActivity`: a frosted card over the current app (ADR-051) that listens at once and shares the one conversation. Screen content (assist data) is ignored in v1 |
 | "Hey Anu" (ADR-045) | Opt-in, in Settings → Voice, once Anu is the assistant. While the screen is on and no Anu screen shows, the on-device recognizer listens in rounds; "Hey Anu, …" or "Anu, …" opens the assistant with the rest as the request. After a reboot it resumes when Anu next opens |
 | Writing everywhere | `ACTION_PROCESS_TEXT` actions in the text-selection toolbar; share target. **As built (ADR-042):** "Anu" in any app's text-selection menu opens a sheet over that app, with six actions and a field for the user's own instruction. The result streams in, and Replace sends it back, or Copy when the other app marked the text read-only. The share target is Planned |
 | Notifications | Approvals with the exact payload, suggested replies, brief, follow-ups |
@@ -1044,6 +1045,7 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 | 048 | 2026-09-26 | The UI follows DESIGN.md, "quiet precision": neutral surfaces, one type family (Google Sans Flex, bundled), a procedural pearl/obsidian sphere as Anu's presence with no mascot, and color reserved for privacy: green when data stays on the phone, orange when it leaves, shown in a privacy indicator on every page, in receipts, approvals and a Privacy report | The user asked for professional, Apple-grade standards and rejected a cartoon character. Research covered Meta Muse, ChatGPT, Gemini, Siri, Perplexity and Alexa+. Color that always means data location makes "trust you can see" literal, as Apple's privacy indicators do |
 | 049 | 2026-09-26 | The design system is a module, `core:ui`, that every screen styles itself through. Approval requests carry their destination (`Tool.sendsTo`) and whether the run was tainted, so the sheet says where data goes and asks for a closer read. Answers carry structured receipts (tool, summary, status) built from the broker's record | One place for tokens keeps screens consistent, and the fonts ship once. The sheet can't guess a destination from prose, and a receipt must never be the model's words (ADR-027) |
 | 050 | 2026-09-26 | Memory, Settings and the Privacy report follow DESIGN.md. Pages share `AnuPage`, whose bar always carries the privacy indicator. Settings is four short groups: lists open as pages, single items with several actions as sheets. The Privacy report opens over whichever page the indicator was tapped on, and shows only what the Privacy Ledger records: destination, purpose, size, what was replaced, and time. Replies and invites approved in chat are sent by their own apps, so the report points to Activity for them. Red text uses `errorText` (#C92A2A light, #FF6961 dark) | A report must never show more than the records back ("real counts only"), so the count of requests handled on the phone and each entry's approval wait until they're recorded. Tapping the indicator should answer "what left?" from wherever the user is. #E5383B is about 4.2:1 on white and #FF453A about 4.1:1 on dark fills, below the 4.5:1 text rule |
+| 051 | 2026-09-26 | The assistant card is its own floating window, exactly the card's size, with the system's cross-window blur behind it (`Window.setBackgroundBlurRadius`) under the `material` tint. The window manager dims the rest of the screen and closes the card on a tap outside. `WindowManager`'s blur listener switches the card to the opaque surface color whenever blurs are off. No window shadow | Only cross-window blur can blur another app (`RenderEffect` blurs only Anu's own drawing), and it covers the window's background shape, so a full-screen window would blur the whole screen. The system turns blurs off at any time, and the text must stay readable on a solid color then. On the emulator a window shadow moved the frosted card below its frame and showed no shadow, so the edge is a hairline instead |
 
 ### Component status
 
@@ -1091,15 +1093,19 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 | Writing, later: share target, style per recipient from drafts against sent text, a writing eval | 3 | Planned |
 | Voice (`core:voice`): on-device recognition only, sentence-by-sentence speech, wake-phrase matching, the `WakeListener` loop (ADR-043, ADR-045) | 4 | Implemented. 10 JVM tests. The emulator's recognizer lacks the English pack, so real speech is untested until the reference phone (S9) |
 | Talk page (`feature:home`): the sphere, voice and typing on one surface, receipts, Mute, Stop, link buttons from tools | 4 | Implemented. Checked by hand on the Anu emulator in light and dark; 6 JVM tests for voice in the chat view model |
-| Assistant role (ADR-044): `AnuVoiceInteractionService`, session, pass-through recognizer, `AssistantActivity`, Settings → Voice | 4 | Implemented. On the Anu emulator the assist gesture opened the sheet over another app, and closing it freed the microphone |
+| Assistant role (ADR-044): `AnuVoiceInteractionService`, session, pass-through recognizer, `AssistantActivity`, Settings → Voice | 4 | Implemented. On the Anu emulator the assist gesture opened the card over another app, and closing it freed the microphone. The frosted card (ADR-051) was checked over Settings and the home screen in light and dark: tapping outside closed it, and tapping it opened Anu |
 | "Hey Anu" (ADR-045): `WakeWordService`, the Settings switch | 4 | Implemented. On the Anu emulator it pauses while Anu is open and turns itself off without a language pack. Real wake-ups need the reference phone (S9) |
 | MCP connector (`connector:mcp`, ADR-046): dual-era client, tools per server, offered when named | 4 | Implemented. 9 JVM tests (both eras, SSE, headers, schemas, ledger). Verified by hand on the Anu emulator with E4B against the mock server: a read, an approved write, and the 2025 fallback. No real third-party server tried yet |
 | Shopping (`connector:shopping`, ADR-047): UCP discovery, `shop_search`, `shop_checkout` with the store's own finish page | 4 | Implemented. 4 JVM tests. Verified by hand on the Anu emulator with E4B against the mock store: search, an approved checkout, and the Finish button. No real UCP store tried yet; stores that require a fetchable platform profile won't work until Anu has one |
-| Visual redesign to DESIGN.md (ADR-048, ADR-049): the sphere, privacy indicator, receipts, approval sheet, assistant card, grouped Memory and Settings, Privacy report | 4 | In progress. Built and checked on anu_api36 in light and dark: `core:ui`, Talk, the approval and consent sheets, the assistant card, the tab bar, Memory, Settings and the Privacy report, including a declined approval that sent nothing. Next: card-only blur behind the assistant card, a shader sphere for Android 13+, and Edit in the approval sheet |
+| Visual redesign to DESIGN.md (ADR-048, ADR-049): the sphere, privacy indicator, receipts, approval sheet, assistant card, grouped Memory and Settings, Privacy report | 4 | In progress. Built and checked on anu_api36 in light and dark: `core:ui`, Talk, the approval and consent sheets, the frosted assistant card, the tab bar, Memory, Settings and the Privacy report, including a declined approval that sent nothing. The card's opaque fallback, for when the system turns blurs off, hasn't been seen on a device. Next: a shader sphere for Android 13+, and Edit in the approval sheet |
 | Proactive agents, learned router | 4 | Planned |
 | Hardening, release readiness | 5 | Planned |
 
 ### Changelog
+
+- **1.11.0** (2026-09-26): the frosted assistant card (ADR-051).
+  - The card is its own floating window, exactly its size, 26dp from the bottom over a 12% dim. The system's cross-window blur frosts the app behind the card only; when blurs are off, the card is opaque.
+  - `core:ui`: `useFrostedCardWindow`. The app: the `Theme.Anu.Card` window theme.
 
 - **1.10.0** (2026-09-26): the redesign, second slice (ADR-050).
   - Memory: facts grouped by section, with search; "You said" or a Confirm pill; a sheet per fact with its dated sources and controls; adding in a sheet.

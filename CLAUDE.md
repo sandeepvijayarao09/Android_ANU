@@ -92,6 +92,7 @@ export JAVA_HOME=/opt/homebrew/opt/openjdk@21
 - **Typing through adb** sends key events, which takes Android out of touch mode, as a hardware keyboard does. Keyboard focus then moves when dialogs close.
 - **Seeing an empty Talk page without wiping your chat:** install the `play` build too (`assemblePlayDebug`). It's a separate app with its own data.
 - **Dark mode on the emulator:** `adb shell cmd uimode night yes` (and `no` to switch back).
+- **The assistant card's blur** works on `anu_api36`, which supports cross-window blur. Debug builds log which look the card got: `adb logcat -s Anu:D` shows `Assistant card: frosted`, or `opaque` when the system has blurs off. The home screen's wallpaper and icons show the blur best.
 - **The Privacy report** opens from the privacy indicator at the top right of any page, or Settings → Privacy report. It lists the Privacy Ledger, so it has entries only after something left the phone (for example a mock MCP or store request).
 - **Links that open the browser:** Chrome's first-run screen asks to accept its terms. Don't accept it; check the link with `adb logcat -d | grep 'START u0.*VIEW'`.
 

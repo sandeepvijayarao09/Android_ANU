@@ -225,6 +225,8 @@ Adjacent levels differ by at least 4sp or a clear weight step. Text scales with 
 - **Dark:** no shadows. Elevated surfaces are lighter (`surface-dark`, `surface-2-dark`), a hairline top highlight is allowed, and sheets use a 50% scrim.
 - **The assistant card** is the one translucent surface, because it floats over another app:
   - On Android 12+, window blur behind (about 26dp) plus a material tint: `#FAFAFC` at 78% in light mode, `#1E1E20` at 72% in dark.
+  - The card is its own window, exactly its size, so the blur covers only what's behind the card. The rest of the screen gets a 12% dim.
+  - Its edge is a 0.5dp hairline (black at 6% in light mode, white at 6% in dark), not a shadow: a shadow under a translucent surface shows through it.
   - When blur is off, for example in battery saver, it falls back to the opaque surface color.
 
 ## Shapes
@@ -303,7 +305,7 @@ Declining is always one tap, at the same size as approving. The primary button i
 
 ### Assistant card (over any app)
 It opens from the power button, the corner swipe or "Hey Anu".
-- **Layout:** a frosted card, 10dp from the sides and 26dp from the bottom, with `xl` corners.
+- **Layout:** a frosted card, 10dp from the sides and 26dp from the bottom (at least 4dp above a taller navigation bar), with `xl` corners, at most 640dp wide.
 - **Content, top to bottom:**
   - the 28dp sphere and "Anu";
   - the live question (20sp, weight 550);
@@ -378,3 +380,4 @@ Three tabs with 24dp line icons at stroke 1.7 and 11sp labels. The selected tab 
 | 2026-09-26 | Red text uses `error-text` (#C92A2A light, #FF6961 dark) | #E5383B is about 4.2:1 on white and #FF453A about 4.1:1 on dark fills, below the 4.5:1 text rule |
 | 2026-09-26 | The Privacy report opens over the current page, and shows only what the ledger records | Tapping the indicator answers "what left?" from anywhere. The requests count and approval state wait until they're recorded: real counts only |
 | 2026-09-26 | Lists open as pages, single items as sheets; groups carry footers | Keeps Settings to four short groups, as in the approved mockup, with the explanations under each group |
+| 2026-09-26 | The assistant card is its own window with a hairline edge and no shadow | The system blur covers a window's background shape, so only a card-sized window frosts just the card. A shadow under the translucent card showed through and misplaced it on the emulator |

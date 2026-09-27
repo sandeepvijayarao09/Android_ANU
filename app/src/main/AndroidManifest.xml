@@ -103,7 +103,6 @@
             android:exported="false"
             android:excludeFromRecents="true"
             android:taskAffinity=""
-            android:theme="@style/Theme.Anu.Sheet"
-            android:windowSoftInputMode="adjustResize" />
+            android:theme="@style/Theme.Anu.Card" />
     </application>
 </manifest>
