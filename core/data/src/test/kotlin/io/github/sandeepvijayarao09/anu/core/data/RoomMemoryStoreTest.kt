@@ -102,6 +102,18 @@ class RoomMemoryStoreTest {
     }
 
     @Test
+    fun `a deleted fact's fingerprint blocks learning until the user says it again`() = runBlocking {
+        learn("I'm vegetarian", fact("diet", "vegetarian", "preferences", "I'm vegetarian"))
+        memory.delete(store.activeFacts().single().id)
+        learn("I'm vegetarian, remember", fact("diet", "vegetarian", "preferences", "I'm vegetarian"))
+        assertTrue(store.activeFacts().isEmpty())
+
+        brain.enqueue(Step.Reply("""{"facts":[${fact("diet", "vegetarian", "preferences", "I'm vegetarian")}]}"""))
+        assertEquals(1, memory.add("I'm vegetarian"))
+        assertEquals(listOf("diet: vegetarian"), store.activeFacts().map { it.text })
+    }
+
+    @Test
     fun `vectors are kept per model, only for active facts, and go with their fact (ADR-055)`() = runBlocking {
         learn("I'm vegetarian", fact("diet", "vegetarian", "preferences", "I'm vegetarian"))
         val id = store.activeFacts().single().id

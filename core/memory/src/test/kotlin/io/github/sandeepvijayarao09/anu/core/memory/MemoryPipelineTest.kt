@@ -222,6 +222,39 @@ class MemoryPipelineTest {
     }
 
     @Test
+    fun `the user's own word brings back a fact they deleted, and learning from chat still doesn't`() = runTest {
+        learn("I'm vegetarian", fact("user", "diet", "vegetarian", "preferences", "I'm vegetarian", single = true))
+        memory.delete(store.activeFacts().single().id)
+
+        brain.enqueue(reply(fact("user", "diet", "vegetarian", "preferences", "I'm vegetarian", single = true)))
+        assertEquals("Memory → Add keeps it again", 1, memory.add("I'm vegetarian"))
+        with(store.activeFacts().single()) {
+            assertEquals("diet: vegetarian", text)
+            assertEquals(FactOrigin.USER_STATED, origin)
+        }
+        assertTrue("the fingerprint is gone", !store.isRejected(Normalize.fingerprint(USER, "diet", "vegetarian")))
+
+        memory.delete(store.activeFacts().single().id)
+        learn("I'm vegetarian, you know", fact("user", "diet", "vegetarian", "preferences", "I'm vegetarian", single = true))
+        assertTrue("chat alone never brings it back", store.activeFacts().isEmpty())
+    }
+
+    @Test
+    fun `after a correction, the user can say the old value again, and remembering a deleted fact returns it`() = runTest {
+        brain.enqueue(reply(fact("user", "diet", "vegetarian", "preferences", "I'm vegetarian", single = true)))
+        memory.add("I'm vegetarian")
+        memory.correct(store.activeFacts().single().id, "vegan")
+        brain.enqueue(reply(fact("user", "diet", "vegetarian", "preferences", "I'm vegetarian", single = true)))
+        assertEquals(1, memory.add("I'm vegetarian"))
+        assertEquals("the newest word wins", listOf("diet: vegetarian"), store.activeFacts().map { it.text })
+
+        memory.delete(store.activeFacts().single().id)
+        val kept = memory.remember("user", "diet", "vegetarian", ProfileSection.PREFERENCES, sensitive = false, ref = "main:3")
+        assertEquals("diet: vegetarian", kept.text)
+        assertEquals(listOf("diet: vegetarian"), store.activeFacts().map { it.text })
+    }
+
+    @Test
     fun `forgetting a source removes what came only from it and restores what it replaced (I4, I5)`() = runTest {
         learn("I live in Seattle", fact("user", "lives_in", "Seattle", "places", "I live in Seattle", single = true))
         val moved = learn(

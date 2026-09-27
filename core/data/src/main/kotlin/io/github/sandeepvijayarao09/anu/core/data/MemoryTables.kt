@@ -138,6 +138,9 @@ interface MemoryDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun reject(entry: RejectedFactEntity)
 
+    @Query("DELETE FROM rejected_facts WHERE fingerprint = :fingerprint")
+    suspend fun forgive(fingerprint: String)
+
     @Query("SELECT * FROM profile_versions p WHERE version = (SELECT MAX(version) FROM profile_versions WHERE section = p.section)")
     suspend fun latestProfile(): List<ProfileVersionEntity>
 
@@ -206,6 +209,8 @@ class RoomMemoryStore(private val db: AnuDatabase, private val clock: () -> Long
     override suspend fun isRejected(fingerprint: String) = dao.rejectedCount(fingerprint) > 0
 
     override suspend fun reject(fingerprint: String) = dao.reject(RejectedFactEntity(fingerprint, clock()))
+
+    override suspend fun forgive(fingerprint: String) = dao.forgive(fingerprint)
 
     override suspend fun latestProfile() = dao.latestProfile().map { row ->
         ProfileVersion(

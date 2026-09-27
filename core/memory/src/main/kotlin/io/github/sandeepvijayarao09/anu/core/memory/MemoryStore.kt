@@ -46,6 +46,9 @@ interface MemoryStore {
 
     suspend fun reject(fingerprint: String)
 
+    /** Clears a fingerprint, when the user states that fact again themself (P5). */
+    suspend fun forgive(fingerprint: String)
+
     /** The newest version of each section. */
     suspend fun latestProfile(): List<ProfileVersion>
 
@@ -117,6 +120,8 @@ class InMemoryMemoryStore : MemoryStore {
     override suspend fun isRejected(fingerprint: String) = fingerprint in state.value.rejected
 
     override suspend fun reject(fingerprint: String) = update { it.copy(rejected = it.rejected + fingerprint) }
+
+    override suspend fun forgive(fingerprint: String) = update { it.copy(rejected = it.rejected - fingerprint) }
 
     override suspend fun latestProfile() =
         state.value.profile.groupBy { it.section }.values.map { versions -> versions.maxBy { it.version } }

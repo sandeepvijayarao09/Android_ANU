@@ -1,6 +1,6 @@
 # Anu for Android: Architecture
 
-Version 1.15.0 · Draft · 2026-09-26
+Version 1.16.0 · Draft · 2026-09-27
 Status: proposed. OD-1 to OD-4 were resolved on 2026-09-25 (§16).
 Product intent lives in [VISION.md](VISION.md).
 
@@ -601,7 +601,8 @@ flowchart LR
   - The same fact again adds a source and raises confidence: 0.6, then +0.15 per mention, up to 0.95.
   - A new value for a one-at-a-time relation (employer, manager, home city, diet…) supersedes the old fact, which is kept in history.
   - Inferred facts never override the user's own word; user-stated facts have confidence 1.0.
-  - A deleted fact leaves only a SHA-256 fingerprint of subject, relation and value, so it isn't learned again.
+  - A deleted fact leaves only a SHA-256 fingerprint of subject, relation and value, so it isn't learned again from chat. A correction leaves one for the old value.
+  - The user's own statement (Memory → Add, or "Remember that…") brings the fact back and clears its fingerprint (ADR-057).
 - **Profile.** Each section is rendered from its facts, most important first: the user's own facts, then confidence, then recency. A new version is saved only when the text changes. Model-written summaries are Planned for nightly consolidation.
 - **When (ADR-037).** Never mid-chat. After the user leaves the app, if the battery isn't low; twice a day while charging; or "Learn now" in the Memory tab. A background run stops between messages if the user returns, and frees the model when done (P8).
 - **Retrieval v1.** The memory block holds the most important facts, grouped by section, within about 1,500 characters, for on-device brains only (ADR-038). Each message also carries the facts relevant to it (ADR-054, §7.3). `memory_search` finds facts by name or topic. Relevant facts also match by meaning when EmbeddingGemma is installed (ADR-055). Entity resolution is Planned.
@@ -854,7 +855,7 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 - **Evals** (`eval/`), each with a separately authored held-out split:
   - **Router:** tier accuracy, how often it under- or over-routes, and latency.
   - **Tools:** state-based scoring (the final state of the fake accounts), with **real** approval handling. Approvals are never auto-approved in safety evals.
-  - **Memory:** extraction precision and recall; profile correctness.
+  - **Memory:** extraction precision and recall; profile correctness. A first device check runs the extractor on E4B with made-up statements (`MemoryExtractionTest` in `brain:litertlm`); the held-out eval is still to build.
   - **Prompt injection:** a red-team suite of hostile emails and messages.
 - **Performance budgets.** Hypotheses, set after S1: time to first token and tokens per second per tier and device class, peak RAM, and battery cost of background memory work.
 - **Definition of done.** Code is merged, tests and evals pass, and this document is updated (component status, decision log, changelog).
@@ -909,7 +910,7 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
   - **Found and fixed:**
     - Relevance read the last two user messages together, so a new topic carried the last one's facts. "Get a present for my boss" after "Where does my sister live" carried the sister facts, and E4B offered "a gift for Maya in Pune". A message is now read on its own unless it points back to someone (ADR-056).
     - "Good morning" matched "meetings in the morning", and "What is 12 times 7?" matched "12 March". Greetings and numbers under 100 no longer count as words.
-  - **Found, not fixed:** in Memory → Add, "I'm vegetarian" and "I'm vegan" kept nothing ("Anu didn't find anything to remember"), while "I'm left-handed" was kept. This is in extraction, and is left for its own change.
+  - **Found, then fixed separately (ADR-057):** in Memory → Add, "I'm vegetarian" and "I'm vegan" kept nothing ("Anu didn't find anything to remember"), while "I'm left-handed" was kept. Extraction was right: E4B returned both facts. Both had been corrected or deleted before on this emulator, and their fingerprints blocked the user's own statement.
   - protobuf-javalite 4.36.2 gives the same results and speed as 4.26.1, so the app uses it.
 
 - **Voice, assistant, MCP and shopping end to end, 2026-09-26.** Anu emulator, E4B CPU.
@@ -1099,6 +1100,7 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 | 054 | 2026-09-26 | Personal context for every message. Before each model call, the phone picks the facts that bear on the message (people named, the user's relations, shared topics; vectors after S3). They ride with the newest message, never in the system prompt or the saved chat. On-device brains always see them. Gemini sees only the relevant, non-sensitive facts listed on the consent sheet, included by default and removable with one tap: exactly those go, through the egress gate, and the ledger counts them. With no consent sheet, no facts go. Amends ADR-038 | The user asked for prompt, then user context, then a personalized answer from either model. Riding with the message keeps the on-device KV cache, as the time does (ADR-033). §8.4 always meant the cloud to get only minimal, consented facts; showing the exact list keeps consent informed, and sensitive facts never leave. Names and topics miss implicit context, which is the cautious failure |
 | 055 | 2026-09-26 | Search by meaning with EmbeddingGemma 300M (mixed precision, 512 tokens, CPU), run through the AI Edge RAG library's `GemmaEmbeddingModel`, since LiteRT-LM's `EmbeddingEngine` needs a `.litertlm` bundle that exists only for the Tensor G4 NPU. Only the library's Gemma embedder is used and packaged. Facts get 256-value vectors in the encrypted database, made after every change; a message counts a fact by shared words or by closeness in meaning. The model is gated on Hugging Face, so the owner downloads it and installs it from a computer | The user chose EmbeddingGemma for quality and size over an ungated, larger model. Word matching misses implicit context ("plan dinner" and a vegetarian diet). Vectors are derived from facts, so they get the same protection and are deleted with them. Excluding the library's other parts keeps about 70 MB of unused native code and a duplicate network stack out of the app |
 | 056 | 2026-09-26 | S3's rule for search by meaning. A fact counts by meaning if it is at least 0.37 close and stands out from the message's other facts by 1.25 standard deviations, or by closeness alone when there are fewer than 5 facts. Messages without meaningful words skip the search, and greetings and numbers under 100 don't count as words. Relevant facts read the newest message on its own, and the one before only when the newest points back to someone it doesn't name ("her", "them"). Amends ADR-054 | Measured on the emulator, raw closeness overlaps between right facts, unrelated ones and small talk, and some facts are close to everything, so a cut-off alone lets small talk through. Together, the two tests found 11 of 12 facts with no small talk. Reading two messages together carried the last topic into the next: "a gift for Maya in Pune" |
+| 057 | 2026-09-27 | The user's own statement brings back a fact they deleted or corrected: Memory → Add or "Remember that…" clears its fingerprint and keeps the fact. Learning from chat still never brings it back. Amends ADR-039 | On the emulator, Add said "Anu didn't find anything to remember" for "I'm vegetarian" and "I'm vegan", though E4B extracted both. Their fingerprints, from an earlier correction and deletion, blocked them, and "Remember that…" would have failed. The fingerprint exists to stop Anu relearning from chat what the user took back, not to overrule the user (P5) |
 
 ### Component status
 
@@ -1140,7 +1142,7 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 | AI Scheduling v1 (chat with calendar and contacts tools) | 2 | Implemented. Verified by hand on the emulator; no eval set yet (§15) |
 | AI Email v1: email skill detection, email tools plus contacts and calendar lookups, drafts and approval-gated sends | 2 | Implemented. Not yet run against a real mailbox (see the Gmail row) |
 | Tool audit and idempotency persistence (schema v2), Activity in Settings | 2 | Implemented. Migration test passes on the emulator |
-| Memory pipeline v1 (`core:memory`): capture, on-device extraction, reconcile, versioned profile, memory block, relevant facts per message (ADR-054) with search by meaning (ADR-055), memory tools, background learning (ADR-036 to ADR-039) | 3 | Implemented. 19 JVM tests, 2 Robolectric tests on the real schema, and a v2→v3 migration device test. Verified by hand on the Anu emulator with E4B: learning after leaving the app, use in chat, corrections, remember and approval-gated forget. No memory eval yet (§15), so not Verified Relevant facts: 7 JVM tests for the picker, plus chat, egress and Gemini tests; on the emulator, a question about "my sister" carried 2 facts and E4B answered from them Search by meaning: 10 JVM tests on a stand-in embedder, a Room test, and the S3 eval with EmbeddingGemma on the Anu emulator. In the app, E4B answered "Get a present for my boss" from the manager fact found by meaning |
+| Memory pipeline v1 (`core:memory`): capture, on-device extraction, reconcile, versioned profile, memory block, relevant facts per message (ADR-054) with search by meaning (ADR-055), memory tools, background learning (ADR-036 to ADR-039) | 3 | Implemented. 19 JVM tests, 2 Robolectric tests on the real schema, and a v2→v3 migration device test. Verified by hand on the Anu emulator with E4B: learning after leaving the app, use in chat, corrections, remember and approval-gated forget. No memory eval yet (§15), so not Verified Relevant facts: 7 JVM tests for the picker, plus chat, egress and Gemini tests; on the emulator, a question about "my sister" carried 2 facts and E4B answered from them Search by meaning: 10 JVM tests on a stand-in embedder, a Room test, and the S3 eval with EmbeddingGemma on the Anu emulator. In the app, E4B answered "Get a present for my boss" from the manager fact found by meaning Extraction: a device test on E4B (`MemoryExtractionTest`) passes for four made-up statements. Bringing back a deleted fact (ADR-057): 2 JVM tests and a Room test; on the emulator, "I'm vegetarian" in Add was kept again |
 | Memory Inspector (`feature:memory`): facts grouped by section with search, "You said" or a Confirm pill, a sheet per fact with its dated sources, That's right, Correct, Delete, Forget a message, Learn now, and Add (the user's own words, read by the on-device model and kept as theirs) | 3 | Implemented. 7 JVM tests for how facts read and match search; Add has 2. The redesigned tab was checked on anu_api36 in light and dark: search, a fact's sheet, and the Add sheet |
 | Memory, later: entities and aliases, episodes, nightly consolidation, vector retrieval (S3), never-learn rules, learning from connectors, retention, memory eval | 3 | Planned |
 | AI Writing everywhere (`feature:writing`, `WritingActivity`): six actions and custom instructions, Replace or Copy (ADR-042) | 3 | Implemented. 10 JVM tests. Verified by hand on the Anu emulator through the real text-selection menu in Settings. No writing eval yet (§15) |
@@ -1156,6 +1158,10 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 | Hardening, release readiness | 5 | Planned |
 
 ### Changelog
+
+- **1.16.0** (2026-09-27): the user's own word brings back a deleted fact (ADR-057).
+  - Memory → Add and "Remember that…" clear the fingerprint a deletion or correction left, and keep the fact. Learning from chat still never brings it back.
+  - `MemoryExtractionTest` runs memory's extractor on E4B with made-up statements. It showed extraction was right and the fingerprint was to blame.
 
 - **1.15.0** (2026-09-26): search by meaning, verified on the Anu emulator (ADR-055, ADR-056, spike S3).
   - `Embedder` contract in `core:model`; `brain:embedding` runs EmbeddingGemma 300M through the AI Edge RAG library, packaging only its Gemma embedder.

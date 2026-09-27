@@ -345,7 +345,12 @@ class MemoryPipeline(
             val subject = Normalize.subject(candidate.subject)
             val predicate = Normalize.predicate(candidate.predicate)
             val value = candidate.value.trim()
-            if (store.isRejected(Normalize.fingerprint(subject, predicate, value))) continue
+            val fingerprint = Normalize.fingerprint(subject, predicate, value)
+            if (store.isRejected(fingerprint)) {
+                // A deleted or corrected fact is never learned again from chat, but the user's own word brings it back (P5).
+                if (origin != FactOrigin.USER_STATED) continue
+                store.forgive(fingerprint)
+            }
             val related = store.activeFacts().filter { it.subject.equals(subject, ignoreCase = true) && it.predicate == predicate }
             val same = related.firstOrNull { Normalize.value(it.value) == Normalize.value(value) }
             if (same != null) {
