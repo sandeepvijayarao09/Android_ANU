@@ -44,6 +44,8 @@ class MemoryWorker(context: Context, params: WorkerParameters) : CoroutineWorker
         val app = applicationContext as AnuApp
         // Stops between messages if the user comes back, so the chat never waits for more than one.
         app.graph.memory.processPending { !app.foreground.value }
+        // Facts learned before search by meaning was installed get their vectors here, out of sight (ADR-055).
+        if (!app.foreground.value) runCatching { app.graph.memory.index() }
         if (!app.foreground.value) app.graph.onDevice.unloadAll()
         return Result.success()
     }

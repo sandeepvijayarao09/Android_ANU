@@ -1,6 +1,6 @@
 # Anu for Android: Architecture
 
-Version 1.14.0 · Draft · 2026-09-26
+Version 1.15.0 · Draft · 2026-09-26
 Status: proposed. OD-1 to OD-4 were resolved on 2026-09-25 (§16).
 Product intent lives in [VISION.md](VISION.md).
 
@@ -200,6 +200,7 @@ sequenceDiagram
 | `core:device` | Device class, battery, thermal, memory and network state | yes |
 | `brain:litertlm` | Gemma E2B/E4B adapter; ModelManager (download, verify, load, residency) | yes |
 | `brain:gemini` | Gemini REST/SSE adapter; every request passes the egress gate | **no** (OkHttp) |
+| `brain:embedding` | Search by meaning (ADR-055): EmbeddingGemma through Google's AI Edge RAG library (`GemmaEmbeddingModel`), behind the `Embedder` contract in `core:model`. Only the library's Gemma embedder is used and packaged | yes |
 | `connector:calendar` | CalendarContract tools and observer | yes |
 | `connector:contacts` | ContactsContract resolver | yes |
 | `connector:gmail` | Gmail API tools and incremental sync | yes |
@@ -239,7 +240,7 @@ sequenceDiagram
 | Async | Coroutines and Flow, structured concurrency | Cancellation must reach native generation (I7) |
 | Serialization | kotlinx.serialization | Tool JSON Schemas are generated from serializers |
 | On-device LLM | LiteRT-LM Android, `com.google.ai.edge.litertlm:litertlm-android` | 0.17.1 is the latest on Google Maven as of 2026-09-25; version pinned in Phase 0 |
-| Embeddings | EmbeddingGemma on LiteRT (to verify, S3); MediaPipe TextEmbedder as fallback | |
+| Embeddings | EmbeddingGemma 300M (mixed precision, 512 tokens, CPU) through the AI Edge RAG library 0.3.0's `GemmaEmbeddingModel` (ADR-055, S3) | Its native code is arm64 only (23.7 MB). The library's MediaPipe LLM runtime, second OkHttp and copy of `org.json` are excluded, and so are its three other native libraries |
 | Cloud LLM | `personal`: Gemini API with the owner's key from the vault, sent in the `x-goog-api-key` header, never the URL. `play`: Firebase AI Logic, evaluated in Phase 5 | ADR-013 |
 | Build flavors | `personal` and `play` | ADR-012 |
 | Google auth | Credential Manager + Google Identity Services `AuthorizationClient` | Per-scope, incremental consent |
@@ -260,7 +261,7 @@ Application ID: `io.github.sandeepvijayarao09.anu`. It can change until the firs
 | Base | Gemma 4 E2B-it (`.litertlm`) | LiteRT-LM | device | Classification, extraction, short replies, rewrites, single tool calls |
 | Pro | Gemma 4 E4B-it (`.litertlm`, ~3.7 GB file) | LiteRT-LM | device | Multi-step tool use, long-form writing, scheduling reasoning, profile synthesis |
 | Cloud | Gemini, Flash or Pro (model IDs come from config, not code) | Gemini API; the key is a vault item bound to `generativelanguage.googleapis.com` | cloud | Work beyond on-device quality or context limits, with consent |
-| Embeddings | EmbeddingGemma (to verify) or fallback | LiteRT | device | Retrieval, entity resolution, router features |
+| Embeddings | EmbeddingGemma 300M (ADR-055) | AI Edge RAG library | device | Search by meaning in memory; later entity resolution and router features |
 
 **Runtime rules**
 
@@ -300,7 +301,7 @@ Application ID: `io.github.sandeepvijayarao09.anu`. It can change until the firs
   - **One context size (ADR-040).** A single constant, 4,096 tokens today, sets the engines' `maxNumTokens`. The router's prompt budgets and the chat window are derived from it, so a prompt sent to a device tier fits it. S1 on the reference phone may raise it.
   - **Backends.** `CPU`, `GPU`, `NPU` and `GOOGLE_TENSOR` (the Pixel TPU) are all available. S1 measures each on the reference device.
   - **Metrics.** `ExperimentalFlags.enableBenchmark` reports init time, time to first token, and prefill/decode tokens per second. It is used by S1 and the performance evals.
-  - **Embeddings.** LiteRT-LM ships an `EmbeddingEngine`, which is the first candidate for S3.
+  - **Embeddings.** LiteRT-LM 0.17.1 ships an `EmbeddingEngine`, but it loads `.litertlm` bundles. EmbeddingGemma's CPU build is a `.tflite` with a separate SentencePiece tokenizer, and its only bundles target the Tensor G4 NPU. So S3 runs it through the AI Edge RAG library instead (ADR-055).
   - **Evals on the Mac.** `litertlm-jvm` (the same API on macOS) lets `eval` run real-model evals on the development Mac without a phone.
 - **ModelManager.**
   - An artifact manifest lists name, version, URL, SHA-256, size and minimum RAM for each model.
@@ -479,7 +480,7 @@ Untrusted content goes in clearly delimited data blocks. Budgets are set per tie
 
 **Memory (ADR-038).** The memory block is read fresh for every turn and goes to on-device brains only. It changes rarely during a chat, because learning runs after the user leaves the app (ADR-037), so the KV cache survives. Its header says it is kept up to date and wins over older messages in the chat, unless the user has just said otherwise. On the emulator, the model otherwise trusted an old "I'm vegetarian" over the user's own correction to "vegan".
 
-**Relevant facts (ADR-054).** Before every model call, the phone gathers the facts from memory that bear on the user's newest message, read after the one before it so a follow-up such as "and her birthday?" still finds the person (`Relevance` in `core:memory`, §8.3).
+**Relevant facts (ADR-054).** Before every model call, the phone gathers the facts from memory that bear on the user's newest message (`Relevance` in `core:memory`, §8.3). The message is read on its own. Only when it points back to someone it doesn't name ("And for her birthday?") is it read after the message before it, which says who (ADR-056).
 - They ride with the newest message, like the time, never in the system prompt, and are never saved into the transcript. The engine compares the clean transcript, so the KV cache survives. On the emulator, "Where does my sister live?" carried 2 facts, and E4B answered "Your sister, Priya, lives in Pune".
 - On-device brains always see them. The cloud sees only the facts listed on the consent sheet that the user left included, never sensitive ones (§8.4, §12.2).
 - Debug builds log how many facts went with each turn, never the facts.
@@ -568,7 +569,14 @@ flowchart LR
 - Retrieval is hybrid: entity match, then vector similarity, then recency, within the context builder's budget.
 - **Vector search, v1:** int8 vectors stored in the database, with brute-force top-k over a candidate set pre-filtered by entity and time.
 - A dedicated vector index is adopted only if measured latency exceeds the budget.
-- **As built (ADR-054):** relevance per message, without vectors. People the message names (as a fact's subject or value), the user's relations it mentions, and shared topic words, with plurals and possessives matched. At most 8 facts, about 600 characters, the strongest matches first and then the most important.
+- **Search by meaning (ADR-055).** With EmbeddingGemma installed, every active fact gets a vector: 256 values (Matryoshka), at unit length, from the fact in the user's voice ("My diet: vegetarian"), embedded as a retrieval document. They're kept in `fact_vectors` (schema v5), one per fact and model, and deleted with the fact.
+  - Facts are embedded after every change to memory, and in the background learning run, so facts learned before the model was installed catch up.
+  - Each message is embedded as a retrieval query, unless it has no words that carry meaning: "Thanks!", "OK" and "Good morning" skip the search.
+  - A fact counts if it shares a word with the message, or by meaning (ADR-056). By meaning, it must be at least 0.37 close by cosine and stand out from the message's other facts by 1.25 standard deviations. With fewer than 5 facts their spread says little, so closeness alone decides. Closeness adds to the word score, so "plan dinner" finds "diet: vegetarian".
+  - Both tests are needed (S3). Raw closeness overlaps: right facts score from 0.35, unrelated ones up to 0.44, and small talk up to 0.52. Some facts, such as a favorite sport, are close to almost everything.
+  - Retune both values for another model with `S3EmbeddingTest`, which logs every message's closeness to every fact.
+  - Without the model, or if embedding fails, relevance falls back to words alone.
+- **As built (ADR-054):** relevance per message, by words. People the message names (as a fact's subject or value), the user's relations it mentions, and shared topic words, with plurals and possessives matched. Greetings and numbers under 100 don't count ("12 times 7" isn't about "12 March"). At most 8 facts, about 600 characters, the strongest matches first and then the most important.
 
 ### 8.4 User control and privacy
 
@@ -596,7 +604,7 @@ flowchart LR
   - A deleted fact leaves only a SHA-256 fingerprint of subject, relation and value, so it isn't learned again.
 - **Profile.** Each section is rendered from its facts, most important first: the user's own facts, then confidence, then recency. A new version is saved only when the text changes. Model-written summaries are Planned for nightly consolidation.
 - **When (ADR-037).** Never mid-chat. After the user leaves the app, if the battery isn't low; twice a day while charging; or "Learn now" in the Memory tab. A background run stops between messages if the user returns, and frees the model when done (P8).
-- **Retrieval v1.** The memory block holds the most important facts, grouped by section, within about 1,500 characters, for on-device brains only (ADR-038). Each message also carries the facts relevant to it (ADR-054, §7.3). `memory_search` finds facts by name or topic. Entity resolution and vector search are Planned; vectors wait for spike S3.
+- **Retrieval v1.** The memory block holds the most important facts, grouped by section, within about 1,500 characters, for on-device brains only (ADR-038). Each message also carries the facts relevant to it (ADR-054, §7.3). `memory_search` finds facts by name or topic. Relevant facts also match by meaning when EmbeddingGemma is installed (ADR-055). Entity resolution is Planned.
 - **Tools.** `memory_remember` (`WRITE_PRIVATE`: automatic unless the run is tainted), `memory_search` (READ), `memory_forget` (`DESTRUCTIVE`: the approval sheet lists the exact facts, and only those are deleted, even if memory changes in between).
 - **Memory tab.** Facts grouped by section, with search. A fact reads as its value with how it relates to the user ("Maya Chen", "Your manager"), or as a sentence when the relation is a verb ("Priya lives in Pune"). The user's own facts say "You said"; learned ones have a Confirm pill. Tapping a fact opens a sheet with the dated words it came from ("because of"). Controls: That's right, Correct, Delete, and Forget on a source message. Forgetting a message removes what came only from it and restores what it had replaced (I5). A fact the user confirmed survives, because the confirmation is also a source (I4).
 - **Planned:** entities with aliases and a link to contacts; episodes and nightly consolidation (dedupe, decay); never-learn rules; retention for event content; a memory eval (§15). Long chats are trimmed, with memory carrying what falls out (§7.3, ADR-040).
@@ -813,7 +821,7 @@ Recommend a **paid** Gemini tier for personal data. Google's terms for unpaid Ge
 
 | Store | Contents | Protection | Backup |
 |---|---|---|---|
-| Main database (Room + SQLCipher) | Now: transcripts (`messages`), Privacy Ledger (`ledger`), vault audit (`vault_audit`), tool audit and results, memory (`memory_events`, `facts`, `fact_sources`, `rejected_facts`, `profile_versions`), and the services and stores the user added (`mcp_servers`, `stores`; schema v4). Later: entities, episodes, runs, approvals, router telemetry | Database key wrapped by Keystore (ADR-024) | Excluded |
+| Main database (Room + SQLCipher) | Now: transcripts (`messages`), Privacy Ledger (`ledger`), vault audit (`vault_audit`), tool audit and results, memory (`memory_events`, `facts`, `fact_sources`, `rejected_facts`, `profile_versions`), the services and stores the user added (`mcp_servers`, `stores`; schema v4), and the facts' vectors for search by meaning (`fact_vectors`; schema v5). Later: entities, episodes, runs, approvals, router telemetry | Database key wrapped by Keystore (ADR-024) | Excluded |
 | Vault store (separate files) | Vault items | Tink keyset per protection level, wrapped by Keystore master keys (§11) | Excluded |
 | Blob store | Large content (email bodies, attachments), cached for extraction | Tink streaming AEAD | Excluded |
 | Settings (`SharedPreferences`) | Non-sensitive values only, such as vault handles, the learned token ratio (ADR-041) and the "Hey Anu" switch | None needed | Excluded |
@@ -870,7 +878,7 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 |---|---|
 | S1 | LiteRT-LM with Gemma 4 E2B and E4B: API surface, load time, time to first token, tokens/s, peak RAM, native tool calling, context limits, how well cancellation works |
 | S2 | `personal` model delivery: can the app download straight from Hugging Face, or is it gated? `adb push` for development. (Play for On-device AI packs are left to Phase 5.) |
-| S3 | On-device embeddings: EmbeddingGemma on LiteRT, or the fallback. Quality and speed |
+| S3 | On-device embeddings: EmbeddingGemma on LiteRT, or the fallback. Quality and speed. **Done on the emulator** (see the spike log); the reference phone is still to measure |
 | S4 | Gmail through `AuthorizationClient` with restricted scopes, in testing mode. **Partly done:** the flow launches from Anu (Play services 25.26 on the emulator). Consent and the live API wait for the owner's Cloud setup |
 | S5 | Notification-listener quality across WhatsApp, Google Messages and Telegram; reliability of notification replies; SMS provider access; the restricted-settings behavior for sideloaded installs on the reference device |
 | S6 | Gemma 4 audio input through LiteRT-LM, which might replace speech recognition |
@@ -879,6 +887,30 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 | S9 | Voice on the reference phone: the on-device recognizer's language pack, recognition quality, "Hey Anu" false wakes and misses, and battery per hour of listening |
 
 **Spike log.** Measured results only, newest first.
+
+- **S3, search by meaning, 2026-09-26.** Anu emulator (arm64 CPU), EmbeddingGemma 300M (512 tokens, mixed precision), vectors cut to 256 values.
+  - **Speed:**
+    - The model loads and embeds its first query in 0.7 s.
+    - Indexing 12 facts takes 5.4 s, 451 ms each.
+    - A search per message has a median of 454 ms in the eval and 533–691 ms in the app.
+    - When the emulator's window is behind others, the Mac runs it about 4× slower (about 2 s a search). So the eval reports speed rather than holding it to a bar.
+  - **Closeness** (12 made-up facts; 11 messages that share no word with the facts they should find; 12 small-talk messages):
+    - The right fact is first for 8 of the 11 messages, and in the top two for all 11.
+    - Right facts score 0.35–0.49 (median 0.42). Unrelated facts score up to 0.44 (median 0.26, 90th percentile 0.35), and small talk up to 0.52.
+    - Some facts are close to everything. A favorite sport and a car average 0.35 against small talk; "Priya lives in Pune" averages 0.18.
+  - **Rule** (ADR-056): at least 0.37 close, and standing out by 1.25 standard deviations.
+    - In the eval (`S3EmbeddingTest`), it found 11 of the 12 facts, with 3 wrong in 11 messages. Two of those are arguably right: the diet for "Can I eat this trail mix?" and the employer for "a present for my boss". No small talk brought a fact.
+    - Replayed on every subset of the 12 facts: 92% found with 2 to 4 facts (0.08–0.15 wrong per message, by closeness alone), and 77–84% with 5 to 8.
+    - A 0.35 cut-off found no more facts at any size and doubled the wrong ones. Standing out alone (1.85σ) found half.
+  - **In the app, with E4B and the emulator's 5 facts, all indexed:**
+    - "Get a present for my boss" carried 1 fact, and E4B answered "your manager is Maya Chen".
+    - "What does she like?" was read after that message, and E4B resolved "she" to Maya.
+    - "When should I put the design review?" missed "prefers meeting time: prefers meetings in the morning". It was 0.356 close and stood out by 1.43σ, held back by the fact's wording.
+  - **Found and fixed:**
+    - Relevance read the last two user messages together, so a new topic carried the last one's facts. "Get a present for my boss" after "Where does my sister live" carried the sister facts, and E4B offered "a gift for Maya in Pune". A message is now read on its own unless it points back to someone (ADR-056).
+    - "Good morning" matched "meetings in the morning", and "What is 12 times 7?" matched "12 March". Greetings and numbers under 100 no longer count as words.
+  - **Found, not fixed:** in Memory → Add, "I'm vegetarian" and "I'm vegan" kept nothing ("Anu didn't find anything to remember"), while "I'm left-handed" was kept. This is in extraction, and is left for its own change.
+  - protobuf-javalite 4.36.2 gives the same results and speed as 4.26.1, so the app uses it.
 
 - **Voice, assistant, MCP and shopping end to end, 2026-09-26.** Anu emulator, E4B CPU.
   - **Talk page:** the orb and captions render, and the pager moves between Talk, Memory and Settings. The emulator's on-device recognizer has no English pack (error 13), so the page says so and offers the download. It wasn't started: downloads are the user's choice.
@@ -1065,6 +1097,8 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 | 052 | 2026-09-26 | The sphere is an AGSL `RuntimeShader` on Android 13+. Each pixel's place on the disk gives a sphere's normal, lit by a key light from the upper left: the pearl's wrapped light and sheen, obsidian's crisp highlight, rim light and hairline, and an inner light the glass bends. While listening, waves move the surface normal, not the outline, so the highlight and inner light ripple with the voice. Android 12 keeps the gradient drawing. The Error state greys it for about 1.5 s after a turn fails, counted by the chat from zero each time a screen opens; declining the cloud, and a tier that fails before a stronger one answers, don't count. Animated values are read only while drawing | DESIGN.md asked for refraction and ripples, which gradients can't draw. A moving outline would read as a character; a moving surface stays an object. Counting failures from the screen's opening means old failures never flash, and only a turn that really failed does. Reading animations while drawing redraws each frame without recomposing |
 | 053 | 2026-09-26 | Edit on the approval sheet. Tools declare `editable` fields; saving an edit is a `Revised` decision that approves nothing. The broker refuses changes to other fields, checks the edit like the model's arguments, and asks again with the re-encoded payload, new summary, risk and destination, even when the new input would run without asking. The tool runs under the final payload's key; the result is also stored under the original key | I2 stays exact: the user approves the payload that will run, as the broker encodes it, never text the sheet assembled. Rechecking catches invalid edits and a change of risk, such as adding invitees. Identifiers and targets stay out of editing, so an edit can't redirect an action. A retry of the model's first call must not act twice |
 | 054 | 2026-09-26 | Personal context for every message. Before each model call, the phone picks the facts that bear on the message (people named, the user's relations, shared topics; vectors after S3). They ride with the newest message, never in the system prompt or the saved chat. On-device brains always see them. Gemini sees only the relevant, non-sensitive facts listed on the consent sheet, included by default and removable with one tap: exactly those go, through the egress gate, and the ledger counts them. With no consent sheet, no facts go. Amends ADR-038 | The user asked for prompt, then user context, then a personalized answer from either model. Riding with the message keeps the on-device KV cache, as the time does (ADR-033). §8.4 always meant the cloud to get only minimal, consented facts; showing the exact list keeps consent informed, and sensitive facts never leave. Names and topics miss implicit context, which is the cautious failure |
+| 055 | 2026-09-26 | Search by meaning with EmbeddingGemma 300M (mixed precision, 512 tokens, CPU), run through the AI Edge RAG library's `GemmaEmbeddingModel`, since LiteRT-LM's `EmbeddingEngine` needs a `.litertlm` bundle that exists only for the Tensor G4 NPU. Only the library's Gemma embedder is used and packaged. Facts get 256-value vectors in the encrypted database, made after every change; a message counts a fact by shared words or by closeness in meaning. The model is gated on Hugging Face, so the owner downloads it and installs it from a computer | The user chose EmbeddingGemma for quality and size over an ungated, larger model. Word matching misses implicit context ("plan dinner" and a vegetarian diet). Vectors are derived from facts, so they get the same protection and are deleted with them. Excluding the library's other parts keeps about 70 MB of unused native code and a duplicate network stack out of the app |
+| 056 | 2026-09-26 | S3's rule for search by meaning. A fact counts by meaning if it is at least 0.37 close and stands out from the message's other facts by 1.25 standard deviations, or by closeness alone when there are fewer than 5 facts. Messages without meaningful words skip the search, and greetings and numbers under 100 don't count as words. Relevant facts read the newest message on its own, and the one before only when the newest points back to someone it doesn't name ("her", "them"). Amends ADR-054 | Measured on the emulator, raw closeness overlaps between right facts, unrelated ones and small talk, and some facts are close to everything, so a cut-off alone lets small talk through. Together, the two tests found 11 of 12 facts with no small talk. Reading two messages together carried the last topic into the next: "a gift for Maya in Pune" |
 
 ### Component status
 
@@ -1074,7 +1108,8 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 | CI workflow (`.github/workflows/ci.yml`), including the Play SMS-permission check | 0 | Implemented, not yet run (the repo hasn't been pushed). The SMS check runs locally |
 | Spike S1 (runtime on device) | 0 | In progress. Run 2 on the Anu emulator passed: contract, tools, schema, cancel, memory. Speed on the reference phone is still pending |
 | Spike S2 (model delivery) | 0 | Partly done: ungated, and per-backend files found |
-| Spikes S3–S7 | 0 | Planned |
+| Spike S3 (on-device embeddings) | 0 | Verified on the Anu emulator. Its eval (`S3EmbeddingTest`) passes: 11 of 12 facts found, 3 wrong in 11 messages, and no small talk with facts. A search takes about 0.45–0.7 s on the emulator's CPU. Not yet measured on the reference phone |
+| Spikes S4–S7 | 0 | Planned |
 | `core:model`: brain contracts, `JsonSchemas`, `ToolSpec` | 1 | Implemented. JVM unit tests pass; the tool-call path is not yet verified on a real model |
 | `brain:litertlm`: `LiteRtLmBrain`, `EngineHolder` | 1 | Implemented. Real-model tests pass on the Anu emulator (E4B, CPU). Not yet run on the reference phone |
 | ModelManager: pinned catalog, resumable verified download worker | 1 | Implemented, with 7 JVM tests (resume, restart, corrupted file deleted, catalog). The worker hasn't run on a device yet |
@@ -1086,7 +1121,7 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 | Direct tier (deterministic handlers) | 2 | Planned. Needs connectors |
 | `core:vault`: store, Keystore protector, `SecretInjector` | 1 | Implemented. 10 JVM tests, plus 2 device tests with the real Keystore on the Anu emulator. The device tests found and fixed a hidden screen-lock error. Recovery passphrase Planned |
 | Vault UI and biometric prompt (`feature:vault`) | 1 | Planned |
-| Encrypted database (`core:data`): Room 2.8 + SQLCipher 4.19, key wrapping, transcript, ledger, audit, memory and connector stores; schema v4 | 1 | **Verified on the Anu emulator**: the encryption-at-rest and migration device tests pass (no plain header, no canary, wrong key refused; v1→v2, v2→v3 and v3→v4 keep data). Plus 12 JVM tests |
+| Encrypted database (`core:data`): Room 2.8 + SQLCipher 4.19, key wrapping, transcript, ledger, audit, memory and connector stores; schema v5 | 1 | **Verified on the Anu emulator**: the encryption-at-rest and migration device tests pass (no plain header, no canary, wrong key refused; v1→v2, v2→v3, v3→v4 and v4→v5 keep data). The personal build's real database migrated to v5 with its memory intact. Plus 13 JVM tests |
 | Persistence wired: chat history restored at launch, ledger persisted, vault activity shown in Settings | 1 | Implemented, with a ViewModel test for restore. Not yet run on a device |
 | App shell: Talk, Memory and Settings pages (ADR-043) | 1 | Implemented. Runs on the Anu emulator |
 | Chat UI (`feature:home`): streaming, the answering model's label, Retry with a stronger model, the cloud consent sheet (with the facts Gemini would see, ADR-054), Stop, Markdown, long-chat line | 1 | Implemented. It runs end to end on the Anu emulator with E4B, and has JVM tests, including sharing exactly the listed facts or none. The cloud consent sheet isn't exercised on a device yet (needs a Gemini key) |
@@ -1105,7 +1140,7 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 | AI Scheduling v1 (chat with calendar and contacts tools) | 2 | Implemented. Verified by hand on the emulator; no eval set yet (§15) |
 | AI Email v1: email skill detection, email tools plus contacts and calendar lookups, drafts and approval-gated sends | 2 | Implemented. Not yet run against a real mailbox (see the Gmail row) |
 | Tool audit and idempotency persistence (schema v2), Activity in Settings | 2 | Implemented. Migration test passes on the emulator |
-| Memory pipeline v1 (`core:memory`): capture, on-device extraction, reconcile, versioned profile, memory block, relevant facts per message (ADR-054), memory tools, background learning (ADR-036 to ADR-039) | 3 | Implemented. 19 JVM tests, 2 Robolectric tests on the real schema, and a v2→v3 migration device test. Verified by hand on the Anu emulator with E4B: learning after leaving the app, use in chat, corrections, remember and approval-gated forget. No memory eval yet (§15), so not Verified Relevant facts: 4 JVM tests for the picker, plus chat, egress and Gemini tests; on the emulator, a question about "my sister" carried 2 facts and E4B answered from them |
+| Memory pipeline v1 (`core:memory`): capture, on-device extraction, reconcile, versioned profile, memory block, relevant facts per message (ADR-054) with search by meaning (ADR-055), memory tools, background learning (ADR-036 to ADR-039) | 3 | Implemented. 19 JVM tests, 2 Robolectric tests on the real schema, and a v2→v3 migration device test. Verified by hand on the Anu emulator with E4B: learning after leaving the app, use in chat, corrections, remember and approval-gated forget. No memory eval yet (§15), so not Verified Relevant facts: 7 JVM tests for the picker, plus chat, egress and Gemini tests; on the emulator, a question about "my sister" carried 2 facts and E4B answered from them Search by meaning: 10 JVM tests on a stand-in embedder, a Room test, and the S3 eval with EmbeddingGemma on the Anu emulator. In the app, E4B answered "Get a present for my boss" from the manager fact found by meaning |
 | Memory Inspector (`feature:memory`): facts grouped by section with search, "You said" or a Confirm pill, a sheet per fact with its dated sources, That's right, Correct, Delete, Forget a message, Learn now, and Add (the user's own words, read by the on-device model and kept as theirs) | 3 | Implemented. 7 JVM tests for how facts read and match search; Add has 2. The redesigned tab was checked on anu_api36 in light and dark: search, a fact's sheet, and the Add sheet |
 | Memory, later: entities and aliases, episodes, nightly consolidation, vector retrieval (S3), never-learn rules, learning from connectors, retention, memory eval | 3 | Planned |
 | AI Writing everywhere (`feature:writing`, `WritingActivity`): six actions and custom instructions, Replace or Copy (ADR-042) | 3 | Implemented. 10 JVM tests. Verified by hand on the Anu emulator through the real text-selection menu in Settings. No writing eval yet (§15) |
@@ -1121,6 +1156,15 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 | Hardening, release readiness | 5 | Planned |
 
 ### Changelog
+
+- **1.15.0** (2026-09-26): search by meaning, verified on the Anu emulator (ADR-055, ADR-056, spike S3).
+  - `Embedder` contract in `core:model`; `brain:embedding` runs EmbeddingGemma 300M through the AI Edge RAG library, packaging only its Gemma embedder.
+  - Facts get 256-value vectors, kept in the encrypted database (schema v5), made after every change and in the background, and deleted with the fact. A message finds facts by shared words or by closeness in meaning.
+  - Settings → Models shows whether search by meaning is installed; `scripts/dev-install-model.sh` installs its two files after checking their hashes.
+  - The model is gated on Hugging Face, so the owner downloads it.
+  - S3 measured the model on the emulator and set the rule: at least 0.37 close, and standing out from the other facts. `S3EmbeddingTest` is now its eval, and it passes.
+  - A message is read on its own for relevant facts, unless it points back to someone. Small talk, greetings and numbers under 100 find nothing.
+  - Debug builds log each search's fact count and time, and how many facts are indexed.
 
 - **1.14.0** (2026-09-26): personal context for every message (ADR-054).
   - Before each model call, the phone gathers the facts relevant to the message: people named, the user's relations, shared topics (`Relevance`). They ride with the message, so the KV cache survives, and are never saved into the chat.

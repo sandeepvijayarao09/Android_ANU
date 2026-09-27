@@ -100,4 +100,18 @@ class RoomMemoryStoreTest {
         assertTrue(store.pending(10).isEmpty())
         assertEquals(EventStatus.DONE, store.events(listOf(1L)).single().status)
     }
+
+    @Test
+    fun `vectors are kept per model, only for active facts, and go with their fact (ADR-055)`() = runBlocking {
+        learn("I'm vegetarian", fact("diet", "vegetarian", "preferences", "I'm vegetarian"))
+        val id = store.activeFacts().single().id
+        store.putVectors("m1", mapOf(id to floatArrayOf(0.6f, 0.8f)))
+        store.putVectors("m2", mapOf(id to floatArrayOf(1f, 0f)))
+        assertEquals(listOf(0.6f, 0.8f), store.vectors("m1").getValue(id).toList())
+        assertEquals(setOf(id), store.vectors("m2").keys)
+
+        memory.delete(id)
+        assertEquals(emptyMap<Long, FloatArray>(), store.vectors("m1"))
+        assertEquals(emptyMap<Long, FloatArray>(), store.vectors("m2"))
+    }
 }

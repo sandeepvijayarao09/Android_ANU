@@ -125,7 +125,17 @@ class SettingsViewModel(
     private val voice: VoiceSettings? = null,
     private val mcp: McpServerSettings? = null,
     private val shopping: StoreSettings? = null,
+    /** Whether search by meaning's model is installed (ADR-055). Null when the app has no search by meaning. */
+    private val searchByMeaning: (() -> Boolean)? = null,
 ) : ViewModel() {
+
+    private val mutableSearch = MutableStateFlow(searchByMeaning?.invoke())
+    val searchInstalled: StateFlow<Boolean?> = mutableSearch.asStateFlow()
+
+    /** The model is installed from a computer, so check again when the page shows. */
+    fun refreshSearch() {
+        mutableSearch.value = searchByMeaning?.invoke()
+    }
 
     val mcpAvailable: Boolean get() = mcp != null
     val mcpServers: StateFlow<List<McpServerRow>> = mcp?.servers ?: MutableStateFlow(emptyList())

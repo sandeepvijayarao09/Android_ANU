@@ -1,6 +1,9 @@
 package io.github.sandeepvijayarao09.anu.core.memory
 
 import io.github.sandeepvijayarao09.anu.core.model.RelevantFact
+import kotlinx.coroutines.CancellationException
+import io.github.sandeepvijayarao09.anu.core.model.EmbeddingKind
+import io.github.sandeepvijayarao09.anu.core.model.Embedder
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -72,6 +75,8 @@ class MemoryPipeline(
     private val store: MemoryStore,
     private val extractor: FactExtractor,
     private val clock: () -> Instant = Instant::now,
+    /** Search by meaning (ADR-055), when its model is installed. Asked each time, so a model installed later counts. */
+    private val embedder: () -> Embedder? = { null },
 ) : MemoryInspector {
 
     private val running = Mutex()
@@ -255,9 +260,59 @@ class MemoryPipeline(
         refreshProfile()
     }
 
-    /** The facts that bear on [message], most relevant first (§8.3, ADR-054). */
-    suspend fun relevant(message: String): List<RelevantFact> =
-        Relevance.pick(message, store.activeFacts()).map { RelevantFact(it.text, it.sensitive) }
+    /**
+     * The facts that bear on [message], most relevant first (§8.3, ADR-054): by the words they share and,
+     * with search by meaning installed, by how close they are in meaning (ADR-055). The message is read on
+     * its own, unless it points back to someone ("and her birthday?"): then after the [previous] one, which
+     * says who. Otherwise the last topic would ride along with the next, unrelated message.
+     */
+    suspend fun relevant(message: String, previous: String? = null): List<RelevantFact> {
+        val about = if (previous != null && Relevance.pointsBack(message)) "$previous\n$message" else message
+        return Relevance.pick(about, store.activeFacts(), similarities(about)).map { RelevantFact(it.text, it.sensitive) }
+    }
+
+    /**
+     * Gives every active fact a vector for search by meaning (ADR-055), if its model is installed. Only facts
+     * without a vector for the current model are embedded, a few at a time. Returns how many were.
+     */
+    suspend fun index(): Int {
+        val embedder = embedder() ?: return 0
+        val have = store.vectors(embedder.model).keys
+        val missing = store.activeFacts().filter { it.id !in have }
+        for (batch in missing.chunked(INDEX_BATCH)) {
+            val vectors = embedder.embed(batch.map(::documentText), EmbeddingKind.DOCUMENT)
+            store.putVectors(embedder.model, batch.map { it.id }.zip(vectors).toMap())
+        }
+        return missing.size
+    }
+
+    /** How many active facts have a vector for the installed model, and how many there are. Null without the model. */
+    suspend fun indexed(): Pair<Int, Int>? {
+        val embedder = embedder() ?: return null
+        return store.vectors(embedder.model).size to store.activeFacts().size
+    }
+
+    /** How close each fact is in meaning to [message]. Empty without the model or vectors, and on any failure. */
+    private suspend fun similarities(message: String): Map<Long, Float> {
+        val embedder = embedder() ?: return emptyMap()
+        if (!Relevance.hasContent(message)) return emptyMap()
+        return try {
+            val vectors = store.vectors(embedder.model)
+            if (vectors.isEmpty()) return emptyMap()
+            val query = embedder.embed(listOf(message), EmbeddingKind.QUERY).single()
+            vectors.mapValues { (_, vector) -> Vectors.cosine(query, vector) }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            emptyMap()
+        }
+    }
+
+    /** How a fact reads to the embedder: in the user's own voice for their facts, to match how they ask. */
+    private fun documentText(fact: Fact): String {
+        val relation = fact.predicate.replace('_', ' ')
+        return if (fact.subject == USER) "My $relation: ${fact.value}" else "${fact.subject}'s $relation: ${fact.value}"
+    }
 
     /**
      * The memory block on-device brains add to the system prompt (§8.3). The most important facts come
@@ -336,6 +391,13 @@ class MemoryPipeline(
             store.saveProfile(ProfileVersion(section, (previous?.version ?: 0) + 1, text, inSection.map { it.id }, clock()))
         }
         reload()
+        // New and corrected facts get their vectors now. Search by meaning must never break memory.
+        try {
+            index()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+        }
     }
 
     private suspend fun reload() {
@@ -356,6 +418,9 @@ class MemoryPipeline(
          */
         private const val HEADER = "What you know about the user, from their own words and their edits in the Memory tab. " +
             "It is kept up to date: when it disagrees with older messages in this chat, trust it, unless the user has just said otherwise."
+
+        /** Facts embedded per call when indexing (ADR-055). */
+        private const val INDEX_BATCH = 8
 
         private val SELF_WORDS = setOf("me", "i", "my", "myself", "user")
         private val STOP_WORDS = setOf("what", "do", "you", "know", "about", "the", "a", "an", "is", "are", "of", "any", "anything", "remember")

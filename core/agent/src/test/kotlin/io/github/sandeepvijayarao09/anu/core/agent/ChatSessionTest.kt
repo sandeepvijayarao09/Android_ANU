@@ -55,7 +55,7 @@ class ChatSessionTest {
         val cloudOnly = DeviceState(online = true, availableTiers = setOf(Tier.CLOUD))
         val chat = ChatSession(
             agent(mapOf(Tier.CLOUD to cloud)),
-            relevant = { listOf(RelevantFact("manager: Maya Chen", sensitive = false), RelevantFact("allergy: penicillin", sensitive = true)) },
+            relevant = { _, _ -> listOf(RelevantFact("manager: Maya Chen", sensitive = false), RelevantFact("allergy: penicillin", sensitive = true)) },
         )
         val blocked = chat.send("Gift for my manager?", cloudOnly).toList().single() as AgentEvent.ConsentNeeded
         assertEquals(listOf("manager: Maya Chen"), blocked.facts)
@@ -69,7 +69,7 @@ class ChatSessionTest {
 
     @Test
     fun `without consent no facts are shared, whatever is passed`() = runTest {
-        val chat = ChatSession(agent(mapOf(Tier.BASE to base)), relevant = { listOf(RelevantFact("manager: Maya Chen", sensitive = false)) })
+        val chat = ChatSession(agent(mapOf(Tier.BASE to base)), relevant = { _, _ -> listOf(RelevantFact("manager: Maya Chen", sensitive = false)) })
         base.enqueue(Step.Reply("Hi"))
         chat.send("My manager?", device, sharedFacts = listOf("manager: Maya Chen")).toList()
         assertEquals(emptyList<String>(), base.requests.single().sharedFacts)
@@ -218,18 +218,18 @@ class ChatSessionTest {
 
     @Test
     fun `facts that bear on the message travel with it, never into the saved chat`() = runTest {
-        val asked = mutableListOf<String>()
+        val asked = mutableListOf<Pair<String, String?>>()
         val chat = ChatSession(
             agent(mapOf(Tier.BASE to base)),
-            relevant = { text ->
-                asked += text
-                if ("Maya" in text || "birthday" in text) listOf(RelevantFact("Maya Chen · birthday: 12 March", sensitive = false)) else emptyList()
+            relevant = { text, previous ->
+                asked += text to previous
+                if ("birthday" in text) listOf(RelevantFact("Maya Chen · birthday: 12 March", sensitive = false)) else emptyList()
             },
         )
         base.enqueue(Step.Reply("Happy to help."), Step.Reply("Flowers?"))
         chat.send("Lunch with Maya?", device).toList()
         chat.send("And for her birthday?", device).toList()
-        assertEquals("the follow-up is read with the message before it", listOf("Lunch with Maya?", "Lunch with Maya?\nAnd for her birthday?"), asked)
+        assertEquals("memory gets the message before, for a follow-up", listOf("Lunch with Maya?" to null, "And for her birthday?" to "Lunch with Maya?"), asked)
         val relevant = base.requests.map { it.relevant }
         assertEquals("${io.github.sandeepvijayarao09.anu.core.model.FACTS_HEADER}\n- Maya Chen · birthday: 12 March", relevant[1])
         assertEquals(listOf("Lunch with Maya?", "Happy to help.", "And for her birthday?", "Flowers?"), chat.history().map { message ->
@@ -245,7 +245,7 @@ class ChatSessionTest {
 
     @Test
     fun `broken memory means no relevant facts, never a failed chat`() = runTest {
-        val chat = ChatSession(agent(mapOf(Tier.BASE to base)), relevant = { error("database locked") })
+        val chat = ChatSession(agent(mapOf(Tier.BASE to base)), relevant = { _, _ -> error("database locked") })
         base.enqueue(Step.Reply("Hi!"))
         chat.send("Hello", device).toList()
         assertEquals(null, base.requests.single().relevant)

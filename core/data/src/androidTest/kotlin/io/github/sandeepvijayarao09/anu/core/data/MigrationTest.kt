@@ -56,4 +56,15 @@ class MigrationTest {
             }
         }
     }
+
+    @Test
+    fun v4ToV5KeepsEverythingAndAddsFactVectors() {
+        helper.createDatabase("migration-test-5", 4).use { db ->
+            db.execSQL("INSERT INTO messages (conversationId, seq, role, text, toolCallsJson, toolResultsJson, createdAtMillis) VALUES ('main', 0, 'user', 'hello', NULL, NULL, 1)")
+        }
+        helper.runMigrationsAndValidate("migration-test-5", 5, true).use { db ->
+            db.query("SELECT text FROM messages").use { c -> c.moveToFirst(); assertEquals("hello", c.getString(0)) }
+            db.query("SELECT COUNT(*) FROM fact_vectors").use { c -> c.moveToFirst(); assertEquals(0, c.getInt(0)) }
+        }
+    }
 }

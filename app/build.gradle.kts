@@ -40,6 +40,14 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+
+    // The AI Edge RAG library ships four native libraries; search by meaning uses only the Gemma embedder's
+    // (ADR-055). The others (Gecko embedder, vector store, text chunker) would add about 47 MB.
+    packaging {
+        jniLibs {
+            excludes += setOf("**/libgecko_embedding_model_jni.so", "**/libsqlite_vector_store_jni.so", "**/libtext_chunker_jni.so")
+        }
+    }
 }
 
 dependencies {
@@ -50,6 +58,7 @@ dependencies {
     implementation(project(":feature:writing"))
     implementation(project(":brain:litertlm"))
     implementation(project(":brain:gemini"))
+    implementation(project(":brain:embedding"))
     implementation(project(":core:vault"))
     implementation(project(":core:data"))
     implementation(project(":connector:calendar"))

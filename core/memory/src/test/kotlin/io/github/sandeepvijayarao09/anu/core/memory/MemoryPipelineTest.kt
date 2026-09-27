@@ -36,6 +36,71 @@ class MemoryPipelineTest {
     }
 
     @Test
+    fun `with search by meaning, facts get vectors, and a message finds a fact it shares no word with`() = runTest {
+        val embedder = ConceptEmbedder()
+        val meaning = MemoryPipeline(store, FactExtractor({ brain }, { LocalDate.of(2026, 9, 25) }), clock = { now }, embedder = { embedder })
+        meaning.captureChat("I'm vegetarian, and my sister Priya lives in Pune", "main:0")
+        brain.enqueue(
+            reply(
+                fact("user", "diet", "vegetarian", "preferences", "I'm vegetarian", single = true),
+                fact("user", "sister", "Priya", "people", "my sister Priya"),
+            ),
+        )
+        meaning.processPending()
+        // Learning refreshed the profile, which indexed both facts in the user's voice.
+        assertEquals(2, store.vectors(embedder.model).size)
+        assertEquals(listOf("My diet: vegetarian", "My sister: Priya"), embedder.calls.single().first)
+        assertEquals(0, meaning.index())
+
+        val picked = meaning.relevant("Plan a dinner for tonight").map { it.text }
+        assertEquals(listOf("diet: vegetarian"), picked)
+        val searches = embedder.calls.size
+        assertTrue(meaning.relevant("Thanks!", previous = "Plan a dinner for tonight").isEmpty())
+        assertEquals("small talk is never embedded", searches, embedder.calls.size)
+    }
+
+    @Test
+    fun `a message is read on its own, unless it points back to someone the message before names`() = runTest {
+        memory.captureChat("My sister Priya lives in Pune, and my manager is Maya Chen", "main:0")
+        brain.enqueue(
+            reply(
+                fact("user", "sister", "Priya", "people", "My sister Priya"),
+                fact("Priya", "lives_in", "Pune", "people", "Priya lives in Pune"),
+                fact("user", "manager", "Maya Chen", "people", "my manager is Maya Chen"),
+            ),
+        )
+        memory.processPending()
+        assertEquals(
+            "the last topic doesn't ride along", listOf("manager: Maya Chen"),
+            memory.relevant("What does my manager like?", previous = "Where does my sister live?").map { it.text },
+        )
+        assertEquals(
+            "a follow-up finds who it means", listOf("Priya · lives in: Pune", "sister: Priya"),
+            memory.relevant("Is she free on Friday?", previous = "Is Priya coming to dinner?").map { it.text },
+        )
+    }
+
+    @Test
+    fun `a new model re-indexes, deleting a fact deletes its vector, and a failure means words only`() = runTest {
+        val first = ConceptEmbedder()
+        var current: ConceptEmbedder = first
+        val meaning = MemoryPipeline(store, FactExtractor({ brain }, { LocalDate.of(2026, 9, 25) }), clock = { now }, embedder = { current })
+        meaning.captureChat("I'm vegetarian", "main:0")
+        brain.enqueue(reply(fact("user", "diet", "vegetarian", "preferences", "I'm vegetarian", single = true)))
+        meaning.processPending()
+        current = ConceptEmbedder(model = "concepts@4-v2")
+        assertEquals(1, meaning.index())
+
+        current.failing = true
+        assertEquals("words still work", listOf("diet: vegetarian"), meaning.relevant("What's my diet?").map { it.text })
+        assertEquals("without shared words, nothing", emptyList<String>(), meaning.relevant("Plan a dinner").map { it.text })
+
+        val id = store.activeFacts().single().id
+        meaning.delete(id)
+        assertTrue(store.vectors("concepts@4-v2").isEmpty())
+    }
+
+    @Test
     fun `capture keeps messages about someone, never secrets, and cuts card numbers`() = runTest {
         assertNull(memory.captureChat("Book lunch with Maya tomorrow", "k"))
         assertNull(memory.captureChat("yes please", "k"))

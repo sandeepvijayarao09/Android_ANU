@@ -68,6 +68,10 @@ export JAVA_HOME=/opt/homebrew/opt/openjdk@21
   - Its serial changes between runs. Check with `adb -s <serial> emu avd name`.
   - Emulators use the CPU model files (ADR-025).
 - **Installing a local model into the app** (debug builds only, no download): `scripts/dev-install-model.sh <serial> <file.litertlm>`. It checks the SHA-256 against `ModelCatalog` first.
+- **Search by meaning (ADR-055)** needs EmbeddingGemma's two files, which only the owner can download (the Hugging Face repo is gated). Install each with the same script: `scripts/dev-install-model.sh <serial> ~/Downloads/embeddinggemma-300M_seq512_mixed-precision.tflite`, then `… ~/Downloads/sentencepiece.model`. Settings → Models shows it as installed; facts get their vectors after the next change to memory or when you leave the app.
+  - Its eval (spike S3) needs the files in `/data/local/tmp/anu/models/` too: `adb push` both, then `ANDROID_SERIAL=<serial> ./gradlew :brain:embedding:connectedDebugAndroidTest` and `adb logcat -d -s AnuS3`. It skips itself without them.
+  - Keep the emulator's window in front while timing: behind other windows the Mac runs it about 4× slower.
+  - In the app, `adb logcat -s Anu:D` shows `Relevant facts: N in X ms, search by meaning on, I of M facts indexed` for each message.
 - **Test data on `anu_api36`.** Created once with `adb shell content insert`:
   - a local calendar "Personal" (`account_type=LOCAL`);
   - a made-up contact "Maya Chen", `maya.chen@example.com`.

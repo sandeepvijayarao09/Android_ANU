@@ -54,6 +54,12 @@ interface MemoryStore {
     fun observeFacts(): Flow<List<Fact>>
 
     fun observePendingCount(): Flow<Int>
+
+    /** Vectors of active facts, made by [model], by fact id (ADR-055). */
+    suspend fun vectors(model: String): Map<Long, FloatArray>
+
+    /** Keeps each fact's vector for [model]. A fact has one vector per model; deleting it deletes them. */
+    suspend fun putVectors(model: String, vectors: Map<Long, FloatArray>)
 }
 
 /** A [MemoryStore] in memory, for tests and previews. */
@@ -63,6 +69,7 @@ class InMemoryMemoryStore : MemoryStore {
         val facts: Map<Long, Fact> = emptyMap(),
         val rejected: Set<String> = emptySet(),
         val profile: List<ProfileVersion> = emptyList(),
+        val vectors: Map<Pair<String, Long>, FloatArray> = emptyMap(),
         val nextId: Long = 1,
     )
 
@@ -105,7 +112,7 @@ class InMemoryMemoryStore : MemoryStore {
 
     override suspend fun updateFact(fact: Fact) = update { it.copy(facts = it.facts + (fact.id to fact)) }
 
-    override suspend fun deleteFact(id: Long) = update { it.copy(facts = it.facts - id) }
+    override suspend fun deleteFact(id: Long) = update { s -> s.copy(facts = s.facts - id, vectors = s.vectors.filterKeys { it.second != id }) }
 
     override suspend fun isRejected(fingerprint: String) = fingerprint in state.value.rejected
 
@@ -120,6 +127,13 @@ class InMemoryMemoryStore : MemoryStore {
         state.map { s -> s.facts.values.filter { it.status == FactStatus.ACTIVE }.sortedBy { it.id } }
 
     override fun observePendingCount(): Flow<Int> = state.map { s -> s.events.values.count { it.status == EventStatus.PENDING } }
+
+    override suspend fun vectors(model: String): Map<Long, FloatArray> = state.value.let { s ->
+        s.vectors.filterKeys { (m, id) -> m == model && s.facts[id]?.status == FactStatus.ACTIVE }.mapKeys { it.key.second }
+    }
+
+    override suspend fun putVectors(model: String, vectors: Map<Long, FloatArray>) =
+        update { s -> s.copy(vectors = s.vectors + vectors.mapKeys { (id, _) -> model to id }) }
 
     /** Every event, for tests. */
     fun allEvents(): List<MemoryEvent> = state.value.events.values.sortedBy { it.id }

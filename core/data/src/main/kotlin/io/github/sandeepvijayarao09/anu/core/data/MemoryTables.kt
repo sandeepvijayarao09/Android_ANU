@@ -19,6 +19,7 @@ import io.github.sandeepvijayarao09.anu.core.memory.FactOrigin
 import io.github.sandeepvijayarao09.anu.core.memory.FactStatus
 import io.github.sandeepvijayarao09.anu.core.memory.MemoryEvent
 import io.github.sandeepvijayarao09.anu.core.memory.MemoryStore
+import io.github.sandeepvijayarao09.anu.core.memory.Vectors
 import io.github.sandeepvijayarao09.anu.core.memory.ProfileSection
 import io.github.sandeepvijayarao09.anu.core.memory.ProfileVersion
 import kotlinx.coroutines.flow.Flow
@@ -64,6 +65,10 @@ data class FactSourceEntity(val factId: Long, val eventId: Long)
 data class RejectedFactEntity(@PrimaryKey val fingerprint: String, val atMillis: Long)
 
 /** One version of a profile section (§8.1). */
+/** A fact's vector for search by meaning (ADR-055): little-endian floats at unit length, one per model. */
+@Entity(tableName = "fact_vectors", primaryKeys = ["factId", "model"])
+data class FactVectorEntity(val factId: Long, val model: String, val vector: ByteArray)
+
 @Entity(tableName = "profile_versions", primaryKeys = ["section", "version"])
 data class ProfileVersionEntity(val section: String, val version: Int, val text: String, val factIds: String, val atMillis: Long)
 
@@ -138,6 +143,15 @@ interface MemoryDao {
 
     @Insert
     suspend fun insertProfile(version: ProfileVersionEntity)
+
+    @Query("SELECT v.* FROM fact_vectors v JOIN facts f ON f.id = v.factId WHERE v.model = :model AND f.status = 'ACTIVE'")
+    suspend fun vectors(model: String): List<FactVectorEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun putVectors(vectors: List<FactVectorEntity>)
+
+    @Query("DELETE FROM fact_vectors WHERE factId = :factId")
+    suspend fun deleteVectorsOfFact(factId: Long)
 }
 
 /** Memory in the encrypted database (§8.1, §14). Only `core:data` touches the database (§4.2). */
@@ -185,6 +199,7 @@ class RoomMemoryStore(private val db: AnuDatabase, private val clock: () -> Long
 
     override suspend fun deleteFact(id: Long) = db.withTransaction {
         dao.deleteLinksOfFact(id)
+        dao.deleteVectorsOfFact(id)
         dao.deleteFact(id)
     }
 
@@ -209,6 +224,12 @@ class RoomMemoryStore(private val db: AnuDatabase, private val clock: () -> Long
     override fun observeFacts(): Flow<List<Fact>> = dao.observeActiveFacts().map { rows -> rows.map(::fact) }
 
     override fun observePendingCount(): Flow<Int> = dao.pendingCount()
+
+    override suspend fun vectors(model: String): Map<Long, FloatArray> =
+        dao.vectors(model).associate { it.factId to Vectors.fromBytes(it.vector) }
+
+    override suspend fun putVectors(model: String, vectors: Map<Long, FloatArray>) =
+        dao.putVectors(vectors.map { (id, vector) -> FactVectorEntity(id, model, Vectors.toBytes(vector)) })
 
     private fun event(row: MemoryEventEntity) = MemoryEvent(
         id = row.id, at = Instant.ofEpochMilli(row.atMillis), source = EventSource.valueOf(row.source), content = row.content,

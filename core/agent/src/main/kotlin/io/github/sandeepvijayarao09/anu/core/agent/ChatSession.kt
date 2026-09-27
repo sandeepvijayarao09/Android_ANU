@@ -55,11 +55,11 @@ class ChatSession(
      */
     private val extraTools: suspend (turns: List<String>) -> List<String> = { emptyList() },
     /**
-     * The facts from memory that bear on a message (§8.3, ADR-054): the user's newest message, after
-     * the one before it, so a follow-up such as "and her birthday?" still finds the person. A failure
-     * means none, never a failed chat.
+     * The facts from memory that bear on the user's newest message (§8.3, ADR-054), given with the
+     * message before it, so a follow-up such as "and her birthday?" can still find the person. A
+     * failure means none, never a failed chat.
      */
-    private val relevant: suspend (text: String) -> List<RelevantFact> = { emptyList() },
+    private val relevant: suspend (text: String, previous: String?) -> List<RelevantFact> = { _, _ -> emptyList() },
 ) {
     private val lock = Mutex()
     private var transcript: MutableList<ChatMessage>? = null
@@ -93,7 +93,7 @@ class ChatSession(
             val tools = (toolsFor(skill) + currentExtraTools(turns)).distinct()
             val now = clock()
             val memoryBlock = currentMemory()
-            val relevantFacts = currentRelevant(turns.takeLast(2).joinToString("\n"))
+            val relevantFacts = currentRelevant(text, turns.getOrNull(turns.size - 2))
             val relevantBlock = factsBlock(relevantFacts.map { it.text })
             // The cloud may see only facts the user saw on the consent sheet: relevant ones, never sensitive.
             val consentFacts = relevantFacts.filterNot { it.sensitive }.map { it.text }
@@ -215,8 +215,8 @@ class ChatSession(
         null
     }
 
-    private suspend fun currentRelevant(text: String): List<RelevantFact> = try {
-        relevant(text)
+    private suspend fun currentRelevant(text: String, previous: String?): List<RelevantFact> = try {
+        relevant(text, previous)
     } catch (e: CancellationException) {
         throw e
     } catch (_: Exception) {

@@ -12,6 +12,8 @@ import android.util.Log
 import androidx.core.content.edit
 import io.github.sandeepvijayarao09.anu.brain.gemini.GeminiBrain
 import io.github.sandeepvijayarao09.anu.brain.litertlm.ModelManager
+import io.github.sandeepvijayarao09.anu.core.model.Embedder
+import io.github.sandeepvijayarao09.anu.brain.embedding.GemmaEmbedder
 import io.github.sandeepvijayarao09.anu.brain.litertlm.OnDeviceBrains
 import io.github.sandeepvijayarao09.anu.core.agent.BrainProvider
 import io.github.sandeepvijayarao09.anu.core.agent.Agent
@@ -222,8 +224,16 @@ class AppGraph(private val context: Context) {
      * Memory (§8): learned on the phone only, from the user's own words, with an on-device model. The
      * smaller model is used when it's installed.
      */
+    /** Search by meaning (ADR-055), once both of its files are installed. Checked again until they are. */
+    private var searchModel: Embedder? = null
+    val embedder: () -> Embedder? = { searchModel ?: GemmaEmbedder.installed(File(context.noBackupFilesDir, "models"))?.also { searchModel = it } }
+
     val memory by lazy {
-        MemoryPipeline(RoomMemoryStore(db), FactExtractor({ onDevice.brainFor(BrainId.BASE) ?: onDevice.brainFor(BrainId.PRO) }))
+        MemoryPipeline(
+            RoomMemoryStore(db),
+            FactExtractor({ onDevice.brainFor(BrainId.BASE) ?: onDevice.brainFor(BrainId.PRO) }),
+            embedder = embedder,
+        )
     }
 
     /** Every tool Anu has. Each skill offers only its own subset to the model (§7.3). */
@@ -294,7 +304,17 @@ class AppGraph(private val context: Context) {
             window = ContextWindow(budget = budgets.pro),
             tokens = tokenCalibration,
             extraTools = { turns -> mcp.registry.toolsFor(turns) },
-            relevant = { text -> memory.relevant(text) },
+            relevant = { text, previous ->
+                val started = System.nanoTime()
+                memory.relevant(text, previous).also { facts ->
+                    // How long the search held the message, and what it found. Counts and times only, never content.
+                    if (BuildConfig.DEBUG) {
+                        val took = (System.nanoTime() - started) / 1_000_000
+                        val meaning = memory.indexed()?.let { (indexed, all) -> "on, $indexed of $all facts indexed" } ?: "off"
+                        Log.d(TAG, "Relevant facts: ${facts.size} in $took ms, search by meaning $meaning")
+                    }
+                }
+            },
         ).also { session ->
             // How much of the chat the model sees, and how the estimates compare. Sizes only, never content.
             if (BuildConfig.DEBUG) {

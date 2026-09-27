@@ -131,12 +131,13 @@ interface ToolResultDao {
     entities = [
         MessageEntity::class, LedgerEntity::class, VaultAuditEntity::class, ToolAuditEntity::class, ToolResultEntity::class,
         MemoryEventEntity::class, FactEntity::class, FactSourceEntity::class, RejectedFactEntity::class, ProfileVersionEntity::class,
-        McpServerEntity::class, StoreEntity::class,
+        McpServerEntity::class, StoreEntity::class, FactVectorEntity::class,
     ],
-    version = 4,
+    version = 5,
     // v2 (Phase 2) adds tool_audit and tool_results; v3 (Phase 3) adds memory; v4 adds MCP servers and
-    // stores (ADR-046, ADR-047). Room derives each migration from the committed schemas.
-    autoMigrations = [AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3), AutoMigration(from = 3, to = 4)],
+    // stores (ADR-046, ADR-047); v5 adds fact vectors for search by meaning (ADR-055). Room derives each
+    // migration from the committed schemas.
+    autoMigrations = [AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3), AutoMigration(from = 3, to = 4), AutoMigration(from = 4, to = 5)],
 )
 abstract class AnuDatabase : RoomDatabase() {
     abstract fun transcripts(): TranscriptDao

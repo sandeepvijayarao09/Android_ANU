@@ -304,6 +304,39 @@ internal fun ModelsPage(viewModel: SettingsViewModel, sentToday: Int, onOpenPriv
                 GroupFooter("Downloads use Wi-Fi only. Base is faster; Pro handles harder requests.")
             }
         }
+        item(key = "search") { SearchByMeaningGroup(viewModel) }
+    }
+}
+
+/**
+ * Search by meaning (ADR-055): EmbeddingGemma finds facts that bear on a message though they share no word.
+ * Its licence is accepted on Hugging Face, so for now it is installed from a computer.
+ */
+@Composable
+private fun SearchByMeaningGroup(viewModel: SettingsViewModel) {
+    val installed by viewModel.searchInstalled.collectAsStateWithLifecycle()
+    LifecycleResumeEffect(Unit) {
+        viewModel.refreshSearch()
+        onPauseOrDispose {}
+    }
+    val ready = installed ?: return
+    Column {
+        SectionHeader("Search by meaning")
+        Group {
+            GroupRow(
+                "EmbeddingGemma 300M",
+                subtitle = if (ready) "184 MB · finds facts by meaning" else "Not installed",
+                value = if (ready) "On device" else null,
+                leadingDot = if (ready) false else null,
+            )
+        }
+        GroupFooter(
+            if (ready) {
+                "Anu finds facts that bear on a message even when they share no words, such as your diet when you plan a dinner. It runs on this phone."
+            } else {
+                "Its licence is accepted on Hugging Face, so for now it's installed from a computer. Until then, Anu matches names and topics."
+            },
+        )
     }
 }
 

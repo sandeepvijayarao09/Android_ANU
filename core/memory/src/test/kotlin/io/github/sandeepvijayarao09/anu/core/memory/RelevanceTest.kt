@@ -44,6 +44,35 @@ class RelevanceTest {
         assertTrue(pick("Hi, how are you?").isEmpty())
         assertTrue(pick("What can you do for me?").isEmpty())
         assertTrue(pick("").isEmpty())
+        assertTrue("a greeting isn't about mornings", pick("Good morning", all + fact(USER, "meetings", "mornings")).isEmpty())
+        assertTrue("a small number isn't a date", pick("What is 12 times 7?").isEmpty())
+        assertEquals(listOf(birthday.text), pick("Anything on 12 March?"))
+    }
+
+    @Test
+    fun `a fact close in meaning counts without a shared word, and a distant one doesn't`() {
+        val similarity = mapOf(diet.id to 0.62f, city.id to 0.20f)
+        assertEquals(listOf(diet.text), Relevance.pick("Plan tonight's meal", all, similarity).map { it.text })
+        assertTrue("small talk stays empty when nothing is close", Relevance.pick("Hi, how are you?", all, mapOf(diet.id to 0.3f)).isEmpty())
+    }
+
+    @Test
+    fun `closeness adds to word matches, so a close fact overtakes a stronger word match`() {
+        // By words alone "Priya lives in Pune" wins (Priya is its subject); the sister fact is much closer in meaning.
+        assertEquals(listOf(lives.text, sister.text), pick("Is Priya's flight on time?"))
+        val picked = Relevance.pick("Is Priya's flight on time?", all, mapOf(sister.id to 0.9f)).map { it.text }
+        assertEquals(listOf(sister.text, lives.text), picked)
+    }
+
+    @Test
+    fun `once there are enough facts, a close one must also stand out from the rest`() {
+        // Everything is about as close: nothing stands out, so meaning adds nothing (S3: some facts are close to everything).
+        val flat = all.associate { it.id to 0.40f }
+        assertTrue(Relevance.pick("Plan tonight's meal", all, flat).isEmpty())
+        // The diet stands out from the others.
+        val peaked = all.associate { it.id to 0.30f } + (diet.id to 0.42f)
+        assertEquals(listOf(diet.text), Relevance.pick("Plan tonight's meal", all, peaked).map { it.text })
+        assertTrue("small talk is never searched", !Relevance.hasContent("Thanks!") && Relevance.hasContent("Plan tonight's meal"))
     }
 
     @Test

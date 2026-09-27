@@ -101,7 +101,7 @@ class ChatViewModelTest {
         val brains = mapOf(Tier.BASE to base, Tier.PRO to pro, Tier.CLOUD to cloud)
         val session = ChatSession(
             Agent(Router(), BrainProvider { brains[it] }, ToolBroker(emptyList(), ApprovalCenter())),
-            relevant = { listOf(io.github.sandeepvijayarao09.anu.core.model.RelevantFact("manager: Maya Chen", sensitive = false)) },
+            relevant = { _, _ -> listOf(io.github.sandeepvijayarao09.anu.core.model.RelevantFact("manager: Maya Chen", sensitive = false)) },
         )
         return ChatViewModel(session, device = { device })
     }
