@@ -45,6 +45,8 @@ data class AnuColors(
     /** Orange text: [away] itself is too light for text on light surfaces. */
     val awayText: Color,
     val error: Color,
+    /** Red text, such as Delete: [error] itself is below 4.5:1 for text on light surfaces and dark fills. */
+    val errorText: Color,
     val scrim: Color,
     /** The assistant card, the one translucent surface. */
     val material: Color,
@@ -55,7 +57,7 @@ val LightColors = AnuColors(
     background = Color(0xFFF5F5F7), surface = Color(0xFFFFFFFF), surface2 = Color(0xFFEDEDF0), separator = Color(0xFFDCDCE0),
     text = Color(0xFF1D1D1F), textMuted = Color(0xFF6E6E73), textFaint = Color(0xFFA1A1A6),
     primary = Color(0xFF1D1D1F), onPrimary = Color(0xFFFFFFFF), accent = Color(0xFF1463FF),
-    local = Color(0xFF1E9E5A), away = Color(0xFFD96A00), awayText = Color(0xFFB35600), error = Color(0xFFE5383B),
+    local = Color(0xFF1E9E5A), away = Color(0xFFD96A00), awayText = Color(0xFFB35600), error = Color(0xFFE5383B), errorText = Color(0xFFC92A2A),
     scrim = Color(0x47000000), material = Color(0xC7FAFAFC), isDark = false,
 )
 
@@ -63,7 +65,7 @@ val DarkColors = AnuColors(
     background = Color(0xFF000000), surface = Color(0xFF1C1C1E), surface2 = Color(0xFF2C2C2E), separator = Color(0xFF38383A),
     text = Color(0xFFF5F5F7), textMuted = Color(0xFF98989D), textFaint = Color(0xFF636366),
     primary = Color(0xFFF5F5F7), onPrimary = Color(0xFF000000), accent = Color(0xFF4D8DFF),
-    local = Color(0xFF30D158), away = Color(0xFFFF9F0A), awayText = Color(0xFFFF9F0A), error = Color(0xFFFF453A),
+    local = Color(0xFF30D158), away = Color(0xFFFF9F0A), awayText = Color(0xFFFF9F0A), error = Color(0xFFFF453A), errorText = Color(0xFFFF6961),
     scrim = Color(0x80000000), material = Color(0xB81E1E20), isDark = true,
 )
 

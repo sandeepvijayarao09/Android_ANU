@@ -9,8 +9,6 @@ import io.github.sandeepvijayarao09.anu.core.model.BrainId
 import io.github.sandeepvijayarao09.anu.core.model.ModelInfo
 import io.github.sandeepvijayarao09.anu.core.model.ModelState
 import io.github.sandeepvijayarao09.anu.core.model.OnDeviceModels
-import io.github.sandeepvijayarao09.anu.core.security.LedgerEntry
-import io.github.sandeepvijayarao09.anu.core.security.PrivacyLedger
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -118,7 +116,6 @@ data class VaultActivity(val label: String, val caller: String, val host: String
 class SettingsViewModel(
     private val models: OnDeviceModels,
     private val cloudKey: CloudKeySettings,
-    ledger: PrivacyLedger,
     vaultActivity: Flow<List<VaultActivity>>,
     toolActivity: Flow<List<ToolAuditEntry>> = kotlinx.coroutines.flow.flowOf(emptyList()),
     private val gmail: AccountConnection? = null,
@@ -238,7 +235,6 @@ class SettingsViewModel(
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val hasCloudKey: StateFlow<Boolean> = cloudKey.hasKey
-    val ledgerEntries: StateFlow<List<LedgerEntry>> = ledger.entries
     val toolActions: StateFlow<List<ToolAuditEntry>> =
         toolActivity.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val vaultUses: StateFlow<List<VaultActivity>> =

@@ -261,7 +261,7 @@ private fun AnuTurn(bubble: Bubble, showRetry: Boolean, onRetryWithPro: () -> Un
     val colors = AnuTheme.colors
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         when {
-            bubble.text.isNotEmpty() -> Text(markdown(bubble.text), style = AnuTheme.type.body, color = if (bubble.failed) colors.error else colors.text)
+            bubble.text.isNotEmpty() -> Text(markdown(bubble.text), style = AnuTheme.type.body, color = if (bubble.failed) colors.errorText else colors.text)
             bubble.streaming -> Text(bubble.note ?: "…", style = AnuTheme.type.callout, color = colors.textMuted)
         }
         if (bubble.text.isNotEmpty() && bubble.note != null) Text(bubble.note, style = AnuTheme.type.caption, color = colors.textMuted)
@@ -304,7 +304,7 @@ internal fun ReceiptRow(receipt: Receipt) {
                         Text("${receipt.family} · ${if (receipt.leftPhone) "sent" else "on device"}", style = AnuTheme.type.caption, color = colors.textMuted)
                     }
                     Receipt.Status.NOT_DONE -> Text("Not done", style = AnuTheme.type.caption, color = colors.textMuted)
-                    Receipt.Status.FAILED -> Text("Failed", style = AnuTheme.type.caption, color = colors.error)
+                    Receipt.Status.FAILED -> Text("Failed", style = AnuTheme.type.caption, color = colors.errorText)
                 }
             }
         }
@@ -410,7 +410,7 @@ fun AssistantCard(
         if (!state.listening && answer != null) {
             Column(Modifier.padding(top = 8.dp).heightIn(max = 220.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 val shown = answer.text.ifEmpty { answer.note ?: if (answer.streaming) "…" else "" }
-                Text(markdown(shown), style = AnuTheme.type.body, color = if (answer.failed) colors.error else colors.text)
+                Text(markdown(shown), style = AnuTheme.type.body, color = if (answer.failed) colors.errorText else colors.text)
                 answer.actions.forEach { ReceiptRow(it) }
                 LinkButtons(answer.links)
             }

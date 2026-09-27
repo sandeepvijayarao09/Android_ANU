@@ -27,6 +27,7 @@ object AnuIcons {
     val Plus = line("M12 5v14M5 12h14")
     val Search = line("M16.5 10.5a6 6 0 1 1-12 0a6 6 0 1 1 12 0Z", "M15 15l4.5 4.5")
     val ChevronRight = line("M9.5 6l6 6l-6 6")
+    val ChevronLeft = line("M14.5 6l-6 6l6 6")
     val Close = line("M6.5 6.5l11 11M17.5 6.5l-11 11")
     val ArrowUp = line("M12 19V5.5M6.5 11l5.5-5.5l5.5 5.5")
     val Mic = fill("M12 15a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3Zm5-3a1 1 0 1 1 2 0a7 7 0 0 1-6 6.93V21h-2v-2.07A7 7 0 0 1 5 12a1 1 0 1 1 2 0a5 5 0 0 0 10 0Z")

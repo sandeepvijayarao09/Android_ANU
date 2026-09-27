@@ -19,11 +19,13 @@ android {
     }
 }
 
-// Depends on contracts only (§4.2): OnDeviceModels, PrivacyLedger, CloudKeySettings.
+// Depends on contracts only (§4.2): OnDeviceModels, the ledger's entries, CloudKeySettings. Styles itself
+// through core:ui (DESIGN.md).
 dependencies {
     api(project(":core:model"))
     api(project(":core:security"))
     api(project(":core:agent")) // ToolAuditEntry for the Activity list
+    api(project(":core:ui"))
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.activity.compose)
@@ -31,4 +33,6 @@ dependencies {
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.compose.ui.tooling.preview)
     debugImplementation(libs.androidx.compose.ui.tooling)
+
+    testImplementation(libs.junit)
 }

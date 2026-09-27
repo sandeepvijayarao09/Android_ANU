@@ -88,10 +88,11 @@ export JAVA_HOME=/opt/homebrew/opt/openjdk@21
 - **MCP and UCP test servers** (debug builds only, made-up data):
   - `python3 scripts/dev-mock-mcp.py` serves Notes on port 8765; add `--legacy` for a 2025 server, and `--port <n>` to run both.
   - `python3 scripts/dev-mock-store.py` serves a shoe store on port 8766.
-  - In the app: Settings → Services → Add a server, `http://10.0.2.2:8765/mcp`; Settings → Shopping → Add a store, `http://10.0.2.2:8766`. Each prints what Anu sent.
+  - In the app: Settings → Services → Add a server, `http://10.0.2.2:8765/mcp`; Settings → Stores → Add a store, `http://10.0.2.2:8766`. Each prints what Anu sent. A server that was added while its mock wasn't running shows the error in red; its sheet has Try again.
 - **Typing through adb** sends key events, which takes Android out of touch mode, as a hardware keyboard does. Keyboard focus then moves when dialogs close.
 - **Seeing an empty Talk page without wiping your chat:** install the `play` build too (`assemblePlayDebug`). It's a separate app with its own data.
 - **Dark mode on the emulator:** `adb shell cmd uimode night yes` (and `no` to switch back).
+- **The Privacy report** opens from the privacy indicator at the top right of any page, or Settings → Privacy report. It lists the Privacy Ledger, so it has entries only after something left the phone (for example a mock MCP or store request).
 - **Links that open the browser:** Chrome's first-run screen asks to accept its terms. Don't accept it; check the link with `adb logcat -d | grep 'START u0.*VIEW'`.
 
 ## Skill routing

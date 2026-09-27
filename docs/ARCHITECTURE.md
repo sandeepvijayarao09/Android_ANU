@@ -1,6 +1,6 @@
 # Anu for Android: Architecture
 
-Version 1.9.0 · Draft · 2026-09-26
+Version 1.10.0 · Draft · 2026-09-26
 Status: proposed. OD-1 to OD-4 were resolved on 2026-09-25 (§16).
 Product intent lives in [VISION.md](VISION.md).
 
@@ -192,7 +192,7 @@ sequenceDiagram
 | `core:agent` | Agent loop, Tool Broker, policy, approvals, budgets, run store interface | **no** |
 | `core:router` | Router stages, features, scorer, telemetry interface | **no** |
 | `core:memory` | Event log, facts, profile, retrieval, memory pipeline and memory tools. Its store is in `core:data` and its scheduling in `app` (ADR-036) | **no** |
-| `core:ui` | The design system ([DESIGN.md](../DESIGN.md), ADR-048): theme tokens for light and dark, bundled Google Sans Flex and JetBrains Mono (OFL, licenses in its assets), the sphere, the privacy indicator, buttons, grouped lists, the tab bar and line icons. It knows nothing of brains, connectors or the agent: features pass it plain values | yes |
+| `core:ui` | The design system ([DESIGN.md](../DESIGN.md), ADR-048): theme tokens for light and dark, bundled Google Sans Flex and JetBrains Mono (OFL, licenses in its assets), the sphere, the privacy indicator, pages (`AnuPage`), buttons, grouped lists, sheets, dialogs, text and search fields, the tab bar and line icons. It knows nothing of brains, connectors or the agent: features pass it plain values | yes |
 | `core:voice` | Speech contracts, wake-phrase matching and the `WakeListener` loop in plain Kotlin, beside the Android engines: the on-device `SpeechRecognizer` and `TextToSpeech` (ADR-043, ADR-045) | yes |
 | `core:security` | `SecretRef`/`SecretUse` handles, PII detection, reversible redaction, egress gate, Privacy Ledger interface | **no** |
 | `core:vault` | Keystore + Tink vault store, host-bound HTTP injector (`withVault`), and the shared `KeystoreAead` primitive with its `KeyPolicy` | yes |
@@ -207,13 +207,13 @@ sequenceDiagram
 | `connector:sms` | SMS provider history and incoming SMS. **`personal` flavor only** | yes |
 | `connector:mcp` | MCP servers the user adds, as tools: a dual-era Streamable HTTP client, schema trimming and checks, and the server registry (ADR-046) | **no** (OkHttp) |
 | `connector:shopping` | Stores that speak UCP: discovery, catalog search and checkout sessions (ADR-047) | **no** (OkHttp) |
-| `feature:home` | The Talk page: the orb, live captions, voice in and out, and the chat in a sheet (ADR-043). The assistant overlay, `AssistantActivity`, and the "Hey Anu" service are in `app` (ADR-044, ADR-045) | yes |
+| `feature:home` | The Talk page: the sphere, voice and typing on one surface, receipts, and the approval and consent sheets (ADR-043, ADR-049). The assistant overlay, `AssistantActivity`, and the "Hey Anu" service are in `app` (ADR-044, ADR-045) | yes |
 | `feature:writing` | The writing sheet, its prompts and output checks. Its `PROCESS_TEXT` entry point, `WritingActivity`, is in `app` (ADR-042) | yes |
 | `feature:email` | Priority inbox, summaries, drafts | yes |
 | `feature:scheduling` | Scheduling assistant | yes |
-| `feature:memory` | Memory Inspector, and adding a memory in the user's own words | yes |
+| `feature:memory` | Memory Inspector: facts grouped by section, search, a sheet per fact, and adding a memory in the user's own words | yes |
 | `feature:vault` | Vault UI | yes |
-| `feature:settings` | Voice (the assistant, "Hey Anu"), connectors, MCP servers, stores, models (download, delete), the Gemini key, activity, vault activity and the Privacy Ledger | yes |
+| `feature:settings` | Settings in four groups: voice (the assistant, "Hey Anu"), connections, models and the Gemini key, and the records. Services, Stores, Models, Activity and Vault activity are its pages. Also the Privacy report, which `app` opens over any page (ADR-050) | yes |
 | `eval` | JVM harness: router, tools, memory, injection, performance scripts | no |
 
 ### 4.2 Dependency rules (enforced by module boundaries)
@@ -583,7 +583,7 @@ flowchart LR
 - **When (ADR-037).** Never mid-chat. After the user leaves the app, if the battery isn't low; twice a day while charging; or "Learn now" in the Memory tab. A background run stops between messages if the user returns, and frees the model when done (P8).
 - **Retrieval v1.** The memory block holds the most important facts, grouped by section, within about 1,500 characters, for on-device brains only (ADR-038). `memory_search` finds facts by name or topic. Entity matching and vector search are Planned; vectors wait for spike S3.
 - **Tools.** `memory_remember` (`WRITE_PRIVATE`: automatic unless the run is tainted), `memory_search` (READ), `memory_forget` (`DESTRUCTIVE`: the approval sheet lists the exact facts, and only those are deleted, even if memory changes in between).
-- **Memory tab.** Facts by section, each with where it came from ("You said so", or learned from what you wrote) and a "because of" list of its source messages, with dates and the user's words. Controls: That's right, Correct, Delete, and Forget on a source message. Forgetting a message removes what came only from it and restores what it had replaced (I5). A fact the user confirmed survives, because the confirmation is also a source (I4).
+- **Memory tab.** Facts grouped by section, with search. A fact reads as its value with how it relates to the user ("Maya Chen", "Your manager"), or as a sentence when the relation is a verb ("Priya lives in Pune"). The user's own facts say "You said"; learned ones have a Confirm pill. Tapping a fact opens a sheet with the dated words it came from ("because of"). Controls: That's right, Correct, Delete, and Forget on a source message. Forgetting a message removes what came only from it and restores what it had replaced (I5). A fact the user confirmed survives, because the confirmation is also a source (I4).
 - **Planned:** entities with aliases and a link to contacts; episodes and nightly consolidation (dedupe, decay); never-learn rules; retention for event content; a memory eval (§15). Long chats are trimmed, with memory carrying what falls out (§7.3, ADR-040).
 
 ## 9. Connectors
@@ -616,7 +616,7 @@ All connectors implement a single contract: an auth method, a sync mode, tools (
   - **Scopes.** v1 asks for `gmail.readonly`, `gmail.compose` and `gmail.send` together at Connect. Asking for them one at a time is Planned.
   - **Setup.** There is no client ID in the app. Google matches the Android OAuth client by package name and signing certificate, which the owner creates in Google Cloud. `personal` runs in OAuth testing mode.
   - **Header injection is refused.** CR/LF in any header value, invalid addresses, and more than 20 recipients are all rejected before approval. Messages are built by Anu's own RFC 5322 writer, never from model-written raw MIME.
-- **Permissions** are requested from Settings → Connectors. Without them, tools fail cleanly and the model is told.
+- **Permissions** are requested from Settings → Connections. Without them, tools fail cleanly and the model is told.
 
 - **`connector:messages` (ADR-031):** a `NotificationListenerService` that keeps only `MessagingStyle` conversations. Other notifications are ignored and never stored, and so are Anu's own.
   - **Tools:**
@@ -637,13 +637,13 @@ All connectors implement a single contract: an auth method, a sync mode, tools (
   - **Play safety (ADR-012).** `verify<Variant>HasNoSms` runs with `check`, `assemble` and `bundle` of every `play` variant, including CI's `assemblePlayDebug`, and fails the build if the merged manifest declares any SMS permission. A test with an injected `READ_SMS` failed the build as intended.
 - **Verification codes are secrets (S3).** One-time codes in messages and SMS ("Your code is 482913") are masked before any tool returns them. No model, on-device or cloud, ever sees one (I1). On the emulator, a search for the code returned "Your Anu test verification code is ••••••".
 
-- **`connector:mcp` (ADR-046):** the user adds a server in Settings → Services (MCP): a name, an address, and an optional token.
+- **`connector:mcp` (ADR-046):** the user adds a server in Settings → Services: a name, an address, and an optional token.
   - **Client.** Stateless 2026-07-28 first: every request carries `_meta` with `io.modelcontextprotocol/protocolVersion`, `clientInfo` and `clientCapabilities` (empty: Anu serves no sampling or elicitation), mirrored into `MCP-Protocol-Version`, `Mcp-Method` and, for `tools/call`, `Mcp-Name`. Replies are JSON or a request-scoped SSE stream, read past notifications. A 400, 404 or 405 whose body isn't a modern MCP error means an older server: the client opens a 2025 `initialize` session (`Mcp-Session-Id`, then `notifications/initialized`) and keeps it for that server. `UnsupportedProtocolVersion` (-32022) picks a 2025 version the server lists; `HeaderMismatch` (-32020) is an error, not a fallback. An expired session is reopened once. Cancelling cancels the HTTP call (I7).
   - **Tool definitions come from the server, so none is trusted.** Tools with invalid `x-mcp-header` annotations are left out, as MCP requires; valid ones become `Mcp-Param-{Name}` headers, Base64-sentinel-encoded when unsafe. The schema the model sees keeps only what Anu's own schemas use. Descriptions are stripped of markup and cut to 300 characters. Arguments are checked against the server's schema (required fields, types, enums, unknown fields when forbidden) before approval, and sent exactly as approved.
   - **Tools** are named `mcp_<server>_<tool>`, made unique. Their risk comes from annotations, and every result is untrusted. A result is cut to 2,000 characters; a server's `isError` result is a failure.
   - **Egress.** Every call writes a ledger entry with the server's host (I3). A token is a vault item bound to the server's host and usable only by `connector:mcp`; the vault never sends it over plain HTTP.
-  - **Settings** shows each server's host and tools, fetches missing tool lists when shown, and offers Retry and Remove (which deletes the token).
-- **`connector:shopping` (ADR-047):** the user adds a store by its web address in Settings → Shopping (UCP).
+  - **Settings → Services** lists each server with its host and tool count, and fetches missing tool lists when shown. A server's sheet shows its tools, and offers Try again and Remove (which deletes the token).
+- **`connector:shopping` (ADR-047):** the user adds a store by its web address in Settings → Stores.
   - **Discovery** reads `/.well-known/ucp`: the version, a REST service's endpoint (resolved against the store's address), and the capabilities. A store must offer catalog search or checkout. Settings shows where requests go.
   - **`shop_search` (READ, untrusted):** `POST /catalog/search` to each store, or the one named, with the phone's country and language, the price limit in minor units (checked again on the results), and five results per store. Product and variant ids are returned for checkout. Every search writes a ledger entry.
   - **`shop_checkout` (WRITE_EXTERNAL):** `POST /checkout-sessions` with the line items. The approval shows the store, each item with its price and the estimated total, from what the search returned. The store's `continue_url`, if https, becomes a "Finish at <host>" button in the chat; Anu never opens it by itself. Anu never calls `complete` and never touches payment details.
@@ -770,20 +770,27 @@ Recommend a **paid** Gemini tier for personal data. Google's terms for unpaid Ge
 
 ## 13. Surfaces
 
-**Visual design (ADR-048, ADR-049).** [DESIGN.md](../DESIGN.md) is the source of truth for colors, type, components and motion ("quiet precision", approved 2026-09-26): neutral surfaces, Google Sans Flex, a procedural sphere as Anu's presence, and color reserved for privacy (green stays on the phone, orange leaves it). The redesign is in progress:
-- **Built:** the theme and the sphere, Talk, the approval and cloud-consent sheets, the assistant card, the tab bar, and the privacy indicator on Talk.
+**Visual design (ADR-048 to ADR-050).** [DESIGN.md](../DESIGN.md) is the source of truth for colors, type, components and motion ("quiet precision", approved 2026-09-26): neutral surfaces, Google Sans Flex, a procedural sphere as Anu's presence, and color reserved for privacy (green stays on the phone, orange leaves it). The redesign is in progress:
+- **Built:** the theme and the sphere; Talk, the approval and cloud-consent sheets, the assistant card and the tab bar; Memory, Settings and the Privacy report.
   - **Talk:** empty, the thread with receipts, listening, and the composer.
+  - **Pages** (`AnuPage`): a bar with the privacy indicator, which no page can hide, and a large title that collapses into the bar on scroll. Pages inside Settings have a back button named for where it goes.
+  - **Memory:** facts grouped by section, with search. The user's own facts say "You said"; learned ones have a Confirm pill. A fact's sheet shows the dated words it came from, with That's right, Correct, Delete and Forget.
+  - **Settings:** four short groups (Voice, Connections, Intelligence, Privacy) with values on the right. Connection rows carry a privacy dot: green for calendar, contacts, chats and SMS; orange, with a count, for Gmail, services and stores, which TalkBack reads as "reached over the internet". Services, Stores, Models, Activity and Vault activity are pages; a server, a store, the Gemini key and adding things are sheets.
+  - **Privacy report** (ADR-050): opens over the current page, from the privacy indicator or Settings. Today's count, a seven-day row of real counts, and each send by period (today, this week, earlier) with its destination, purpose, size and what was replaced first, all from the Privacy Ledger.
   - **Privacy indicator:** its count comes from today's Privacy Ledger entries, and its orange arc from new ones.
-- **Not yet:** Memory, Settings and the Privacy report still have the 1.7 layout, restyled only by the new theme. The privacy indicator opens Settings, where the ledger is, until the Privacy report page exists.
+- **Not yet:**
+  - the report's count of requests handled on the phone, which needs each answer's tier saved (Planned, §17);
+  - an approval state on each report entry, which the ledger doesn't record;
+  - card-only blur behind the assistant card, a shader sphere for Android 13+, and Edit in the approval sheet.
 
 | Surface | How |
 |---|---|
-| Talk page (ADR-043) | The first of three pages: Talk, Memory and Settings, swiped or chosen in the bar. An orb breathes when idle, swells with the user's voice, swirls while Anu thinks and pulses while it speaks; captions show what was heard and the answer. The whole chat, with typing, opens in a sheet. Voice uses only the on-device `SpeechRecognizer` (a missing language pack is downloaded only when the user taps) and `TextToSpeech`, spoken sentence by sentence as the answer streams; Mute and Stop are one tap. Only the visible page is composed, so keyboard focus can't jump the pager. Whether Gemma 4's own audio input can replace speech recognition is spike S6 |
+| Talk page (ADR-043) | The first of three pages: Talk, Memory and Settings, swiped or chosen in the bar. The sphere (DESIGN.md) breathes when idle, follows the voice level, turns its light while tokens stream, pulses while Anu speaks, and sweeps an orange arc when a ledger entry is written. Voice and typing share one surface: the empty state with suggestions, the thread with receipts and the answering model, the listening layout with live speech, and the composer. Voice uses only the on-device `SpeechRecognizer` (a missing language pack is downloaded only when the user taps) and `TextToSpeech`, spoken sentence by sentence as the answer streams; Mute and Stop are one tap. Only the visible page is composed, so keyboard focus can't jump the pager. Whether Gemma 4's own audio input can replace speech recognition is spike S6 |
 | Assistant overlay (ADR-044) | Anu can be the phone's digital assistant (`ROLE_ASSISTANT`), chosen in Android's settings from Settings → Voice → Set up. Holding the power button, or the corner swipe, opens `AssistantActivity`: a sheet over the current app that listens at once and shares the one conversation. Screen content (assist data) is ignored in v1 |
 | "Hey Anu" (ADR-045) | Opt-in, in Settings → Voice, once Anu is the assistant. While the screen is on and no Anu screen shows, the on-device recognizer listens in rounds; "Hey Anu, …" or "Anu, …" opens the assistant with the rest as the request. After a reboot it resumes when Anu next opens |
 | Writing everywhere | `ACTION_PROCESS_TEXT` actions in the text-selection toolbar; share target. **As built (ADR-042):** "Anu" in any app's text-selection menu opens a sheet over that app, with six actions and a field for the user's own instruction. The result streams in, and Replace sends it back, or Copy when the other app marked the text read-only. The share target is Planned |
 | Notifications | Approvals with the exact payload, suggested replies, brief, follow-ups |
-| Management | Memory Inspector, Vault, Privacy Ledger, model and connector settings |
+| Management | Memory (grouped facts, search, a sheet per fact); Settings (connections, models, the Gemini key, services, stores, activity and vault activity); the Privacy report, over any page (ADR-050). A vault page of its own (`feature:vault`) is Planned |
 
 ## 14. Data storage
 
@@ -1036,6 +1043,7 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 | 047 | 2026-09-26 | Shopping through UCP 2026-08-25's REST binding: stores added by address and discovered at `/.well-known/ucp`, `shop_search` (READ, untrusted, ledgered) and `shop_checkout` (WRITE_EXTERNAL; the approval shows the items and the estimated total). Anu never completes a checkout or touches payment: the store's `continue_url` becomes a "Finish at…" button the user taps. `UCP-Agent` names an honest `.invalid` profile until Anu has a hosted one | Buying can't be undone and involves payment credentials, which Anu must never handle (I1). The continue URL is UCP's own hand-off to a person. A made-up profile URL would misrepresent Anu to stores |
 | 048 | 2026-09-26 | The UI follows DESIGN.md, "quiet precision": neutral surfaces, one type family (Google Sans Flex, bundled), a procedural pearl/obsidian sphere as Anu's presence with no mascot, and color reserved for privacy: green when data stays on the phone, orange when it leaves, shown in a privacy indicator on every page, in receipts, approvals and a Privacy report | The user asked for professional, Apple-grade standards and rejected a cartoon character. Research covered Meta Muse, ChatGPT, Gemini, Siri, Perplexity and Alexa+. Color that always means data location makes "trust you can see" literal, as Apple's privacy indicators do |
 | 049 | 2026-09-26 | The design system is a module, `core:ui`, that every screen styles itself through. Approval requests carry their destination (`Tool.sendsTo`) and whether the run was tainted, so the sheet says where data goes and asks for a closer read. Answers carry structured receipts (tool, summary, status) built from the broker's record | One place for tokens keeps screens consistent, and the fonts ship once. The sheet can't guess a destination from prose, and a receipt must never be the model's words (ADR-027) |
+| 050 | 2026-09-26 | Memory, Settings and the Privacy report follow DESIGN.md. Pages share `AnuPage`, whose bar always carries the privacy indicator. Settings is four short groups: lists open as pages, single items with several actions as sheets. The Privacy report opens over whichever page the indicator was tapped on, and shows only what the Privacy Ledger records: destination, purpose, size, what was replaced, and time. Replies and invites approved in chat are sent by their own apps, so the report points to Activity for them. Red text uses `errorText` (#C92A2A light, #FF6961 dark) | A report must never show more than the records back ("real counts only"), so the count of requests handled on the phone and each entry's approval wait until they're recorded. Tapping the indicator should answer "what left?" from wherever the user is. #E5383B is about 4.2:1 on white and #FF453A about 4.1:1 on dark fills, below the 4.5:1 text rule |
 
 ### Component status
 
@@ -1060,13 +1068,13 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 | Encrypted database (`core:data`): Room 2.8 + SQLCipher 4.19, key wrapping, transcript, ledger, audit, memory and connector stores; schema v4 | 1 | **Verified on the Anu emulator**: the encryption-at-rest and migration device tests pass (no plain header, no canary, wrong key refused; v1→v2, v2→v3 and v3→v4 keep data). Plus 12 JVM tests |
 | Persistence wired: chat history restored at launch, ledger persisted, vault activity shown in Settings | 1 | Implemented, with a ViewModel test for restore. Not yet run on a device |
 | App shell: Talk, Memory and Settings pages (ADR-043) | 1 | Implemented. Runs on the Anu emulator |
-| Chat UI (`feature:home`): streaming, tier badge, Retry with Pro, cloud consent dialog, Stop, Markdown, long-chat line | 1 | Implemented. It runs end to end on the Anu emulator with E4B, and has 14 JVM tests. The cloud consent dialog isn't exercised on a device yet (needs a Gemini key) |
+| Chat UI (`feature:home`): streaming, the answering model's label, Retry with a stronger model, the cloud consent sheet, Stop, Markdown, long-chat line | 1 | Implemented. It runs end to end on the Anu emulator with E4B, and has 14 JVM tests. The cloud consent sheet isn't exercised on a device yet (needs a Gemini key) |
 | Save the answering tier with each message (restored answers currently lose their badge) | 1 | Planned: schema v2 |
 | Open the database off the main thread (44–95 ms today) | 1 | Planned |
 | `ChatSession` (transcript as the truth, consent resend, take back last, stable prompt, skill replay, memory block, turns offered to memory) in `core:agent` | 1 | Implemented, with 12 unit tests |
 | Conversation window (`ContextWindow`, `Tokens`): whole exchanges, chunked trimming, the long-chat note (ADR-040) | 3 | Implemented, with 8 unit tests plus chat and screen tests. Verified by hand on the Anu emulator: trimming at overflow, a steady start with cache reuse, and memory for what fell out |
 | Token calibration (`TokenCalibration`, `TokenSample`): runtime counts against raw estimates, separate prose and JSON rates, saved across restarts (ADR-041) | 3 | Implemented, with 4 unit tests plus agent and chat tests. Measured on the Anu emulator with E4B; the reference phone's numbers are still to come |
-| Settings UI (`feature:settings`): voice (the assistant, "Hey Anu"), connectors (calendar and contacts, Gmail, messaging apps, SMS in `personal`), MCP servers, stores, models (with delete confirmation), Gemini key into the vault, activity, vault activity, Privacy Ledger | 1 | Implemented. Every section runs on the Anu emulator |
+| Settings UI (`feature:settings`): voice (the assistant, "Hey Anu"), connections with privacy dots (calendar and contacts, messaging apps, SMS in `personal`, Gmail, services, stores), models (with delete confirmation), the Gemini key into the vault, Activity, Vault activity, and the Privacy report (ADR-050) | 1 | Implemented. 9 JVM tests for the records (periods, seven-day counts, wording). Every page and sheet checked on anu_api36 in light and dark, including Try again against the mock MCP server |
 | App wiring (`AppGraph`, device state, no-backup rules) | 1 | Implemented; lint clean (two warnings: newer Gradle available, no app icon yet) |
 | Agent loop, Tool Broker, approvals, taint, claim check (`core:agent`) | 2 | Implemented. 33 JVM tests, and works end to end on the Anu emulator with E4B: lookups, free slots, and an approval-gated invite |
 | Connectors: calendar, contacts | 2 | Implemented. JVM tests, plus provider tests on the Anu emulator (real `CalendarContract` and `ContactsContract`) |
@@ -1077,21 +1085,27 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 | AI Email v1: email skill detection, email tools plus contacts and calendar lookups, drafts and approval-gated sends | 2 | Implemented. Not yet run against a real mailbox (see the Gmail row) |
 | Tool audit and idempotency persistence (schema v2), Activity in Settings | 2 | Implemented. Migration test passes on the emulator |
 | Memory pipeline v1 (`core:memory`): capture, on-device extraction, reconcile, versioned profile, memory block, memory tools, background learning (ADR-036 to ADR-039) | 3 | Implemented. 19 JVM tests, 2 Robolectric tests on the real schema, and a v2→v3 migration device test. Verified by hand on the Anu emulator with E4B: learning after leaving the app, use in chat, corrections, remember and approval-gated forget. No memory eval yet (§15), so not Verified |
-| Memory Inspector (`feature:memory`): facts by section, sources, That's right, Correct, Delete, Forget a message, Learn now, and Add (the user's own words, read by the on-device model and kept as theirs) | 3 | Implemented. Every control checked by hand on the Anu emulator. Add has 2 JVM tests |
+| Memory Inspector (`feature:memory`): facts grouped by section with search, "You said" or a Confirm pill, a sheet per fact with its dated sources, That's right, Correct, Delete, Forget a message, Learn now, and Add (the user's own words, read by the on-device model and kept as theirs) | 3 | Implemented. 7 JVM tests for how facts read and match search; Add has 2. The redesigned tab was checked on anu_api36 in light and dark: search, a fact's sheet, and the Add sheet |
 | Memory, later: entities and aliases, episodes, nightly consolidation, vector retrieval (S3), never-learn rules, learning from connectors, retention, memory eval | 3 | Planned |
 | AI Writing everywhere (`feature:writing`, `WritingActivity`): six actions and custom instructions, Replace or Copy (ADR-042) | 3 | Implemented. 10 JVM tests. Verified by hand on the Anu emulator through the real text-selection menu in Settings. No writing eval yet (§15) |
 | Writing, later: share target, style per recipient from drafts against sent text, a writing eval | 3 | Planned |
 | Voice (`core:voice`): on-device recognition only, sentence-by-sentence speech, wake-phrase matching, the `WakeListener` loop (ADR-043, ADR-045) | 4 | Implemented. 10 JVM tests. The emulator's recognizer lacks the English pack, so real speech is untested until the reference phone (S9) |
-| Talk page (`feature:home`): orb, captions, the chat in a sheet, Mute, Stop, link buttons from tools | 4 | Implemented. Checked by hand on the Anu emulator; 6 JVM tests for voice in the chat view model |
+| Talk page (`feature:home`): the sphere, voice and typing on one surface, receipts, Mute, Stop, link buttons from tools | 4 | Implemented. Checked by hand on the Anu emulator in light and dark; 6 JVM tests for voice in the chat view model |
 | Assistant role (ADR-044): `AnuVoiceInteractionService`, session, pass-through recognizer, `AssistantActivity`, Settings → Voice | 4 | Implemented. On the Anu emulator the assist gesture opened the sheet over another app, and closing it freed the microphone |
 | "Hey Anu" (ADR-045): `WakeWordService`, the Settings switch | 4 | Implemented. On the Anu emulator it pauses while Anu is open and turns itself off without a language pack. Real wake-ups need the reference phone (S9) |
 | MCP connector (`connector:mcp`, ADR-046): dual-era client, tools per server, offered when named | 4 | Implemented. 9 JVM tests (both eras, SSE, headers, schemas, ledger). Verified by hand on the Anu emulator with E4B against the mock server: a read, an approved write, and the 2025 fallback. No real third-party server tried yet |
 | Shopping (`connector:shopping`, ADR-047): UCP discovery, `shop_search`, `shop_checkout` with the store's own finish page | 4 | Implemented. 4 JVM tests. Verified by hand on the Anu emulator with E4B against the mock store: search, an approved checkout, and the Finish button. No real UCP store tried yet; stores that require a fetchable platform profile won't work until Anu has one |
-| Visual redesign to DESIGN.md (ADR-048, ADR-049): the sphere, privacy indicator, receipts, approval sheet, assistant card, grouped Memory and Settings, Privacy report | 4 | In progress. `core:ui`, Talk, the approval and consent sheets, the assistant card and the tab bar are built and checked on anu_api36 in light and dark, including a declined approval that sent nothing. Next: Memory, Settings, the Privacy report, card-only blur behind the assistant card, and a shader sphere for Android 13+ |
+| Visual redesign to DESIGN.md (ADR-048, ADR-049): the sphere, privacy indicator, receipts, approval sheet, assistant card, grouped Memory and Settings, Privacy report | 4 | In progress. Built and checked on anu_api36 in light and dark: `core:ui`, Talk, the approval and consent sheets, the assistant card, the tab bar, Memory, Settings and the Privacy report, including a declined approval that sent nothing. Next: card-only blur behind the assistant card, a shader sphere for Android 13+, and Edit in the approval sheet |
 | Proactive agents, learned router | 4 | Planned |
 | Hardening, release readiness | 5 | Planned |
 
 ### Changelog
+
+- **1.10.0** (2026-09-26): the redesign, second slice (ADR-050).
+  - Memory: facts grouped by section, with search; "You said" or a Confirm pill; a sheet per fact with its dated sources and controls; adding in a sheet.
+  - Settings: four short groups, with privacy dots on connections; Services, Stores, Models, Activity and Vault activity as pages; sheets for a server, a store, the Gemini key and adding.
+  - The Privacy report: over any page, from the indicator or Settings. Today's count, seven days of real counts, and each send with its destination, purpose, size and what was replaced.
+  - `core:ui`: `AnuPage` (the privacy indicator in every page's bar, a collapsing large title, back), sheets, dialogs, text and search fields, a switch and group footers; `errorText` for red text that meets 4.5:1.
 
 - **1.9.0** (2026-09-26): the redesign, first slice (ADR-049).
   - `core:ui`: theme tokens, bundled Google Sans Flex with optical sizes and JetBrains Mono, the procedural sphere, and shared components.

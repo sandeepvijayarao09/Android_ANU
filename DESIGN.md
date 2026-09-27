@@ -30,6 +30,8 @@ colors:
   away-text: "#B35600"
   error: "#E5383B"
   error-dark: "#FF453A"
+  error-text: "#C92A2A"
+  error-text-dark: "#FF6961"
 typography:
   large-title:
     fontFamily: Google Sans Flex
@@ -172,6 +174,7 @@ components:
 
 **Contrast.**
 - Text meets 4.5:1 on its background. `away` (#D96A00) is only about 3.5:1 on white, so it's for dots and arcs, which need 3:1. Orange *text* on light surfaces uses `away-text` (#B35600, about 4.9:1). On dark surfaces, `away-dark` works as both text and dot.
+- Red *text* (Delete, a failure) uses `error-text`: #C92A2A is about 5.5:1 on white and 4.7:1 on `surface-2`; #FF6961 is about 4.9:1 on `surface-2-dark`. `error` itself is for fills and icons.
 - `text-faint` is only for placeholders and disabled states. Inactive tab labels use `text-muted`.
 
 **Tint.** `accent` blue is for things you can tap: text buttons, links, toggles and focus rings. Filled primary buttons are ink (`primary`), which reads as calm and serious, and it inverts in dark mode.
@@ -199,7 +202,8 @@ Adjacent levels differ by at least 4sp or a clear weight step. Text scales with 
 ## Layout
 
 - **Grid:** 4dp base. Page margins are 20dp (`spacing.xl`), grouped lists are inset 20dp, and rows are at least 50dp. Touch targets are at least 48dp.
-- **Pages:** three pages in a bottom tab bar (64dp; icons plus labels): Talk, Memory and Settings. The Privacy report opens from the privacy indicator on any page and from Settings.
+- **Pages:** three pages in a bottom tab bar (64dp; icons plus labels): Talk, Memory and Settings. The Privacy report opens from the privacy indicator on any page and from Settings, over the current page, with a back button named for that page.
+- **Page bar:** 56dp, with the privacy indicator on the right on every page (Memory's "+" sits beside it). The large title sits below the bar and collapses into it as a centered 17sp headline once it scrolls away; a hairline appears under the bar as soon as anything scrolls beneath it. Pages inside Settings have a back button in `accent`, named for where it goes ("‹ Settings").
 - **Talk:**
   - App bar (48dp): the wordmark on the left, the privacy indicator on the right.
   - Empty state: the sphere (168dp), a greeting, and up to two suggestions as cards.
@@ -312,25 +316,29 @@ It opens from the power button, the corner swipe or "Hey Anu".
 - **Sections:** titles are 13sp weight 600 in `text-muted`. Groups are `card` surfaces with inset 0.5dp separators.
 - **Rows:** a label (16sp) with an optional secondary line (13sp `text-muted`), a trailing value in `text-muted`, and a chevron.
 - **Toggles:** they use `accent` when on.
-- **Connection rows** show a privacy dot and value: "On device" for Calendar, Contacts and Messages; an `away` dot with a count for Services and Stores, which talk to the outside.
+- **Connection rows** show a privacy dot and value: "On device" for Calendar, Contacts and Messages; an `away` dot for Gmail, and with a count for Services and Stores, which talk to the outside. A dot can't be heard, so those rows tell TalkBack "reached over the internet".
+- **Footers:** a group can end with a 13sp `text-muted` footnote saying what the group does with your data. Explanations go there, not in every row.
+- **Action rows** such as "Add a server" have an `accent` title with a plus icon.
+- **Pages or sheets:** a list opens as a page (Services, Stores, Models, Activity, Vault activity); a single item with several actions opens as a sheet (a server, a store, the Gemini key), with its details in a `background` panel and a destructive action as a secondary button with `error-text`.
 
 ### Memory
 - **Header:** the large title "Memory", with the subtitle "What Anu knows about you, kept on this phone.", a search field, and a round "+" button (34dp) to add a fact in your own words.
-- **Facts:** the fact is the label. The secondary line gives the relationship and where it came from ("Your manager", "Learned from 2 messages").
+- **Facts:** grouped under short section names (People, Work, Preferences). The fact is the label. The secondary line gives the relationship and where it came from ("Your manager", "Learned from 2 messages"). When the relation is a verb, the label is a sentence instead ("Priya lives in Pune").
   - Your own facts end with "You said" and a chevron.
   - Learned facts end with a Confirm pill (`accent` at 12%).
-- **Details:** tapping a fact shows its dated source quotes, with Correct and Delete.
+- **Details:** tapping a fact opens a sheet with "Kept on this phone", its dated source quotes (a chat message can be forgotten), and That's right, Correct and Delete.
 
 ### Privacy report
 - **Title:** the large title "Privacy report".
 - **Summary card** (`lg` corners):
   - a headline with its dot aligned to the first line: "Nothing left your phone today" or "N items left your phone today";
-  - the line "Anu handled N requests on this phone. It records what it sends and where, never the content.";
+  - the line "It records what it sends and where, never the content.", preceded by "Anu handled N requests on this phone." once each answer's tier is recorded;
   - a seven-day bar row. Only days with egress get `away` bars and a mono count. It shows real counts only, never decoration.
-- **Entries** are grouped by day. Each row shows:
-  - the destination as its title;
-  - a secondary line with the purpose, the size in mono, and the approval state ("you approved");
-  - the time, trailing.
+- **Entries** are grouped into Today, This week and Earlier. Each row shows:
+  - the destination as its title ("Gemini, Google", "Gmail, your account", or the host);
+  - a secondary line with the purpose, the size in mono, what was replaced first ("2 email addresses replaced"), and the approval state ("you approved") once the ledger records it;
+  - trailing: the time in mono today, the weekday this week, the date before that.
+- **Footer:** replies and invites you approve are sent by their own apps, so the report says they're in Settings → Activity.
 
 ### Tab bar
 Three tabs with 24dp line icons at stroke 1.7 and 11sp labels. The selected tab is `text`; the others are `text-muted`. Icons: concentric circles (Talk), a notebook (Memory), sliders (Settings).
@@ -367,3 +375,6 @@ Three tabs with 24dp line icons at stroke 1.7 and 11sp labels. The selected tab 
 | 2026-09-26 | Color only for privacy: green stays on the phone, orange leaves it | "Trust you can see", the user's memorable thing. Modeled on Apple's privacy indicators |
 | 2026-09-26 | Google Sans Flex plus JetBrains Mono, bundled | Optical sizing like SF Pro, native to Android, OFL. No run-time font requests |
 | 2026-09-26 | Orange text uses `away-text` (#B35600) on light surfaces | #D96A00 is only about 3.5:1 on white: enough for dots, not for text |
+| 2026-09-26 | Red text uses `error-text` (#C92A2A light, #FF6961 dark) | #E5383B is about 4.2:1 on white and #FF453A about 4.1:1 on dark fills, below the 4.5:1 text rule |
+| 2026-09-26 | The Privacy report opens over the current page, and shows only what the ledger records | Tapping the indicator answers "what left?" from anywhere. The requests count and approval state wait until they're recorded: real counts only |
+| 2026-09-26 | Lists open as pages, single items as sheets; groups carry footers | Keeps Settings to four short groups, as in the approved mockup, with the explanations under each group |

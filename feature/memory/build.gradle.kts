@@ -19,9 +19,11 @@ android {
     }
 }
 
-// The Memory Inspector (§8.4). It depends on the MemoryInspector contract only (§4.2).
+// The Memory Inspector (§8.4). It depends on the MemoryInspector contract only (§4.2), and styles itself
+// through core:ui (DESIGN.md).
 dependencies {
     api(project(":core:memory"))
+    api(project(":core:ui"))
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(platform(libs.androidx.compose.bom))

@@ -18,6 +18,16 @@ import java.time.LocalDate
 import java.time.Instant
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.animation.AnimatedVisibility
+import androidx.activity.compose.BackHandler
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import io.github.sandeepvijayarao09.anu.core.ui.pushTransition
+import io.github.sandeepvijayarao09.anu.core.ui.rememberReducedMotion
+import io.github.sandeepvijayarao09.anu.feature.settings.PrivacyReportScreen
+import io.github.sandeepvijayarao09.anu.feature.settings.SettingsPage
 import io.github.sandeepvijayarao09.anu.core.ui.AnuTheme
 import io.github.sandeepvijayarao09.anu.core.ui.AnuTabBar
 import io.github.sandeepvijayarao09.anu.core.ui.AnuTab
@@ -54,7 +64,12 @@ class MainActivity : ComponentActivity() {
 
 private val TABS = listOf(AnuTab("Talk", AnuIcons.Talk), AnuTab("Memory", AnuIcons.Memory), AnuTab("Settings", AnuIcons.Settings))
 
-/** The three pages: Talk, Memory and Settings (ADR-043, DESIGN.md). Swipe between them, or use the bar. */
+private const val SETTINGS = 2
+
+/**
+ * The three pages: Talk, Memory and Settings (ADR-043, DESIGN.md). Swipe between them, or use the bar.
+ * The Privacy report opens over whichever page the privacy indicator was tapped on.
+ */
 @Composable
 private fun AnuHome(graph: AppGraph) {
     val context = LocalContext.current
@@ -64,7 +79,7 @@ private fun AnuHome(graph: AppGraph) {
     val memory = viewModel { MemoryViewModel(graph.memory) }
     val settings = viewModel {
         SettingsViewModel(
-            graph.models, graph.geminiKey, graph.ledger, graph.vaultActivity, graph.toolActivity,
+            graph.models, graph.geminiKey, graph.vaultActivity, graph.toolActivity,
             gmail = graph.gmailConnection,
             messaging = graph.messagingAccess,
             smsAvailable = Flavor.HAS_SMS,
@@ -84,7 +99,10 @@ private fun AnuHome(graph: AppGraph) {
     val today = LocalDate.now()
     val sentToday = ledger.count { it.at.atZone(ZoneId.systemDefault()).toLocalDate() == today }
     val awayPulse = ledger.count { it.at.isAfter(opened) }
-    val openPrivacy: () -> Unit = { scope.launch { pager.animateScrollToPage(2) } }
+    var privacyOpen by rememberSaveable { mutableStateOf(false) }
+    var settingsPage by rememberSaveable { mutableStateOf(SettingsPage.MAIN) }
+    val openPrivacy: () -> Unit = { privacyOpen = true }
+    val reducedMotion = rememberReducedMotion()
     // The assistant overlay shares this conversation, so show what was said there.
     LifecycleResumeEffect(Unit) {
         chat.reloadIfIdle()
@@ -92,15 +110,42 @@ private fun AnuHome(graph: AppGraph) {
     }
     Scaffold(
         containerColor = AnuTheme.colors.background,
-        bottomBar = { AnuTabBar(TABS, pager.currentPage, onSelect = { scope.launch { pager.animateScrollToPage(it) } }) },
+        bottomBar = {
+            AnuTabBar(
+                TABS,
+                pager.currentPage,
+                onSelect = { index ->
+                    // Choosing the tab you're on goes back to its first page.
+                    if (index == pager.currentPage && index == SETTINGS && !privacyOpen) settingsPage = SettingsPage.MAIN
+                    privacyOpen = false
+                    scope.launch { pager.animateScrollToPage(index) }
+                },
+            )
+        },
     ) { padding ->
-        // Only the visible page is composed. With its neighbours composed too, keyboard focus could land on
-        // an off-screen page after a dialog closed, and the pager scrolled there (seen on the emulator).
-        HorizontalPager(pager, Modifier.padding(padding).consumeWindowInsets(padding)) { page ->
-            when (page) {
-                0 -> TalkScreen(chat, micGranted, onRequestMic = { askMic.launch(Manifest.permission.RECORD_AUDIO) }, sentToday = sentToday, onOpenPrivacy = openPrivacy, awayPulse = awayPulse)
-                1 -> MemoryScreen(memory)
-                else -> SettingsScreen(settings)
+        Box(Modifier.padding(padding).consumeWindowInsets(padding)) {
+            // Only the visible page is composed. With its neighbours composed too, keyboard focus could land on
+            // an off-screen page after a dialog closed, and the pager scrolled there (seen on the emulator).
+            HorizontalPager(
+                pager,
+                Modifier.fillMaxSize().then(if (privacyOpen) Modifier.clearAndSetSemantics {} else Modifier),
+                userScrollEnabled = !privacyOpen,
+            ) { page ->
+                when (page) {
+                    0 -> TalkScreen(chat, micGranted, onRequestMic = { askMic.launch(Manifest.permission.RECORD_AUDIO) }, sentToday = sentToday, onOpenPrivacy = openPrivacy, awayPulse = awayPulse)
+                    1 -> MemoryScreen(memory, sentToday, onOpenPrivacy = openPrivacy)
+                    else -> SettingsScreen(settings, sentToday, onOpenPrivacy = openPrivacy, page = settingsPage, onPage = { settingsPage = it })
+                }
+            }
+            AnimatedVisibility(
+                visible = privacyOpen,
+                enter = pushTransition(forward = true, reducedMotion).targetContentEnter,
+                exit = pushTransition(forward = false, reducedMotion).initialContentExit,
+            ) {
+                // Registered after the page's own handlers, so Back closes the report before it pops a page underneath.
+                BackHandler(enabled = privacyOpen) { privacyOpen = false }
+                val back = if (pager.currentPage == SETTINGS) settingsPage.title else TABS[pager.currentPage].label
+                PrivacyReportScreen(ledger, back = back, onBack = { privacyOpen = false })
             }
         }
     }
