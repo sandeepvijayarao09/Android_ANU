@@ -1,6 +1,6 @@
 # Anu for Android: Architecture
 
-Version 1.18.0 · Draft · 2026-09-27
+Version 1.18.1 · Draft · 2026-09-27
 Status: proposed. OD-1 to OD-4 were resolved on 2026-09-25 (§16).
 Product intent lives in [VISION.md](VISION.md).
 
@@ -319,7 +319,7 @@ Application ID: `io.github.sandeepvijayarao09.anu`. It can change until the firs
     | E4B | `gemma-4-E4B-it.litertlm`, 3.66 GB | `gemma-4-E4B-it-gpu.litertlm`, 2.97 GB | none published |
 
     There is no NPU build for Tensor G3 or G4. A Pixel 8 Pro or 9 Pro therefore runs on CPU or GPU, and `GOOGLE_TENSOR` applies only to Pixel 10 and later with E2B.
-  - **Weight cache (ADR-020).** `EngineConfig.cacheDir` must point to app-private storage (`noBackupFilesDir/litertlm-cache`). Without it, the CPU backend tries to write its XNNPack weight cache next to the model file and silently falls back to no cache. That was observed when a model was loaded from `/data/local/tmp`, where Android's security policy denies the write. Budget free disk space for the cache on top of the model file; S1 measures the cache's size.
+  - **Weight cache (ADR-020).** `EngineConfig.cacheDir` must point to app-private storage (`noBackupFilesDir/litertlm-cache`). Without it, the CPU backend tries to write its XNNPack weight cache next to the model file and silently falls back to no cache. That was observed when a model was loaded from `/data/local/tmp`, where Android's security policy denies the write. Budget free disk space for the cache on top of the model file: on the Pixel 10 Pro, E4B's CPU cache is 2.21 GB, so the CPU build takes about 5.9 GB in all.
 - **Residency policy.** These are hypotheses; spike S1 sets the real thresholds.
   - **Implemented now** (`OnDeviceBrains`): at most one on-device model is loaded. A tier switch waits for the running generation, closes the old engine and loads the new one. Everything unloads on `TRIM_MEMORY_BACKGROUND`.
   - Reference device: Pixel 8 Pro or newer, with 12–16 GB RAM (ADR-016).
@@ -900,6 +900,7 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
   - **In the app, on the CPU build, in a fresh chat:**
     - Memory → Add "I'm vegetarian" was kept in 23 s, including the first load.
     - "Plan a dinner for tonight" took 11 s from send to answer, with search by meaning finding the diet fact in 646 ms. E4B answered "How about a vegetarian Thai Green Curry with bamboo shoots and tofu served over jasmine rice?"
+  - **Disk:** the CPU backend's weight cache (ADR-020) is 2.21 GB for E4B, next to the 3.66 GB model, so the CPU build needs about 5.9 GB free. The Models page shows only the file size.
   - **Device tests on the phone:** all 15 pass (core:data, core:vault, brain:embedding, brain:litertlm on the CPU). The vault's screen-lock test skips itself, because the phone has one. The calendar, contacts and messages tests would write into the owner's real data, so they run only on the emulator, where all 21 pass.
 
 - **S3, search by meaning, 2026-09-26.** Anu emulator (arm64 CPU), EmbeddingGemma 300M (512 tokens, mixed precision), vectors cut to 256 values.
@@ -1180,6 +1181,8 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 | Hardening, release readiness | 5 | Planned |
 
 ### Changelog
+
+- **1.18.1** (2026-09-27): E4B's CPU weight cache measured on the reference phone: 2.21 GB, so the CPU build takes about 5.9 GB of disk in all.
 
 - **1.18.0** (2026-09-27): phones use the CPU build until their chip's GPU is verified (ADR-059).
   - On the Pixel 10 Pro, E4B's GPU build wrote garbage. Its CPU build is correct at 6–7 tokens/s, and the app answered "Plan a dinner for tonight" there in 11 s, personalized by search by meaning.
