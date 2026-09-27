@@ -35,13 +35,23 @@ object ModelCatalog {
     )
 
     /**
+     * Chips whose GPU builds have passed spike S1, with correct answers at a measured speed. Only these use
+     * the GPU (ADR-059). None has yet: on the Pixel 10 Pro (Tensor G5), E4B's GPU build wrote garbage.
+     */
+    val GPU_VERIFIED: Set<String> = emptySet()
+
+    /** The build to prefer on a device with [socModel]: the GPU only on a [verified] chip, never on an emulator. */
+    fun preferredVariant(socModel: String, emulator: Boolean, verified: Set<String> = GPU_VERIFIED): ModelVariant =
+        if (!emulator && socModel in verified) ModelVariant.GPU else ModelVariant.CPU
+
+    /**
      * The file for [brain] on this device.
      * - [socModel] is `Build.SOC_MODEL`.
      * - NPU builds are used only when [allowNpu] is set: the chip names reported on real devices are still
      *   unverified (spike S1).
-     * - Otherwise [preferred] is used, which is GPU until S1 measures CPU against GPU.
+     * - Otherwise [preferred] is used: the CPU build, unless the chip's GPU is verified ([preferredVariant]).
      */
-    fun choose(brain: BrainId, socModel: String, preferred: ModelVariant = ModelVariant.GPU, allowNpu: Boolean = false): ModelArtifact {
+    fun choose(brain: BrainId, socModel: String, preferred: ModelVariant = ModelVariant.CPU, allowNpu: Boolean = false): ModelArtifact {
         val candidates = all.filter { it.brain == brain }
         require(candidates.isNotEmpty()) { "No on-device model for $brain" }
         if (allowNpu) npuFor(socModel)?.let { npu -> candidates.firstOrNull { it.variant == npu }?.let { return it } }

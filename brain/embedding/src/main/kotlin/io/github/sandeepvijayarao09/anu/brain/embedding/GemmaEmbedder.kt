@@ -21,8 +21,8 @@ import kotlin.math.sqrt
 
 /**
  * EmbeddingGemma on the phone (§8.3, ADR-055), through the AI Edge RAG library's `GemmaEmbeddingModel`.
- * - The model loads on first use and stays while the app runs; loading takes a moment, embedding a
- *   message about 66 ms on a recent phone's CPU (model card).
+ * - The model loads on first use and stays while the app runs. It runs on one CPU thread: a message takes
+ *   about 1 s on a Pixel 10 Pro and 0.45 s on the emulator (S3). The library's GPU option aborts the process.
  * - Queries and facts use EmbeddingGemma's retrieval tasks, so a question lands near the facts that answer it.
  * - Vectors are cut to [EmbeddingCatalog.DIMENSIONS] values and kept at unit length.
  */

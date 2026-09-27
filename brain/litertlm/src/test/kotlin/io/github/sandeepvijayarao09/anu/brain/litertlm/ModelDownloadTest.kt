@@ -84,14 +84,21 @@ class ModelDownloadTest {
     }
 
     @Test
-    fun `catalog picks GPU by default, CPU on request, and NPU only when allowed and the chip matches`() {
-        assertEquals(ModelVariant.GPU, ModelCatalog.choose(BrainId.PRO, "Tensor G3").variant)
-        assertEquals(ModelVariant.CPU, ModelCatalog.choose(BrainId.BASE, "Tensor G3", preferred = ModelVariant.CPU).variant)
-        assertEquals(ModelVariant.GPU, ModelCatalog.choose(BrainId.BASE, "Tensor G5").variant)
+    fun `catalog picks CPU by default, GPU on request, and NPU only when allowed and the chip matches`() {
+        assertEquals(ModelVariant.CPU, ModelCatalog.choose(BrainId.PRO, "Tensor G3").variant)
+        assertEquals(ModelVariant.GPU, ModelCatalog.choose(BrainId.BASE, "Tensor G3", preferred = ModelVariant.GPU).variant)
+        assertEquals(ModelVariant.CPU, ModelCatalog.choose(BrainId.BASE, "Tensor G5").variant)
         assertEquals(ModelVariant.NPU_TENSOR_G5, ModelCatalog.choose(BrainId.BASE, "Tensor G5", allowNpu = true).variant)
-        // There is no E4B NPU build, so Pro falls back to GPU even when NPU is allowed.
-        assertEquals(ModelVariant.GPU, ModelCatalog.choose(BrainId.PRO, "Tensor G5", allowNpu = true).variant)
+        // There is no E4B NPU build, so Pro falls back to its preferred build even when NPU is allowed.
+        assertEquals(ModelVariant.CPU, ModelCatalog.choose(BrainId.PRO, "Tensor G5", allowNpu = true).variant)
         assertThrows(IllegalArgumentException::class.java) { ModelCatalog.choose(BrainId.CLOUD_FLASH, "x") }
+    }
+
+    @Test
+    fun `phones use the CPU build until their chip's GPU is verified (ADR-059)`() {
+        assertEquals("E4B's GPU build wrote garbage on Tensor G5", ModelVariant.CPU, ModelCatalog.preferredVariant("Tensor G5", emulator = false))
+        assertEquals(ModelVariant.GPU, ModelCatalog.preferredVariant("Tensor G9", emulator = false, verified = setOf("Tensor G9")))
+        assertEquals("emulators have no OpenCL", ModelVariant.CPU, ModelCatalog.preferredVariant("Tensor G9", emulator = true, verified = setOf("Tensor G9")))
     }
 
     @Test

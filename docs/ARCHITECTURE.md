@@ -1,6 +1,6 @@
 # Anu for Android: Architecture
 
-Version 1.17.0 · Draft · 2026-09-27
+Version 1.18.0 · Draft · 2026-09-27
 Status: proposed. OD-1 to OD-4 were resolved on 2026-09-25 (§16).
 Product intent lives in [VISION.md](VISION.md).
 
@@ -300,6 +300,7 @@ Application ID: `io.github.sandeepvijayarao09.anu`. It can change until the firs
   - **Budgets.** Token counts come from `getTokenCount()`. Per-tier limits are set with `maxNumTokens` (engine) and `maxOutputToken` (per request). `ThinkingConfig` is off for Base short tasks.
   - **One context size (ADR-040).** A single constant, 4,096 tokens today, sets the engines' `maxNumTokens`. The router's prompt budgets and the chat window are derived from it, so a prompt sent to a device tier fits it. S1 on the reference phone may raise it.
   - **Backends.** `CPU`, `GPU`, `NPU` and `GOOGLE_TENSOR` (the Pixel TPU) are all available. S1 measures each on the reference device.
+  - **CPU until a chip's GPU is verified (ADR-059).** Phones and emulators use the CPU build unless their chip is in `ModelCatalog.GPU_VERIFIED`, which S1 fills and which is empty today. On the Pixel 10 Pro (Tensor G5), E4B's GPU build loaded but wrote garbage.
   - **Metrics.** `ExperimentalFlags.enableBenchmark` reports init time, time to first token, and prefill/decode tokens per second. It is used by S1 and the performance evals.
   - **Embeddings.** LiteRT-LM 0.17.1 ships an `EmbeddingEngine`, but it loads `.litertlm` bundles. EmbeddingGemma's CPU build is a `.tflite` with a separate SentencePiece tokenizer, and its only bundles target the Tensor G4 NPU. So S3 runs it through the AI Edge RAG library instead (ADR-055).
   - **Evals on the Mac.** `litertlm-jvm` (the same API on macOS) lets `eval` run real-model evals on the development Mac without a phone.
@@ -310,7 +311,7 @@ Application ID: `io.github.sandeepvijayarao09.anu`. It can change until the firs
   - **Delivery:**
     - `personal`: download inside the app from pinned URLs. The `litert-community` Hugging Face repos are **not gated** (checked 2026-09-25), so no token is needed. During development, `adb push` from the local Hugging Face cache.
     - `play`: Play for On-device AI packs, in Phase 5.
-  - **Artifact per backend and chip (ADR-019).** Hugging Face publishes a different file for each backend, and the manifest picks one per device after the first-run benchmark. Sizes as of 2026-09-25:
+  - **Artifact per backend and chip (ADR-019).** Hugging Face publishes a different file for each backend. Today every device gets the CPU build (ADR-059); a first-run benchmark may choose per device later. Sizes as of 2026-09-25:
 
     | Model | CPU (generic) | GPU | NPU |
     |---|---|---|---|
@@ -326,7 +327,7 @@ Application ID: `io.github.sandeepvijayarao09.anu`. It can change until the firs
   - Mid: Base stays loaded; Pro loads on demand and replaces it.
   - High, which includes the reference device: both stay loaded while memory allows.
   - Models unload on `onTrimMemory` and when the app goes to the background.
-  - The backend (CPU, GPU or NPU) is chosen by a micro-benchmark on first run.
+  - Planned: the backend (CPU, GPU or NPU) is chosen by a micro-benchmark on first run. Until then it is the CPU build, except on chips whose GPU passed S1 (ADR-059).
 - **Gemini adapter** (`brain:gemini`, ADR-022):
   - **Transport:** REST `v1beta/models/{model}:streamGenerateContent?alt=sse`, over a `withVault` client.
   - **Schemas:** tool and response schemas are sent as JSON Schema (`parametersJsonSchema`, `responseJsonSchema`), so `core:model` schemas pass through unchanged.
@@ -879,9 +880,9 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 
 | ID | Question to answer with measurements |
 |---|---|
-| S1 | LiteRT-LM with Gemma 4 E2B and E4B: API surface, load time, time to first token, tokens/s, peak RAM, native tool calling, context limits, how well cancellation works |
+| S1 | LiteRT-LM with Gemma 4 E2B and E4B: API surface, load time, time to first token, tokens/s, peak RAM, native tool calling, context limits, how well cancellation works. **E4B measured** on the reference phone (see the spike log); E2B and the NPU builds are still to measure |
 | S2 | `personal` model delivery: can the app download straight from Hugging Face, or is it gated? `adb push` for development. (Play for On-device AI packs are left to Phase 5.) |
-| S3 | On-device embeddings: EmbeddingGemma on LiteRT, or the fallback. Quality and speed. **Done on the emulator** (see the spike log); the reference phone is still to measure |
+| S3 | On-device embeddings: EmbeddingGemma on LiteRT, or the fallback. Quality and speed. **Done** on the emulator and the reference phone, a Pixel 10 Pro (see the spike log) |
 | S4 | Gmail through `AuthorizationClient` with restricted scopes, in testing mode. **Partly done:** the flow launches from Anu (Play services 25.26 on the emulator). Consent and the live API wait for the owner's Cloud setup |
 | S5 | Notification-listener quality across WhatsApp, Google Messages and Telegram; reliability of notification replies; SMS provider access; the restricted-settings behavior for sideloaded installs on the reference device |
 | S6 | Gemma 4 audio input through LiteRT-LM, which might replace speech recognition |
@@ -890,6 +891,16 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 | S9 | Voice on the reference phone: the on-device recognizer's language pack, recognition quality, "Hey Anu" false wakes and misses, and battery per hour of listening |
 
 **Spike log.** Measured results only, newest first.
+
+- **S1 on the reference phone, 2026-09-27.** Pixel 10 Pro (Tensor G5, Android 17, 15 GB RAM), E4B.
+  - **GPU build** (`gemma-4-E4B-it-gpu.litertlm`): the app's own download fetched and verified it in about 1.5 minutes over Wi-Fi, the worker's first run on a device. The engine loaded on the GPU (16-bit, texture weights). But it wrote garbage: for "I'm vegetarian", `{{": []] \    \   \   \  ||`. So Memory → Add said "Anu couldn't read that" (ADR-059).
+  - **CPU build:** correct answers. The same extraction test returned clean facts for all four statements.
+    - A 26-token prompt: first token after 2.8 s, then 6.0 tokens/s.
+    - An 814-token prompt: read at 61 tokens/s, first token after 13.5 s, then 7.2 tokens/s.
+  - **In the app, on the CPU build, in a fresh chat:**
+    - Memory → Add "I'm vegetarian" was kept in 23 s, including the first load.
+    - "Plan a dinner for tonight" took 11 s from send to answer, with search by meaning finding the diet fact in 646 ms. E4B answered "How about a vegetarian Thai Green Curry with bamboo shoots and tofu served over jasmine rice?"
+  - **Device tests on the phone:** all 15 pass (core:data, core:vault, brain:embedding, brain:litertlm on the CPU). The vault's screen-lock test skips itself, because the phone has one. The calendar, contacts and messages tests would write into the owner's real data, so they run only on the emulator, where all 21 pass.
 
 - **S3, search by meaning, 2026-09-26.** Anu emulator (arm64 CPU), EmbeddingGemma 300M (512 tokens, mixed precision), vectors cut to 256 values.
   - **Speed:**
@@ -914,6 +925,13 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
     - "Good morning" matched "meetings in the morning", and "What is 12 times 7?" matched "12 March". Greetings and numbers under 100 no longer count as words.
   - **Found, then fixed separately (ADR-057):** in Memory → Add, "I'm vegetarian" and "I'm vegan" kept nothing ("Anu didn't find anything to remember"), while "I'm left-handed" was kept. Extraction was right: E4B returned both facts. Both had been corrected or deleted before on this emulator, and their fingerprints blocked the user's own statement.
   - protobuf-javalite 4.36.2 gives the same results and speed as 4.26.1, so the app uses it.
+  - **On the reference phone** (Pixel 10 Pro, Tensor G5, Android 17), measured 2026-09-27:
+    - Loading and the first query take 1.8 s. Indexing 12 facts takes 11.5 s, 954 ms each.
+    - A search per message has a median of 1054 ms (max 1088 ms; a second run gave the same median). That's twice the emulator on the Mac.
+    - One thread does all of it, on a 3.05 GHz core: the library has no thread setting, and a query always fills 512 tokens. The test process may not use the phone's fastest core, which Android keeps for the app on screen, so the app may be a little faster.
+    - Quality is the same as on the emulator: the same picks, 11 of 12 facts, 3 wrong, and no small talk with facts.
+    - The library's GPU option aborts the process ("Check failed: delegate != nullptr"), so the app stays on the CPU.
+    - Faster options: EmbeddingGemma's 256-token file (about half the work), or a runtime that uses several threads.
 
 - **Voice, assistant, MCP and shopping end to end, 2026-09-26.** Anu emulator, E4B CPU.
   - **Talk page:** the orb and captions render, and the pager moves between Talk, Memory and Settings. The emulator's on-device recognizer has no English pack (error 13), so the page says so and offers the download. It wasn't started: downloads are the user's choice.
@@ -1104,6 +1122,7 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 | 056 | 2026-09-26 | S3's rule for search by meaning. A fact counts by meaning if it is at least 0.37 close and stands out from the message's other facts by 1.25 standard deviations, or by closeness alone when there are fewer than 5 facts. Messages without meaningful words skip the search, and greetings and numbers under 100 don't count as words. Relevant facts read the newest message on its own, and the one before only when the newest points back to someone it doesn't name ("her", "them"). Amends ADR-054 | Measured on the emulator, raw closeness overlaps between right facts, unrelated ones and small talk, and some facts are close to everything, so a cut-off alone lets small talk through. Together, the two tests found 11 of 12 facts with no small talk. Reading two messages together carried the last topic into the next: "a gift for Maya in Pune" |
 | 057 | 2026-09-27 | The user's own statement brings back a fact they deleted or corrected: Memory → Add or "Remember that…" clears its fingerprint and keeps the fact. Learning from chat still never brings it back. Amends ADR-039 | On the emulator, Add said "Anu didn't find anything to remember" for "I'm vegetarian" and "I'm vegan", though E4B extracted both. Their fingerprints, from an earlier correction and deletion, blocked them, and "Remember that…" would have failed. The fingerprint exists to stop Anu relearning from chat what the user took back, not to overrule the user (P5) |
 | 058 | 2026-09-27 | An answer that quotes the newest message's framing (its send time in brackets, or the facts header) is invalid output: it is written again once with greedy sampling, and cut if it still quotes it. The system prompt now says the message may start with facts, then the time, and that neither is repeated | On the emulator, E4B at temperature 1.0 answered with "[Sun 2026-09-27 01:32] Plan a dinner for tonight" quoted back. The framing has to stay in the message for the KV cache (ADR-033, ADR-054), and the echo was too rare to reproduce (0 of 36), so only a check is provable. The old note said the message starts with the time, which stopped being true with ADR-054. Escalating to the cloud over wording would send the chat out for nothing |
+| 059 | 2026-09-27 | Phones use the CPU build of each model until their chip's GPU build passes S1 (`ModelCatalog.GPU_VERIFIED`, empty today). Emulators always use it. Amends ADR-019 and ADR-025 | On the Pixel 10 Pro (Tensor G5), E4B's GPU build loaded but wrote garbage, while the CPU build was correct at 6–7 tokens/s. EmbeddingGemma's GPU option aborted on the same phone. A slow answer beats a garbled one, and an unmeasured GPU can't be trusted |
 
 ### Component status
 
@@ -1111,13 +1130,13 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 |---|---|---|
 | Project scaffold: Gradle 9.6, AGP 9.4.1, Kotlin 2.4.20; `app` with `personal` and `play` flavors | 0 | Implemented. Both flavors build |
 | CI workflow (`.github/workflows/ci.yml`), including the Play SMS-permission check | 0 | Implemented, not yet run (the repo hasn't been pushed). The SMS check runs locally |
-| Spike S1 (runtime on device) | 0 | In progress. Run 2 on the Anu emulator passed: contract, tools, schema, cancel, memory. Speed on the reference phone is still pending |
+| Spike S1 (runtime on device) | 0 | In progress. Run 2 on the Anu emulator passed: contract, tools, schema, cancel, memory. On the reference phone (Pixel 10 Pro), E4B's CPU build passes and runs at 6–7 tokens/s; its GPU build writes garbage (ADR-059). E2B and the NPU builds are still to measure |
 | Spike S2 (model delivery) | 0 | Partly done: ungated, and per-backend files found |
-| Spike S3 (on-device embeddings) | 0 | Verified on the Anu emulator. Its eval (`S3EmbeddingTest`) passes: 11 of 12 facts found, 3 wrong in 11 messages, and no small talk with facts. A search takes about 0.45–0.7 s on the emulator's CPU. Not yet measured on the reference phone |
+| Spike S3 (on-device embeddings) | 0 | Verified on the Anu emulator and the reference phone (Pixel 10 Pro). Its eval (`S3EmbeddingTest`) passes on both: 11 of 12 facts found, 3 wrong in 11 messages, and no small talk with facts. A search takes about 0.45–0.7 s on the emulator and 1.05 s on the phone, on one CPU thread |
 | Spikes S4–S7 | 0 | Planned |
 | `core:model`: brain contracts, `JsonSchemas`, `ToolSpec` | 1 | Implemented. JVM unit tests pass; the tool-call path is not yet verified on a real model |
-| `brain:litertlm`: `LiteRtLmBrain`, `EngineHolder` | 1 | Implemented. Real-model tests pass on the Anu emulator (E4B, CPU). Not yet run on the reference phone |
-| ModelManager: pinned catalog, resumable verified download worker | 1 | Implemented, with 7 JVM tests (resume, restart, corrupted file deleted, catalog). The worker hasn't run on a device yet |
+| `brain:litertlm`: `LiteRtLmBrain`, `EngineHolder` | 1 | Implemented. Real-model tests pass on the Anu emulator and the reference phone (E4B, CPU) |
+| ModelManager: pinned catalog, resumable verified download worker, CPU until a chip's GPU is verified (ADR-059) | 1 | Implemented, with 8 JVM tests (resume, restart, corrupted file deleted, catalog, variant choice). On the reference phone, the worker downloaded and verified the 2.97 GB E4B GPU build in about 1.5 minutes |
 | Residency: one model at a time (`OnDeviceBrains`) | 1 | Implemented. Not device-tested; thresholds come from S1 |
 | `core:security`: PII detection, redaction, `EgressGate`, ledger interface | 1 | Implemented, with 9 unit tests. The ledger is persisted by `core:data` |
 | `brain:gemini` | 1 | Implemented, with 6 unit tests against a fake server. Not verified against the live API (S8) |
@@ -1161,6 +1180,13 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 | Hardening, release readiness | 5 | Planned |
 
 ### Changelog
+
+- **1.18.0** (2026-09-27): phones use the CPU build until their chip's GPU is verified (ADR-059).
+  - On the Pixel 10 Pro, E4B's GPU build wrote garbage. Its CPU build is correct at 6–7 tokens/s, and the app answered "Plan a dinner for tonight" there in 11 s, personalized by search by meaning.
+  - `ModelCatalog.GPU_VERIFIED` lists the chips whose GPU builds passed S1. It's empty today.
+  - The spike log records S1 on the reference phone, and the device tests there.
+
+- **1.17.1** (2026-09-27): spike S3 measured on the reference phone, a Pixel 10 Pro. A search takes 1.05 s there, on one CPU thread, with the same quality as the emulator. The library's GPU option aborts the process.
 
 - **1.17.0** (2026-09-27): answers never quote the message's framing (ADR-058).
   - An answer that quotes the newest message's send time in brackets, or the facts header, is written again once with greedy sampling, and the framing is cut if the retry quotes it too.

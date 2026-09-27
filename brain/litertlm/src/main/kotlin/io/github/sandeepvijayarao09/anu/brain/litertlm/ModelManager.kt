@@ -108,10 +108,10 @@ class ModelManager(
         fun workName(artifact: ModelArtifact) = "model-download-${artifact.fileName}"
 
         /**
-         * GPU until S1 measures otherwise (ADR-019). Emulators have no OpenCL for LiteRT's GPU backend,
-         * so they use the CPU build (ADR-025).
+         * The CPU build, unless this chip's GPU build has passed S1 (ADR-059). Emulators have no OpenCL for
+         * LiteRT's GPU backend (ADR-025).
          */
-        fun defaultVariant(): ModelVariant = if (isEmulator()) ModelVariant.CPU else ModelVariant.GPU
+        fun defaultVariant(): ModelVariant = ModelCatalog.preferredVariant(Build.SOC_MODEL, isEmulator())
 
         private fun isEmulator(): Boolean =
             Build.HARDWARE == "ranchu" || Build.HARDWARE == "goldfish" || Build.PRODUCT.startsWith("sdk_gphone")

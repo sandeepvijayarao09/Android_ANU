@@ -66,7 +66,8 @@ export JAVA_HOME=/opt/homebrew/opt/openjdk@21
 - **Anu's emulator is `anu_api36`:** Android 16, arm64, 10 GB RAM, 32 GB data.
   - Start it with `emulator -avd anu_api36 -no-snapshot`.
   - Its serial changes between runs. Check with `adb -s <serial> emu avd name`.
-  - Emulators use the CPU model files (ADR-025).
+  - Emulators use the CPU model files (ADR-025), and so do phones until their chip's GPU passes S1 (ADR-059).
+- **The reference phone is a Pixel 10 Pro** (Tensor G5, Android 17, arm64); find its serial with `adb devices -l`. Spike S3's model files are in its `/data/local/tmp/anu/models/`, so `ANDROID_SERIAL=<serial> ./gradlew :brain:embedding:connectedDebugAndroidTest` runs there as is. Ask before installing the app or large models on it. The calendar, contacts and messages device tests write into real data, so run them on `anu_api36` only.
 - **Installing a local model into the app** (debug builds only, no download): `scripts/dev-install-model.sh <serial> <file.litertlm>`. It checks the SHA-256 against `ModelCatalog` first.
 - **Search by meaning (ADR-055)** needs EmbeddingGemma's two files, which only the owner can download (the Hugging Face repo is gated). Install each with the same script: `scripts/dev-install-model.sh <serial> ~/Downloads/embeddinggemma-300M_seq512_mixed-precision.tflite`, then `… ~/Downloads/sentencepiece.model`. Settings → Models shows it as installed; facts get their vectors after the next change to memory or when you leave the app.
   - Its eval (spike S3) needs the files in `/data/local/tmp/anu/models/` too: `adb push` both, then `ANDROID_SERIAL=<serial> ./gradlew :brain:embedding:connectedDebugAndroidTest` and `adb logcat -d -s AnuS3`. It skips itself without them.
