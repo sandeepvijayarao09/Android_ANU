@@ -1,6 +1,6 @@
 # Anu for Android: Architecture
 
-Version 1.18.1 · Draft · 2026-09-27
+Version 1.18.2 · Draft · 2026-09-27
 Status: proposed. OD-1 to OD-4 were resolved on 2026-09-25 (§16).
 Product intent lives in [VISION.md](VISION.md).
 
@@ -880,7 +880,7 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 
 | ID | Question to answer with measurements |
 |---|---|
-| S1 | LiteRT-LM with Gemma 4 E2B and E4B: API surface, load time, time to first token, tokens/s, peak RAM, native tool calling, context limits, how well cancellation works. **E4B measured** on the reference phone (see the spike log); E2B and the NPU builds are still to measure |
+| S1 | LiteRT-LM with Gemma 4 E2B and E4B: API surface, load time, time to first token, tokens/s, peak RAM, native tool calling, context limits, how well cancellation works. **E2B and E4B measured** on the reference phone (see the spike log). The Tensor G5 NPU build can't run with LiteRT-LM 0.17.1 |
 | S2 | `personal` model delivery: can the app download straight from Hugging Face, or is it gated? `adb push` for development. (Play for On-device AI packs are left to Phase 5.) |
 | S3 | On-device embeddings: EmbeddingGemma on LiteRT, or the fallback. Quality and speed. **Done** on the emulator and the reference phone, a Pixel 10 Pro (see the spike log) |
 | S4 | Gmail through `AuthorizationClient` with restricted scopes, in testing mode. **Partly done:** the flow launches from Anu (Play services 25.26 on the emulator). Consent and the live API wait for the owner's Cloud setup |
@@ -900,6 +900,11 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
   - **In the app, on the CPU build, in a fresh chat:**
     - Memory → Add "I'm vegetarian" was kept in 23 s, including the first load.
     - "Plan a dinner for tonight" took 11 s from send to answer, with search by meaning finding the diet fact in 646 ms. E4B answered "How about a vegetarian Thai Green Curry with bamboo shoots and tofu served over jasmine rice?"
+  - **E2B, CPU build** (`gemma-4-E2B-it.litertlm`, 2.59 GB):
+    - Faster than E4B. A 26-token prompt gets its first token after 1.5 s, then 9.5 tokens/s. An 814-token prompt is read at 111 tokens/s, with the first token after 7.4 s, then 8.9 tokens/s.
+    - The contract tests pass: streaming, tools, structured output and cancel.
+    - But it extracts less. With greedy decoding it kept "I'm vegetarian" but answered `{"facts":[]}` for "I'm vegan", which E4B keeps. Memory's extractor prefers E2B when it's installed.
+  - **E2B, Tensor G5 NPU build** (`gemma-4-E2B-it_Google_Tensor_G5.litertlm`, 3.11 GB): it doesn't run. LiteRT-LM 0.17.1, the latest release, fails to create the engine: "INVALID_ARGUMENT: Not recognized backend: 5" (`Backend.GOOGLE_TENSOR`). Its AAR carries no NPU dispatch library, and Google Maven publishes none for Tensor. The phone itself offers `libedgetpu_litert.so` to apps, so a later release may work.
   - **Disk:** the CPU backend's weight cache (ADR-020) is 2.21 GB for E4B, next to the 3.66 GB model, so the CPU build needs about 5.9 GB free. The Models page shows only the file size.
   - **Device tests on the phone:** all 15 pass (core:data, core:vault, brain:embedding, brain:litertlm on the CPU). The vault's screen-lock test skips itself, because the phone has one. The calendar, contacts and messages tests would write into the owner's real data, so they run only on the emulator, where all 21 pass.
 
@@ -1131,7 +1136,7 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 |---|---|---|
 | Project scaffold: Gradle 9.6, AGP 9.4.1, Kotlin 2.4.20; `app` with `personal` and `play` flavors | 0 | Implemented. Both flavors build |
 | CI workflow (`.github/workflows/ci.yml`), including the Play SMS-permission check | 0 | Implemented, not yet run (the repo hasn't been pushed). The SMS check runs locally |
-| Spike S1 (runtime on device) | 0 | In progress. Run 2 on the Anu emulator passed: contract, tools, schema, cancel, memory. On the reference phone (Pixel 10 Pro), E4B's CPU build passes and runs at 6–7 tokens/s; its GPU build writes garbage (ADR-059). E2B and the NPU builds are still to measure |
+| Spike S1 (runtime on device) | 0 | In progress. Run 2 on the Anu emulator passed: contract, tools, schema, cancel, memory. On the reference phone (Pixel 10 Pro), E4B's CPU build passes all 6 tests at 6–7 tokens/s, and its GPU build writes garbage (ADR-059). E2B's CPU build is faster (9–9.5 tokens/s) but missed "I'm vegan" in extraction. The Tensor G5 NPU build can't run with LiteRT-LM 0.17.1. Peak RAM and context limits are still to measure |
 | Spike S2 (model delivery) | 0 | Partly done: ungated, and per-backend files found |
 | Spike S3 (on-device embeddings) | 0 | Verified on the Anu emulator and the reference phone (Pixel 10 Pro). Its eval (`S3EmbeddingTest`) passes on both: 11 of 12 facts found, 3 wrong in 11 messages, and no small talk with facts. A search takes about 0.45–0.7 s on the emulator and 1.05 s on the phone, on one CPU thread |
 | Spikes S4–S7 | 0 | Planned |
@@ -1181,6 +1186,8 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 | Hardening, release readiness | 5 | Planned |
 
 ### Changelog
+
+- **1.18.2** (2026-09-27): S1 measured E2B on the reference phone. Its CPU build is about 1.5× faster than E4B's but extracts less ("I'm vegan" came back empty). Its Tensor G5 NPU build can't run with LiteRT-LM 0.17.1 ("Not recognized backend: 5").
 
 - **1.18.1** (2026-09-27): E4B's CPU weight cache measured on the reference phone: 2.21 GB, so the CPU build takes about 5.9 GB of disk in all.
 
