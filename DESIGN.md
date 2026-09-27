@@ -259,9 +259,11 @@ There is no face, mascot or character. The sphere is procedural, not an image: C
 | Thinking | tokens streaming | the internal light turns once every 2.4 s; it stops when the tokens stop |
 | Speaking | text to speech playing | a gentle pulse while speech plays |
 | Leaving the phone | a Privacy Ledger write | one `away` arc sweeps once around the rim as the indicator turns orange |
-| Error | a failed turn | briefly desaturates; the message explains what happened |
+| Error | a failed turn (not a declined cloud request, nor a tier that fails before a stronger one answers) | greys for about 1.5 s; the message explains what happened |
 
-**Reduced motion.** When animations are off, the sphere stays still, and the state is announced in text.
+**Ripples move the surface, not the outline.** The silhouette always stays a circle; the highlight and the inner light ripple with the voice. A moving outline would read as a creature.
+
+**Reduced motion.** When animations are off, the sphere stays still, and the state is announced in text. The error grey switches on and off without fading.
 
 **TalkBack.** The sphere reads as "Anu, listening" and "Anu, thinking", with the action "Talk" or "Stop".
 
@@ -380,4 +382,5 @@ Three tabs with 24dp line icons at stroke 1.7 and 11sp labels. The selected tab 
 | 2026-09-26 | Red text uses `error-text` (#C92A2A light, #FF6961 dark) | #E5383B is about 4.2:1 on white and #FF453A about 4.1:1 on dark fills, below the 4.5:1 text rule |
 | 2026-09-26 | The Privacy report opens over the current page, and shows only what the ledger records | Tapping the indicator answers "what left?" from anywhere. The requests count and approval state wait until they're recorded: real counts only |
 | 2026-09-26 | Lists open as pages, single items as sheets; groups carry footers | Keeps Settings to four short groups, as in the approved mockup, with the explanations under each group |
+| 2026-09-26 | The sphere's ripples move its surface, never its outline; Error greys it after a failed turn | A moving outline would turn the object into a character. Only a turn that really failed greys it, never a decline |
 | 2026-09-26 | The assistant card is its own window with a hairline edge and no shadow | The system blur covers a window's background shape, so only a card-sized window frosts just the card. A shadow under the translucent card showed through and misplaced it on the emulator |

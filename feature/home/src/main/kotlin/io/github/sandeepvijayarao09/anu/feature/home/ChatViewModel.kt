@@ -92,6 +92,11 @@ data class ChatUiState(
     val offerLanguagePack: Boolean = false,
     /** False when the phone has no on-device speech recognition. */
     val voiceAvailable: Boolean = false,
+    /**
+     * Turns that failed since this screen opened: each one briefly greys the sphere (DESIGN.md, Error).
+     * Declining the cloud isn't a failure, and neither is a tier that fails before a stronger one answers.
+     */
+    val failures: Int = 0,
 ) {
     /** What the orb shows. */
     val voice: VoicePhase
@@ -293,6 +298,7 @@ class ChatViewModel(
                 throw e
             } catch (e: Exception) {
                 edit(id) { it.copy(text = "Something went wrong: ${e.message}", failed = true) }
+                mutable.update { it.copy(failures = it.failures + 1) }
             } finally {
                 edit(id) { it.copy(streaming = false) }
                 mutable.update { it.copy(busy = false) }
@@ -333,6 +339,7 @@ class ChatViewModel(
             }
             is AgentEvent.Failed -> {
                 edit(id) { it.copy(text = friendly(event.reasons), failed = true, note = null) }
+                mutable.update { it.copy(failures = it.failures + 1) }
                 spokenUpTo = 0
                 speakProgress(id, final = true)
             }

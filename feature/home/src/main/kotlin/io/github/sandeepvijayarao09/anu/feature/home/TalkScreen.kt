@@ -98,7 +98,7 @@ fun TalkScreen(
     Column(modifier.fillMaxSize().background(colors.background).imePadding()) {
         Row(Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
             if (state.bubbles.isNotEmpty() || state.listening) {
-                Sphere(state.voice.sphere(), 26.dp, level = state.level, awayPulse = awayPulse)
+                Sphere(state.voice.sphere(), 26.dp, level = state.level, awayPulse = awayPulse, errorPulse = state.failures)
                 Spacer(Modifier.width(10.dp))
             }
             Text("Anu", Modifier.weight(1f), style = AnuTheme.type.wordmark, color = colors.text)
@@ -147,7 +147,7 @@ private fun Welcome(state: ChatUiState, awayPulse: Int, onSuggestion: (String) -
     val colors = AnuTheme.colors
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), horizontalAlignment = Alignment.CenterHorizontally) {
         Spacer(Modifier.height(36.dp))
-        Sphere(state.voice.sphere(), 168.dp, level = state.level, awayPulse = awayPulse, shadow = true, onClick = onTalk)
+        Sphere(state.voice.sphere(), 168.dp, level = state.level, awayPulse = awayPulse, errorPulse = state.failures, shadow = true, onClick = onTalk)
         Spacer(Modifier.height(28.dp))
         Text(greeting(), style = AnuTheme.type.title.copy(fontSize = 28.sp, lineHeight = 34.sp), color = colors.text)
         Text(
@@ -186,7 +186,7 @@ private fun Listening(state: ChatUiState) {
     val colors = AnuTheme.colors
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), horizontalAlignment = Alignment.CenterHorizontally) {
         Spacer(Modifier.height(44.dp))
-        Sphere(SphereState.LISTENING, 200.dp, level = state.level, shadow = true)
+        Sphere(SphereState.LISTENING, 200.dp, level = state.level, errorPulse = state.failures, shadow = true)
         Spacer(Modifier.height(36.dp))
         Text(
             state.heard.ifEmpty { "Say something…" },
@@ -401,7 +401,7 @@ fun AssistantCard(
     val cloud = answer?.tier == Tier.CLOUD
     Column(modifier.fillMaxWidth().clip(AnuShapes.xl).clickable(onClickLabel = "Open Anu", onClick = onOpenApp).padding(18.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Sphere(state.voice.sphere(), 28.dp, level = state.level)
+            Sphere(state.voice.sphere(), 28.dp, level = state.level, errorPulse = state.failures)
             Text(if (state.listening) "Listening…" else "Anu", style = AnuTheme.type.label, color = colors.textMuted)
         }
         val question = if (state.listening) state.heard.ifEmpty { "Say something…" } else asked

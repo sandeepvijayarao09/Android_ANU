@@ -104,6 +104,7 @@ class ChatViewModelTest {
         viewModel.declineCloud()
         assertTrue(cloud.requests.isEmpty())
         assertEquals("Kept on this phone. Nothing was sent.", bubbles.last().text)
+        assertEquals("declining isn't a failure", 0, viewModel.state.value.failures)
     }
 
     @Test
@@ -124,6 +125,7 @@ class ChatViewModelTest {
         assertEquals("Answer from Pro", bubbles.last().text)
         assertEquals(Tier.PRO, bubbles.last().tier)
         assertNull(bubbles.last().note)
+        assertEquals("the turn itself succeeded", 0, viewModel.state.value.failures)
     }
 
     @Test
@@ -132,6 +134,7 @@ class ChatViewModelTest {
         viewModel.send("Hi")
         assertTrue(bubbles.last().failed)
         assertTrue(bubbles.last().text.contains("Settings"))
+        assertEquals(1, viewModel.state.value.failures)
     }
 
     @Test
