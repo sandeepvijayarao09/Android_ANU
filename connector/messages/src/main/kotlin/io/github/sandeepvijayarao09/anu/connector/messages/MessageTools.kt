@@ -1,5 +1,6 @@
 package io.github.sandeepvijayarao09.anu.connector.messages
 
+import io.github.sandeepvijayarao09.anu.core.agent.EditableField
 import io.github.sandeepvijayarao09.anu.core.agent.RiskTier
 import io.github.sandeepvijayarao09.anu.core.agent.Tool
 import io.github.sandeepvijayarao09.anu.core.agent.ToolContext
@@ -131,6 +132,8 @@ class ReplyTool(private val store: ConversationStore) : Tool<ReplyInput, ReplyOu
     override val returnsUntrustedContent = false
 
     override fun risk(input: ReplyInput) = RiskTier.WRITE_EXTERNAL
+    // The reply's words can change on the approval sheet; the chat it goes to can't (§7.2).
+    override val editable = listOf(EditableField("text", "Reply", EditableField.Kind.TEXT))
 
     /** Unknown chats are rejected here, before anyone is asked to approve. */
     override fun describe(input: ReplyInput): String {

@@ -22,7 +22,17 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.SheetValue
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -33,12 +43,15 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import io.github.sandeepvijayarao09.anu.core.agent.ApprovalRequest
+import io.github.sandeepvijayarao09.anu.core.agent.EditableField
 import io.github.sandeepvijayarao09.anu.core.agent.RiskTier
 import io.github.sandeepvijayarao09.anu.core.ui.AnuButton
 import io.github.sandeepvijayarao09.anu.core.ui.AnuIcons
 import io.github.sandeepvijayarao09.anu.core.ui.AnuShapes
 import io.github.sandeepvijayarao09.anu.core.ui.AnuTheme
+import io.github.sandeepvijayarao09.anu.core.ui.AnuTextField
 import io.github.sandeepvijayarao09.anu.core.ui.PrivacyDot
+import io.github.sandeepvijayarao09.anu.core.ui.WhereLine
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
@@ -51,10 +64,11 @@ internal fun ConversationSheets(
     state: ChatUiState,
     onApprove: (String) -> Unit,
     onDeny: (String) -> Unit,
+    onRevise: (String, JsonObject) -> Unit,
     onApproveCloud: () -> Unit,
     onDeclineCloud: () -> Unit,
 ) {
-    state.approval?.let { request -> ApprovalSheet(request, onApprove, onDeny) }
+    state.approval?.let { request -> ApprovalSheet(request, onApprove, onDeny, onRevise) }
     if (state.consentFor != null) CloudConsentSheet(onApproveCloud, onDeclineCloud)
 }
 
@@ -101,12 +115,27 @@ internal fun approvalCopy(request: ApprovalRequest): ApprovalCopy {
     return ApprovalCopy(words.question, words.verb, words.decline, words.icon, leaves, where, notes)
 }
 
+/**
+ * The approval sheet (DESIGN.md). Edit changes the fields the tool allows; saving approves nothing. The
+ * broker checks the change and asks again with exactly what will run, so the user always approves the
+ * final payload (I2). A change that doesn't pass keeps the user's text, with the reason.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ApprovalSheet(request: ApprovalRequest, onApprove: (String) -> Unit, onDeny: (String) -> Unit) {
+private fun ApprovalSheet(request: ApprovalRequest, onApprove: (String) -> Unit, onDeny: (String) -> Unit, onRevise: (String, JsonObject) -> Unit) {
     val copy = approvalCopy(request)
     val colors = AnuTheme.colors
     val haptics = LocalHapticFeedback.current
+    var editing by remember { mutableStateOf(false) }
+    var draft by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+    var saving by remember { mutableStateOf(false) }
+    // The broker answers a change with a new request: the checked payload, or the same one with a problem.
+    LaunchedEffect(request) {
+        if (saving) {
+            saving = false
+            if (request.problem == null) editing = false
+        }
+    }
     // A decision is required: swiping the sheet away or tapping outside is not one.
     val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true, confirmValueChange = { it != SheetValue.Hidden })
     ModalBottomSheet(
@@ -116,42 +145,87 @@ private fun ApprovalSheet(request: ApprovalRequest, onApprove: (String) -> Unit,
         containerColor = colors.surface,
         scrimColor = colors.scrim,
     ) {
-        Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(start = 20.dp, end = 20.dp, bottom = 16.dp)) {
+        Column(Modifier.fillMaxWidth().navigationBarsPadding().imePadding().verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, bottom = 16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Box(Modifier.size(44.dp).clip(AnuShapes.sm).background(colors.surface2), contentAlignment = Alignment.Center) {
                     Icon(copy.icon, contentDescription = null, Modifier.size(22.dp), tint = colors.text)
                 }
                 Text(copy.question, Modifier.semantics { heading() }, style = AnuTheme.type.title, color = colors.text)
             }
-            Row(Modifier.padding(top = 14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                PrivacyDot(away = copy.leaves)
-                Text(copy.where, style = AnuTheme.type.label, color = if (copy.leaves) colors.awayText else colors.textMuted)
-            }
-            // The tool's own sentence and the exact payload, re-encoded from validated input by the broker (I2).
-            Column(
-                Modifier.padding(top = 16.dp).fillMaxWidth().heightIn(max = 320.dp).clip(AnuShapes.md).background(colors.background)
-                    .verticalScroll(rememberScrollState()).padding(horizontal = 14.dp, vertical = 4.dp),
-            ) {
-                Text(request.summary, Modifier.padding(vertical = 10.dp), style = AnuTheme.type.bodyStrong, color = colors.text)
-                payloadRows(request.payload).forEach { (label, value) ->
-                    HorizontalDivider(thickness = 0.5.dp, color = colors.separator)
-                    if (label == null) {
-                        Text(value, Modifier.padding(vertical = 10.dp), style = AnuTheme.type.body, color = colors.text)
+            WhereLine(leaves = copy.leaves, text = copy.where, modifier = Modifier.padding(top = 14.dp))
+            if (editing) {
+                request.problem?.let { problem ->
+                    Text(problem, Modifier.padding(top = 14.dp).semantics { liveRegion = LiveRegionMode.Polite }, style = AnuTheme.type.callout, color = colors.errorText)
+                }
+                request.editable.forEach { field ->
+                    AnuTextField(
+                        draft[field.key].orEmpty(),
+                        { draft = draft + (field.key to it) },
+                        Modifier.padding(top = 14.dp),
+                        label = field.label,
+                        singleLine = field.kind != EditableField.Kind.TEXT,
+                        minLines = if (field.kind == EditableField.Kind.TEXT) 4 else 1,
+                        // Every list a tool offers today is of addresses.
+                        keyboardOptions = if (field.kind == EditableField.Kind.LIST) KeyboardOptions(keyboardType = KeyboardType.Email, autoCorrectEnabled = false) else KeyboardOptions.Default,
+                    )
+                }
+                Text(
+                    "Anu checks your changes, then shows exactly what will happen. Nothing happens until you tap ${copy.verb}.",
+                    Modifier.padding(top = 12.dp, start = 2.dp, end = 2.dp),
+                    style = AnuTheme.type.label.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Normal),
+                    color = colors.textMuted,
+                )
+                Spacer(Modifier.height(18.dp))
+                AnuButton(if (saving) "Checking…" else "Save changes", onClick = {
+                    val revised = revisedPayload(request.payload, request.editable, draft)
+                    if (revised == request.payload) {
+                        editing = false
                     } else {
-                        Row(Modifier.padding(vertical = 10.dp)) {
-                            Text(label, Modifier.width(76.dp), style = AnuTheme.type.callout, color = colors.textMuted)
-                            Text(value, style = AnuTheme.type.callout, color = colors.text)
+                        saving = true
+                        onRevise(request.id, revised)
+                    }
+                }, Modifier.fillMaxWidth(), enabled = !saving)
+                Spacer(Modifier.height(10.dp))
+                AnuButton("Cancel", onClick = { editing = false }, Modifier.fillMaxWidth(), secondary = true)
+            } else {
+                // The tool's own sentence and the exact payload, re-encoded from validated input by the broker (I2).
+                Column(
+                    Modifier.padding(top = 16.dp).fillMaxWidth().heightIn(max = 320.dp).clip(AnuShapes.md).background(colors.background)
+                        .verticalScroll(rememberScrollState()).padding(horizontal = 14.dp, vertical = 4.dp),
+                ) {
+                    if (request.edited) Text("Edited by you", Modifier.padding(top = 10.dp), style = AnuTheme.type.label, color = colors.textMuted)
+                    Text(request.summary, Modifier.padding(vertical = 10.dp), style = AnuTheme.type.bodyStrong, color = colors.text)
+                    payloadRows(request.payload).forEach { (label, value) ->
+                        HorizontalDivider(thickness = 0.5.dp, color = colors.separator)
+                        if (label == null) {
+                            Text(value, Modifier.padding(vertical = 10.dp), style = AnuTheme.type.body, color = colors.text)
+                        } else {
+                            Row(Modifier.padding(vertical = 10.dp)) {
+                                Text(label, Modifier.width(76.dp), style = AnuTheme.type.callout, color = colors.textMuted)
+                                Text(value, style = AnuTheme.type.callout, color = colors.text)
+                            }
                         }
                     }
                 }
+                (listOf(request.reason.trimEnd('.') + ". Nothing happens until you tap ${copy.verb}.") + copy.notes).forEach { line ->
+                    Text(line, Modifier.padding(top = 12.dp, start = 2.dp, end = 2.dp), style = AnuTheme.type.label.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Normal), color = colors.textMuted)
+                }
+                Spacer(Modifier.height(18.dp))
+                AnuButton(copy.verb, onClick = { haptics.performHapticFeedback(HapticFeedbackType.Confirm); onApprove(request.id) }, Modifier.fillMaxWidth())
+                Spacer(Modifier.height(10.dp))
+                val decline = { haptics.performHapticFeedback(HapticFeedbackType.Reject); onDeny(request.id) }
+                if (request.editable.isEmpty()) {
+                    AnuButton(copy.decline, onClick = decline, Modifier.fillMaxWidth(), secondary = true)
+                } else {
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        AnuButton("Edit", onClick = {
+                            draft = draftOf(request.payload, request.editable)
+                            editing = true
+                        }, Modifier.weight(1f), secondary = true)
+                        AnuButton(copy.decline, onClick = decline, Modifier.weight(1f), secondary = true)
+                    }
+                }
             }
-            (listOf(request.reason.trimEnd('.') + ". Nothing happens until you tap ${copy.verb}.") + copy.notes).forEach { line ->
-                Text(line, Modifier.padding(top = 12.dp, start = 2.dp, end = 2.dp), style = AnuTheme.type.label.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Normal), color = colors.textMuted)
-            }
-            Spacer(Modifier.height(18.dp))
-            AnuButton(copy.verb, onClick = { haptics.performHapticFeedback(HapticFeedbackType.Confirm); onApprove(request.id) }, Modifier.fillMaxWidth())
-            Spacer(Modifier.height(10.dp))
-            AnuButton(copy.decline, onClick = { haptics.performHapticFeedback(HapticFeedbackType.Reject); onDeny(request.id) }, Modifier.fillMaxWidth(), secondary = true)
         }
     }
 }
@@ -223,4 +297,32 @@ private val PARAGRAPH_KEYS = setOf("body", "text", "message", "content", "note",
 private fun humanize(key: String): String {
     val spaced = key.replace('_', ' ').replace(Regex("([a-z])([A-Z])"), "$1 $2").lowercase()
     return spaced.replaceFirstChar { it.uppercase() }
+}
+
+/** The editable fields as the sheet shows them: a list joined with commas, a missing value as empty text. */
+internal fun draftOf(payload: JsonObject, fields: List<EditableField>): Map<String, String> = fields.associate { field ->
+    field.key to when (val value = payload[field.key]) {
+        null, JsonNull -> ""
+        is JsonArray -> value.joinToString(", ") { (it as? JsonPrimitive)?.content ?: it.toString() }
+        is JsonPrimitive -> value.content
+        is JsonObject -> value.toString()
+    }
+}
+
+/**
+ * The payload with the user's text in place: a list split at commas, an optional field emptied removed.
+ * Every other field stays exactly as the broker encoded it, and the broker checks the result (§7.2).
+ */
+internal fun revisedPayload(payload: JsonObject, fields: List<EditableField>, draft: Map<String, String>): JsonObject {
+    val result = payload.toMutableMap()
+    fields.forEach { field ->
+        val text = draft[field.key] ?: return@forEach
+        when {
+            field.kind == EditableField.Kind.LIST ->
+                result[field.key] = JsonArray(text.split(',', ';', '\n').map(String::trim).filter(String::isNotEmpty).map(::JsonPrimitive))
+            field.optional && text.isBlank() -> if (payload[field.key].let { it != null && it !is JsonNull }) result.remove(field.key)
+            else -> result[field.key] = JsonPrimitive(text.trim())
+        }
+    }
+    return JsonObject(result)
 }

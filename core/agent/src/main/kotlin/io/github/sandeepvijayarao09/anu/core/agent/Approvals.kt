@@ -21,12 +21,24 @@ data class ApprovalRequest(
     val destination: String? = null,
     /** The run read content written by others before asking (P4), so the sheet asks for a closer read. */
     val tainted: Boolean = false,
+    /** Fields the user may change before approving ([Tool.editable]). Empty: the sheet offers no Edit. */
+    val editable: List<EditableField> = emptyList(),
+    /** The payload includes the user's own changes. */
+    val edited: Boolean = false,
+    /** Why the user's last change wasn't accepted, such as "\"maya@\" is not an email address". */
+    val problem: String? = null,
 )
 
 sealed interface ApprovalDecision {
     data object Approved : ApprovalDecision
 
     data class Denied(val reason: String = "The user declined") : ApprovalDecision
+
+    /**
+     * The user changed editable fields. This approves nothing: the broker checks the new payload and asks
+     * again with exactly what will run (I2).
+     */
+    data class Revised(val payload: JsonObject) : ApprovalDecision
 }
 
 /** Suspends until the user decides (§7.2). */

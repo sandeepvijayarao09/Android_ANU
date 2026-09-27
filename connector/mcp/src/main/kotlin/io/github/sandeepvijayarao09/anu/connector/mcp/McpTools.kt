@@ -1,5 +1,6 @@
 package io.github.sandeepvijayarao09.anu.connector.mcp
 
+import io.github.sandeepvijayarao09.anu.core.agent.EditableField
 import io.github.sandeepvijayarao09.anu.core.agent.RiskTier
 import io.github.sandeepvijayarao09.anu.core.agent.Tool
 import io.github.sandeepvijayarao09.anu.core.agent.ToolContext
@@ -71,6 +72,8 @@ class McpTool(
     }
 
     override fun sendsTo(input: JsonObject): String = server.host
+
+    override val editable: List<EditableField> = McpSchemas.editable(info.inputSchema)
 
     override suspend fun invoke(input: JsonObject, context: ToolContext): JsonObject {
         ledger?.record(LedgerEntry(clock(), server.host, "MCP ${server.name}: ${info.name}", dataClasses, emptyMap(), input.toString().length))

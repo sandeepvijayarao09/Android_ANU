@@ -69,6 +69,85 @@ class ToolBrokerTest {
         }, request.payload)
     }
 
+    private fun ApprovalRequest.change(key: String, value: kotlinx.serialization.json.JsonElement) =
+        ApprovalDecision.Revised(JsonObject(payload + (key to value)))
+
+    private fun names(vararg emails: String) = kotlinx.serialization.json.JsonArray(emails.map { kotlinx.serialization.json.JsonPrimitive(it) })
+
+    @Test
+    fun `an edit approves nothing, and the user approves exactly what will run`() = runTest {
+        val gate = ScriptedGate({ it.change("title", kotlinx.serialization.json.JsonPrimitive("Design review, moved")) }, { ApprovalDecision.Approved })
+        val outcome = broker(gate).execute(event("Design review", "maya@example.com"), run())
+        assertTrue(outcome is ToolOutcome.Ok)
+        val (first, second) = gate.requests
+        assertEquals(false, first.edited)
+        assertEquals(listOf("title", "attendees"), first.editable.map { it.key })
+        assertEquals(true, second.edited)
+        assertEquals("Create \"Design review, moved\" and invite maya@example.com", second.summary)
+        assertEquals("Design review, moved", second.payload["title"]!!.jsonPrimitive.content)
+        assertTrue("an edit is a new payload, so a new key", first.id != second.id)
+        assertEquals(listOf(EventInput("Design review, moved", listOf("maya@example.com"))), create.created)
+        assertEquals(ToolBroker.OK_EDITED, audit.last().outcome)
+        assertEquals("Create \"Design review, moved\" and invite maya@example.com", audit.last().summary)
+    }
+
+    @Test
+    fun `an invalid edit keeps asking, with the problem, and runs nothing`() = runTest {
+        val gate = ScriptedGate({ it.change("title", kotlinx.serialization.json.JsonPrimitive(42)) }, { ApprovalDecision.Denied("never mind") })
+        val outcome = broker(gate).execute(event("Standup", "raj@example.com"), run())
+        assertEquals("declined", (outcome as ToolOutcome.Rejected).code)
+        val (first, second) = gate.requests
+        assertEquals("the same payload is asked for again", first.payload, second.payload)
+        assertEquals(first.id, second.id)
+        assertTrue(second.problem!!.isNotBlank())
+        assertEquals(false, second.edited)
+        assertTrue(create.created.isEmpty())
+    }
+
+    @Test
+    fun `only the fields a tool allows can be changed`() = runTest {
+        val gate = ScriptedGate({ it.change("calendar", kotlinx.serialization.json.JsonPrimitive("work")) }, { ApprovalDecision.Approved })
+        broker(gate).execute(event("Standup", "raj@example.com"), run())
+        assertEquals("Only title, invite can be changed here.", gate.requests[1].problem)
+        assertEquals(listOf(EventInput("Standup", listOf("raj@example.com"))), create.created)
+    }
+
+    @Test
+    fun `an edit that invites people is asked about as an invite`() = runTest {
+        val broker = broker(ScriptedGate({ ApprovalDecision.Approved }))
+        val state = run()
+        broker.execute(search, state) // tainted: even a private event now asks
+        val gate = ScriptedGate({ it.change("attendees", names("maya@example.com")) }, { ApprovalDecision.Approved })
+        broker(gate).execute(event("Lunch"), state)
+        assertEquals(RiskTier.WRITE_PRIVATE, gate.requests[0].risk)
+        assertEquals(RiskTier.WRITE_EXTERNAL, gate.requests[1].risk)
+        assertEquals("Other people will see this", gate.requests[1].reason)
+        assertEquals(listOf(EventInput("Lunch", listOf("maya@example.com"))), create.created)
+    }
+
+    @Test
+    fun `an edit that no longer needs asking is still shown before it runs`() = runTest {
+        val gate = ScriptedGate({ it.change("attendees", names()) }, { ApprovalDecision.Approved })
+        broker(gate).execute(event("Focus time", "raj@example.com"), run())
+        assertEquals(2, gate.requests.size)
+        assertEquals(RiskTier.WRITE_PRIVATE, gate.requests[1].risk)
+        assertEquals("You changed this", gate.requests[1].reason)
+        assertEquals(listOf(EventInput("Focus time")), create.created)
+    }
+
+    @Test
+    fun `after an edit, a retry of the original call replays instead of acting again`() = runTest {
+        val gate = ScriptedGate({ it.change("title", kotlinx.serialization.json.JsonPrimitive("Review")) }, { ApprovalDecision.Approved })
+        val broker = broker(gate)
+        val state = run()
+        broker.execute(event("Design review", "maya@example.com"), state)
+        val retry = broker.execute(event("Design review", "maya@example.com"), state)
+        assertTrue(retry is ToolOutcome.Ok)
+        assertEquals(1, create.created.size)
+        assertEquals("no new approval", 2, gate.requests.size)
+        assertEquals("replayed", audit.last().outcome)
+    }
+
     @Test
     fun `a denial blocks the call and tells the model why`() = runTest {
         gate.decision = ApprovalDecision.Denied("wrong day")

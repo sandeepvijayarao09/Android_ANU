@@ -1,6 +1,6 @@
 # Anu for Android: Architecture
 
-Version 1.12.0 · Draft · 2026-09-26
+Version 1.13.0 · Draft · 2026-09-26
 Status: proposed. OD-1 to OD-4 were resolved on 2026-09-25 (§16).
 Product intent lives in [VISION.md](VISION.md).
 
@@ -415,6 +415,7 @@ As implemented in `core:agent` `Tool`:
 - **Every tool writes its own `describe(input)`,** a one-sentence summary used on the approval sheet, in the audit and in the chat's action lines. It is never the model's words.
 - **Tools declare `returnsUntrustedContent`.** Calendar event titles, for example, are untrusted because other people can write them through invites.
 - **Tools that send their input to a third party say where: `sendsTo(input)`,** such as an MCP server's or a store's host. The broker uses it for policy and in the approval's wording (ADR-046). A request to the user's own account, such as Gmail, isn't a third party.
+- **Tools say which fields the user may edit on the approval sheet: `editable`** (ADR-053). Each is one line, free text, or a list typed with commas, and may be optional. As built: an email's To, Cc, Subject and Message; a chat reply's text; an event's title, place and invitees. MCP tools offer their schema's top-level text fields, but not fixed choices or formats. Identifiers, times and anything that picks a target stay out.
 
 Tool names are snake_case `<connector>_<verb>`, for example `email_get_thread`. `ToolSpec` enforces this, and snake_case is the style small models see most in training. Parameter schemas come from `JsonSchemas.of(serializer)` in `core:model`, with `@Description` annotations for the text the model reads.
 
@@ -432,7 +433,7 @@ Tool names are snake_case `<connector>_<verb>`, for example `email_get_thread`. 
 - **Tool Broker**, in order:
   1. validates the arguments against the schema;
   2. applies policy (risk tier, taint, data class against the brain's location);
-  3. requests approval if needed. `ApprovalGate` suspends the run until the user decides, and a timeout counts as a denial;
+  3. requests approval if needed. `ApprovalGate` suspends the run until the user decides, and a timeout counts as a denial. The user may edit the fields the tool allows; the broker checks the edit like the model's arguments and asks again with exactly what will run (ADR-053);
   4. executes the tool;
   5. writes to the audit log.
 - **Taint.** Any tool result that carries connector content marks the run as tainted. A tainted run cannot auto-execute `WRITE_PRIVATE`, and its egress content is re-checked.
@@ -447,7 +448,15 @@ Tool names are snake_case `<connector>_<verb>`, for example `email_get_thread`. 
     On the emulator, a plain `not_allowed` for a declined reply made the model blame "the system". An invalid call names what would work, for example the recent chats when a chat isn't found.
   - **Validation is strict about types and required fields, and ignores unknown keys.** Input that fails while the tool assesses it, such as an end time before the start, is `Invalid` and is never shown for approval.
   - **Idempotency keys are content-based:** `sha256(turn key | tool | canonical payload)`. Re-sending the same turn after consent replays the stored result instead of acting twice.
-  - **Approvals go through `ApprovalCenter`,** which the chat screen observes. v1 offers approve or deny only; editing is Planned. A timeout (10 minutes) counts as a denial.
+  - **Approvals go through `ApprovalCenter`,** which the chat screen observes. The user approves, declines or edits. A timeout (10 minutes) counts as a denial, and each new request after an edit starts its own.
+  - **Edit (ADR-053).** Saving an edit is a `Revised` decision, which approves nothing:
+    - the broker refuses changes to fields the tool didn't mark `editable`;
+    - it decodes and checks the edit exactly like the model's arguments, including the tool's own checks;
+    - it asks again with the re-encoded payload, the tool's new summary, and the risk and destination of the new input. Adding invitees turns a private event into an invite;
+    - it always asks again after an edit, even when the new input would run without asking ("You changed this");
+    - an edit that doesn't pass is asked again with the reason, and the sheet keeps the user's text;
+    - the tool runs under the final payload's idempotency key, and the result is also stored under the original key, so a retry of the model's first call replays instead of acting twice;
+    - the audit records the outcome as "ok, edited by you".
   - **Escalation mid-run continues the same transcript (ADR-026).** The stronger brain sees the tool results already produced, so side effects never repeat.
   - **Budgets:** 8 steps and 12 tool calls per turn.
   - **Tools that come and go.** Besides its fixed tools, the broker looks up `dynamicTools`, such as the tools of the user's MCP servers, under the same policy. A fixed tool wins if a name is ever shared (ADR-046).
@@ -770,10 +779,11 @@ Recommend a **paid** Gemini tier for personal data. Google's terms for unpaid Ge
 
 ## 13. Surfaces
 
-**Visual design (ADR-048 to ADR-052).** [DESIGN.md](../DESIGN.md) is the source of truth for colors, type, components and motion ("quiet precision", approved 2026-09-26): neutral surfaces, Google Sans Flex, a procedural sphere as Anu's presence, and color reserved for privacy (green stays on the phone, orange leaves it). The redesign is in progress:
+**Visual design (ADR-048 to ADR-053).** [DESIGN.md](../DESIGN.md) is the source of truth for colors, type, components and motion ("quiet precision", approved 2026-09-26): neutral surfaces, Google Sans Flex, a procedural sphere as Anu's presence, and color reserved for privacy (green stays on the phone, orange leaves it). Every surface in DESIGN.md is built:
 - **Built:** the theme and the sphere; Talk, the approval and cloud-consent sheets, the assistant card and the tab bar; Memory, Settings and the Privacy report.
   - **The sphere** (ADR-052): an AGSL shader on Android 13+, lit per pixel, with ripples on its surface that follow the voice and an inner light the glass bends. Android 12 draws the same materials with gradients. Every state follows a real event, including Error: a failed turn greys it briefly.
   - **Talk:** empty, the thread with receipts, listening, and the composer.
+  - **Approval sheet:** the exact payload, where it goes, and Edit for the fields the tool allows (ADR-053). A saved edit comes back checked, marked "Edited by you", before anything runs.
   - **Pages** (`AnuPage`): a bar with the privacy indicator, which no page can hide, and a large title that collapses into the bar on scroll. Pages inside Settings have a back button named for where it goes.
   - **Memory:** facts grouped by section, with search. The user's own facts say "You said"; learned ones have a Confirm pill. A fact's sheet shows the dated words it came from, with That's right, Correct, Delete and Forget.
   - **Settings:** four short groups (Voice, Connections, Intelligence, Privacy) with values on the right. Connection rows carry a privacy dot: green for calendar, contacts, chats and SMS; orange, with a count, for Gmail, services and stores, which TalkBack reads as "reached over the internet". Services, Stores, Models, Activity and Vault activity are pages; a server, a store, the Gemini key and adding things are sheets.
@@ -782,8 +792,7 @@ Recommend a **paid** Gemini tier for personal data. Google's terms for unpaid Ge
   - **Assistant card** (ADR-051): its own floating window, the size of the card, 26dp from the bottom over a 12% dim. The system's cross-window blur frosts the app behind the card only, under the `material` tint. When the system turns blurs off (battery saver, media tunneling, the developer option), the card turns opaque.
 - **Not yet:**
   - the report's count of requests handled on the phone, which needs each answer's tier saved (Planned, §17);
-  - an approval state on each report entry, which the ledger doesn't record;
-  - Edit in the approval sheet.
+  - an approval state on each report entry, which the ledger doesn't record.
 
 | Surface | How |
 |---|---|
@@ -1048,6 +1057,7 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 | 050 | 2026-09-26 | Memory, Settings and the Privacy report follow DESIGN.md. Pages share `AnuPage`, whose bar always carries the privacy indicator. Settings is four short groups: lists open as pages, single items with several actions as sheets. The Privacy report opens over whichever page the indicator was tapped on, and shows only what the Privacy Ledger records: destination, purpose, size, what was replaced, and time. Replies and invites approved in chat are sent by their own apps, so the report points to Activity for them. Red text uses `errorText` (#C92A2A light, #FF6961 dark) | A report must never show more than the records back ("real counts only"), so the count of requests handled on the phone and each entry's approval wait until they're recorded. Tapping the indicator should answer "what left?" from wherever the user is. #E5383B is about 4.2:1 on white and #FF453A about 4.1:1 on dark fills, below the 4.5:1 text rule |
 | 051 | 2026-09-26 | The assistant card is its own floating window, exactly the card's size, with the system's cross-window blur behind it (`Window.setBackgroundBlurRadius`) under the `material` tint. The window manager dims the rest of the screen and closes the card on a tap outside. `WindowManager`'s blur listener switches the card to the opaque surface color whenever blurs are off. No window shadow | Only cross-window blur can blur another app (`RenderEffect` blurs only Anu's own drawing), and it covers the window's background shape, so a full-screen window would blur the whole screen. The system turns blurs off at any time, and the text must stay readable on a solid color then. On the emulator a window shadow moved the frosted card below its frame and showed no shadow, so the edge is a hairline instead |
 | 052 | 2026-09-26 | The sphere is an AGSL `RuntimeShader` on Android 13+. Each pixel's place on the disk gives a sphere's normal, lit by a key light from the upper left: the pearl's wrapped light and sheen, obsidian's crisp highlight, rim light and hairline, and an inner light the glass bends. While listening, waves move the surface normal, not the outline, so the highlight and inner light ripple with the voice. Android 12 keeps the gradient drawing. The Error state greys it for about 1.5 s after a turn fails, counted by the chat from zero each time a screen opens; declining the cloud, and a tier that fails before a stronger one answers, don't count. Animated values are read only while drawing | DESIGN.md asked for refraction and ripples, which gradients can't draw. A moving outline would read as a character; a moving surface stays an object. Counting failures from the screen's opening means old failures never flash, and only a turn that really failed does. Reading animations while drawing redraws each frame without recomposing |
+| 053 | 2026-09-26 | Edit on the approval sheet. Tools declare `editable` fields; saving an edit is a `Revised` decision that approves nothing. The broker refuses changes to other fields, checks the edit like the model's arguments, and asks again with the re-encoded payload, new summary, risk and destination, even when the new input would run without asking. The tool runs under the final payload's key; the result is also stored under the original key | I2 stays exact: the user approves the payload that will run, as the broker encodes it, never text the sheet assembled. Rechecking catches invalid edits and a change of risk, such as adding invitees. Identifiers and targets stay out of editing, so an edit can't redirect an action. A retry of the model's first call must not act twice |
 
 ### Component status
 
@@ -1080,7 +1090,7 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 | Token calibration (`TokenCalibration`, `TokenSample`): runtime counts against raw estimates, separate prose and JSON rates, saved across restarts (ADR-041) | 3 | Implemented, with 4 unit tests plus agent and chat tests. Measured on the Anu emulator with E4B; the reference phone's numbers are still to come |
 | Settings UI (`feature:settings`): voice (the assistant, "Hey Anu"), connections with privacy dots (calendar and contacts, messaging apps, SMS in `personal`, Gmail, services, stores), models (with delete confirmation), the Gemini key into the vault, Activity, Vault activity, and the Privacy report (ADR-050) | 1 | Implemented. 9 JVM tests for the records (periods, seven-day counts, wording). Every page and sheet checked on anu_api36 in light and dark, including Try again against the mock MCP server |
 | App wiring (`AppGraph`, device state, no-backup rules) | 1 | Implemented; lint clean (two warnings: newer Gradle available, no app icon yet) |
-| Agent loop, Tool Broker, approvals, taint, claim check (`core:agent`) | 2 | Implemented. 33 JVM tests, and works end to end on the Anu emulator with E4B: lookups, free slots, and an approval-gated invite |
+| Agent loop, Tool Broker, approvals, taint, claim check (`core:agent`) | 2 | Implemented. JVM tests (19 for the broker, 6 of them for Edit), and works end to end on the Anu emulator with E4B: lookups, free slots, an approval-gated invite, and an MCP note fixed with Edit, where the mock server received exactly the edited text |
 | Connectors: calendar, contacts | 2 | Implemented. JVM tests, plus provider tests on the Anu emulator (real `CalendarContract` and `ContactsContract`) |
 | Gmail connector (`connector:gmail`): search, thread, draft, send; host-bound tokens; MIME writer; ledgered egress | 2 | Implemented. 8 JVM tests (fake server). On the emulator the Connect button starts Google's own consent flow, and cancelling is handled. **Live Gmail untested:** it needs the owner's one-time Google Cloud setup ([GMAIL_SETUP.md](GMAIL_SETUP.md)) and their Google account on the device |
 | Connectors: messages (notifications), SMS (`personal`) | 2 | **Verified on the Anu emulator** with E4B and Google Messages: reading a real SMS from its notification, an approved reply sent through the notification's reply button (confirmed in the SMS provider), a declined reply that sent nothing, SMS search, and code masking. 4 instrumented tests and 10 JVM tests. WhatsApp and Telegram are untested (S5) |
@@ -1099,11 +1109,16 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 | "Hey Anu" (ADR-045): `WakeWordService`, the Settings switch | 4 | Implemented. On the Anu emulator it pauses while Anu is open and turns itself off without a language pack. Real wake-ups need the reference phone (S9) |
 | MCP connector (`connector:mcp`, ADR-046): dual-era client, tools per server, offered when named | 4 | Implemented. 9 JVM tests (both eras, SSE, headers, schemas, ledger). Verified by hand on the Anu emulator with E4B against the mock server: a read, an approved write, and the 2025 fallback. No real third-party server tried yet |
 | Shopping (`connector:shopping`, ADR-047): UCP discovery, `shop_search`, `shop_checkout` with the store's own finish page | 4 | Implemented. 4 JVM tests. Verified by hand on the Anu emulator with E4B against the mock store: search, an approved checkout, and the Finish button. No real UCP store tried yet; stores that require a fetchable platform profile won't work until Anu has one |
-| Visual redesign to DESIGN.md (ADR-048, ADR-049): the sphere, privacy indicator, receipts, approval sheet, assistant card, grouped Memory and Settings, Privacy report | 4 | In progress. Built and checked on anu_api36 in light and dark: `core:ui`, Talk, the approval and consent sheets, the frosted assistant card, the tab bar, Memory, Settings and the Privacy report, including a declined approval that sent nothing. The shader sphere was checked on the Anu emulator in light and dark, including its ripples (with the level held for the check) and the Error state after a real failed turn. The card's opaque fallback, for when the system turns blurs off, hasn't been seen on a device. Next: Edit in the approval sheet |
+| Visual redesign to DESIGN.md (ADR-048, ADR-049): the sphere, privacy indicator, receipts, approval sheet, assistant card, grouped Memory and Settings, Privacy report | 4 | Implemented. Built and checked on anu_api36 in light and dark: `core:ui`, Talk, the approval and consent sheets with Edit, the frosted assistant card, the tab bar, Memory, Settings and the Privacy report, including a declined approval that sent nothing. The shader sphere was checked in light and dark, including its ripples (with the level held for the check) and the Error state after a real failed turn. Not yet seen on a device: the card's opaque fallback when the system turns blurs off, and ripples from a real voice. The report's request count and per-entry approval state wait until they're recorded |
 | Proactive agents, learned router | 4 | Planned |
 | Hardening, release readiness | 5 | Planned |
 
 ### Changelog
+
+- **1.13.0** (2026-09-26): Edit on the approval sheet (ADR-053).
+  - Tools declare `editable` fields; the sheet turns them into a form. Saving is a `Revised` decision, which approves nothing: the broker checks the edit like the model's arguments and asks again with exactly what will run (I2).
+  - An edit that doesn't pass is asked again with the reason. After an edit, the tool runs under the final payload's key, and a retry of the model's first call replays.
+  - Activity says "You edited and approved it". The redesign is complete.
 
 - **1.12.0** (2026-09-26): the shader sphere (ADR-052).
   - On Android 13+ the sphere is an AGSL shader: lit per pixel, with ripples on its surface that follow the voice, and an inner light the glass bends. Android 12 keeps the gradient drawing.

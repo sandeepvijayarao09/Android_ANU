@@ -104,7 +104,9 @@ fun interface ToolAudit {
  * 1. validates the arguments against the tool's schema (I6);
  * 2. applies policy: risk tier, taint, and sensitive data bound for the cloud;
  * 3. replays a stored result instead of repeating a side effect;
- * 4. asks for approval of the exact payload when required (I2). A timeout counts as a denial;
+ * 4. asks for approval of the exact payload when required (I2). A timeout counts as a denial. The user
+ *    may edit the fields a tool allows; the edit is checked like the model's arguments, and the user
+ *    approves exactly what will run;
  * 5. executes, stores and audits.
  */
 class ToolBroker(
@@ -140,91 +142,148 @@ class ToolBroker(
     }
 
     private suspend fun <I : Any, O : Any> executeTyped(tool: Tool<I, O>, call: ToolCall, run: RunState): ToolOutcome {
-        val input = try {
-            json.decodeFromJsonElement(tool.input, call.arguments)
+        var current = try {
+            assess(tool, call.arguments)
         } catch (e: SerializationException) {
             return ToolOutcome.Invalid("The arguments don't match ${tool.name}'s schema: ${e.message}")
         } catch (e: IllegalArgumentException) {
             return ToolOutcome.Invalid("The arguments for ${tool.name} are not valid: ${e.message}")
         }
-        // Tools may reject input while assessing it, for example an end time before the start.
-        val risk: RiskTier
-        val summary: String
-        val destination: String?
-        try {
-            risk = tool.risk(input)
-            summary = tool.describe(input)
-            destination = tool.sendsTo(input)
-        } catch (e: IllegalArgumentException) {
-            return ToolOutcome.Invalid("The arguments for ${tool.name} are not valid: ${e.message}")
-        }
         suspend fun record(outcome: String, approved: Boolean?) =
-            audit.record(ToolAuditEntry(run.runId, tool.name, risk, summary, outcome, approved, clock()))
+            audit.record(ToolAuditEntry(run.runId, tool.name, current.risk, current.summary, outcome, approved, clock()))
 
         if (run.brainLocation == BrainLocation.CLOUD && DataClass.SENSITIVE in tool.dataClasses && !run.cloudConsented) {
             record("blocked: sensitive data for the cloud", null)
-            return ToolOutcome.Rejected("${tool.name} returns sensitive data, which stays on this phone", summary)
+            return ToolOutcome.Rejected("${tool.name} returns sensitive data, which stays on this phone", current.summary)
         }
 
-        // The payload the user approves is re-encoded from the validated input, not the model's raw arguments.
-        val payload = json.encodeToJsonElement(tool.input, input) as JsonObject
-        val key = idempotencyKey(run.turnKey, tool.name, payload)
-        if (risk != RiskTier.READ) {
+        val proposed = idempotencyKey(run.turnKey, tool.name, current.payload)
+        var key = proposed
+        if (current.risk != RiskTier.READ) {
             results.get(key)?.let { stored ->
                 record("replayed", null)
-                return ToolOutcome.Ok(stored, summary, wrote = true)
+                return ToolOutcome.Ok(stored, current.summary, wrote = true)
             }
         }
 
-        val approvalReason = when (risk) {
-            // Injected text could otherwise send the user's data to a third party without asking.
-            RiskTier.READ -> if (run.tainted && destination != null) "This sends data to $destination after reading content written by others" else null
-            RiskTier.WRITE_PRIVATE -> if (run.tainted) "This request read content written by others" else null
-            // A service or store the user added isn't "other people": say where it goes (seen on the emulator).
-            RiskTier.WRITE_EXTERNAL -> if (destination != null) "This goes to $destination, outside your phone" else "Other people will see this"
-            RiskTier.DESTRUCTIVE -> if (destination != null) "This goes to $destination, and may not be undoable there" else "This can't be undone"
-        }
-        if (approvalReason != null) {
-            val decision = withTimeoutOrNull(approvalTimeoutMillis) {
-                approvals.request(ApprovalRequest(key, tool.name, summary, payload, risk, approvalReason, destination, run.tainted))
-            }
-            if (decision == null) {
-                record("no answer in time", approved = false)
-                return ToolOutcome.Rejected("Nobody answered the approval in time, so nothing was done.", summary, code = "no_answer")
-            }
-            if (decision is ApprovalDecision.Denied) {
-                record("denied: ${decision.reason}", approved = false)
-                return ToolOutcome.Rejected(
-                    "The user was shown this and declined (${decision.reason}), so nothing was done. Don't try again unless they ask.",
-                    summary,
-                    code = "declined",
-                )
+        // Ask until the user approves, declines or doesn't answer. An edit approves nothing: the broker checks
+        // it like the model's arguments and asks again with exactly what will run (I2).
+        var reason = approvalReason(current.risk, current.destination, run.tainted)
+        val asked = reason != null
+        var edited = false
+        var problem: String? = null
+        while (reason != null) {
+            val request = ApprovalRequest(
+                key, tool.name, current.summary, current.payload, current.risk, reason, current.destination, run.tainted,
+                tool.editable, edited, problem,
+            )
+            when (val decision = withTimeoutOrNull(approvalTimeoutMillis) { approvals.request(request) }) {
+                null -> {
+                    record("no answer in time", approved = false)
+                    return ToolOutcome.Rejected("Nobody answered the approval in time, so nothing was done.", current.summary, code = "no_answer")
+                }
+                is ApprovalDecision.Denied -> {
+                    record("denied: ${decision.reason}", approved = false)
+                    return ToolOutcome.Rejected(
+                        "The user was shown this and declined (${decision.reason}), so nothing was done. Don't try again unless they ask.",
+                        current.summary,
+                        code = "declined",
+                    )
+                }
+                ApprovalDecision.Approved -> reason = null
+                is ApprovalDecision.Revised -> {
+                    val revised = try {
+                        revise(tool, current, decision.payload)
+                    } catch (e: IllegalArgumentException) {
+                        problem = e.message ?: "That change isn't valid."
+                        continue
+                    } ?: continue
+                    current = revised
+                    key = idempotencyKey(run.turnKey, tool.name, current.payload)
+                    edited = true
+                    problem = null
+                    if (current.risk != RiskTier.READ) {
+                        results.get(key)?.let { stored ->
+                            record("replayed", null)
+                            return ToolOutcome.Ok(stored, current.summary, wrote = true)
+                        }
+                    }
+                    // The user always sees the final payload before it runs, even if it no longer needs asking.
+                    reason = approvalReason(current.risk, current.destination, run.tainted) ?: "You changed this"
+                }
             }
         }
 
         val output = try {
-            tool.invoke(input, ToolContext(run.runId, key))
+            tool.invoke(current.input, ToolContext(run.runId, key))
         } catch (e: CancellationException) {
             throw e // never swallow cancellation (§18)
         } catch (e: Exception) {
-            record("failed: ${e.message}", approvalReason?.let { true })
-            return ToolOutcome.Failed(e.message ?: e::class.simpleName ?: "error", summary)
+            record("failed: ${e.message}", if (asked) true else null)
+            return ToolOutcome.Failed(e.message ?: e::class.simpleName ?: "error", current.summary)
         }
         val result = json.encodeToJsonElement(tool.output, output)
-        if (risk != RiskTier.READ) results.put(key, result)
+        if (current.risk != RiskTier.READ) {
+            results.put(key, result)
+            // A retry of the model's original call replays what the user's edit did, instead of acting again.
+            if (key != proposed) results.put(proposed, result)
+        }
         if (tool.returnsUntrustedContent) run.tainted = true
         run.dataClassesSeen += tool.dataClasses
-        record("ok", approvalReason?.let { true })
-        return ToolOutcome.Ok(result, summary, wrote = risk != RiskTier.READ)
+        record(if (edited) OK_EDITED else "ok", if (asked) true else null)
+        return ToolOutcome.Ok(result, current.summary, wrote = current.risk != RiskTier.READ)
+    }
+
+    /** A call's input after validation, what the tool says about it, and the payload the user sees. */
+    private class Assessed<I : Any>(val input: I, val risk: RiskTier, val summary: String, val destination: String?, val payload: JsonObject)
+
+    /**
+     * Decodes and checks arguments (I6), then asks the tool about them. Tools may reject input while
+     * assessing it, for example an end time before the start. Throws [IllegalArgumentException] with the
+     * reason; a [SerializationException] means the arguments don't match the schema.
+     */
+    private fun <I : Any> assess(tool: Tool<I, *>, arguments: JsonObject): Assessed<I> {
+        val input = json.decodeFromJsonElement(tool.input, arguments)
+        // The payload the user approves is re-encoded from the validated input, not the raw arguments.
+        return Assessed(input, tool.risk(input), tool.describe(input), tool.sendsTo(input), json.encodeToJsonElement(tool.input, input) as JsonObject)
+    }
+
+    /**
+     * The user's change, checked like the model's arguments: only the tool's editable fields may differ,
+     * and the result must pass the tool's own checks. Null when nothing changed. Throws with a reason the
+     * user can act on.
+     */
+    private fun <I : Any> revise(tool: Tool<I, *>, current: Assessed<I>, edited: JsonObject): Assessed<I>? {
+        val changed = (current.payload.keys + edited.keys).filter { current.payload[it] != edited[it] }
+        if (changed.isEmpty()) return null
+        val allowed = tool.editable.map { it.key }.toSet()
+        require(changed.all { it in allowed }) {
+            if (allowed.isEmpty()) "This can't be changed here." else "Only ${tool.editable.joinToString { it.label.lowercase() }} can be changed here."
+        }
+        // An edit that checks out to the same payload, such as a cleared field that was already empty, is no change.
+        return assess(tool, edited).takeIf { it.payload != current.payload }
+    }
+
+    /** Why a call needs the user's approval, or null when it runs by itself (§7.1). */
+    private fun approvalReason(risk: RiskTier, destination: String?, tainted: Boolean): String? = when (risk) {
+        // Injected text could otherwise send the user's data to a third party without asking.
+        RiskTier.READ -> if (tainted && destination != null) "This sends data to $destination after reading content written by others" else null
+        RiskTier.WRITE_PRIVATE -> if (tainted) "This request read content written by others" else null
+        // A service or store the user added isn't "other people": say where it goes (seen on the emulator).
+        RiskTier.WRITE_EXTERNAL -> if (destination != null) "This goes to $destination, outside your phone" else "Other people will see this"
+        RiskTier.DESTRUCTIVE -> if (destination != null) "This goes to $destination, and may not be undoable there" else "This can't be undone"
     }
 
     private fun idempotencyKey(turnKey: String, tool: String, payload: JsonObject): String =
         MessageDigest.getInstance("SHA-256").digest("$turnKey|$tool|$payload".toByteArray())
             .joinToString("") { "%02x".format(it) }
 
-    private companion object {
+    companion object {
+        /** The audit's outcome for a call that ran with the user's own changes. */
+        const val OK_EDITED = "ok, edited by you"
+
         // Unknown keys are ignored (they can't cause an action). Types and required fields are strict.
-        val json = Json {
+        private val json = Json {
             ignoreUnknownKeys = true
             encodeDefaults = true
         }

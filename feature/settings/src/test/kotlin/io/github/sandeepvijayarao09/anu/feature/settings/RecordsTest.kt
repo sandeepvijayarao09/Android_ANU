@@ -90,6 +90,7 @@ class RecordsTest {
     fun `outcomes say what happened`() {
         fun action(outcome: String, approved: Boolean?) = ToolAuditEntry("run", "email_send", RiskTier.WRITE_EXTERNAL, "Send an email", outcome, approved, 0)
         assertEquals("You approved, and it was done", outcomeLabel(action("ok", true)))
+        assertEquals("You edited and approved it, and it was done", outcomeLabel(action(io.github.sandeepvijayarao09.anu.core.agent.ToolBroker.OK_EDITED, true)))
         assertEquals("You declined", outcomeLabel(action("declined", false)))
         assertEquals("Done", outcomeLabel(action("ok", null)))
         assertEquals("Not answered in time, so not done", outcomeLabel(action("no answer in time", null)))

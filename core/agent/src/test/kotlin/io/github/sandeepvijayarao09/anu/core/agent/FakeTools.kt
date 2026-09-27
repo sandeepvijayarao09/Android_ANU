@@ -29,6 +29,7 @@ class FakeCreateEvent : Tool<EventInput, EventOutput> {
     override fun risk(input: EventInput) = if (input.attendees.isEmpty()) RiskTier.WRITE_PRIVATE else RiskTier.WRITE_EXTERNAL
     override fun describe(input: EventInput) = "Create \"${input.title}\"" +
         if (input.attendees.isEmpty()) "" else " and invite ${input.attendees.joinToString()}"
+    override val editable = listOf(EditableField("title", "Title", EditableField.Kind.LINE), EditableField("attendees", "Invite", EditableField.Kind.LIST))
     override suspend fun invoke(input: EventInput, context: ToolContext): EventOutput {
         created += input
         return EventOutput("event-${created.size}")
@@ -97,6 +98,17 @@ class FakeRemoteLookup(override val name: String = "mcp_notes_search") : Tool<Qu
 }
 
 /** Records every approval request and answers with [decision] (or never, when null). */
+/** Answers each request in turn, as a user would; each answer can read what it was shown. */
+class ScriptedGate(vararg answers: (ApprovalRequest) -> ApprovalDecision) : ApprovalGate {
+    private val queue = ArrayDeque(answers.toList())
+    val requests = mutableListOf<ApprovalRequest>()
+
+    override suspend fun request(request: ApprovalRequest): ApprovalDecision {
+        requests += request
+        return queue.removeFirstOrNull()?.invoke(request) ?: awaitCancellation()
+    }
+}
+
 class RecordingGate(var decision: ApprovalDecision? = ApprovalDecision.Approved) : ApprovalGate {
     val requests = mutableListOf<ApprovalRequest>()
 

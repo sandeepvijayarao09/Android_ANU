@@ -19,6 +19,14 @@ enum class RiskTier {
     DESTRUCTIVE,
 }
 
+/**
+ * A payload field the user may change on the approval sheet before approving (§7.2): one line of text,
+ * free text, or a list typed with commas. An [optional] field left empty is removed.
+ */
+data class EditableField(val key: String, val label: String, val kind: Kind, val optional: Boolean = false) {
+    enum class Kind { LINE, TEXT, LIST }
+}
+
 /** Passed to every tool call. [idempotencyKey] is stable across retries of the same call (§7.2). */
 data class ToolContext(val runId: String, val idempotencyKey: String)
 
@@ -52,6 +60,13 @@ interface Tool<I : Any, O : Any> {
 
     /** One sentence that says exactly what this call will do. It is shown on the approval sheet. */
     fun describe(input: I): String
+
+    /**
+     * Fields the user may change on the approval sheet (§7.2), such as an email's subject and message.
+     * The broker checks the edited payload like the model's own arguments, then asks again with exactly
+     * what will run (I2). Identifiers, times and anything that picks a target stay out. Empty: no Edit.
+     */
+    val editable: List<EditableField> get() = emptyList()
 
     suspend fun invoke(input: I, context: ToolContext): O
 

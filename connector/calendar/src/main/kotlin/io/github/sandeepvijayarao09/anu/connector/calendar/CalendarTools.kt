@@ -1,5 +1,6 @@
 package io.github.sandeepvijayarao09.anu.connector.calendar
 
+import io.github.sandeepvijayarao09.anu.core.agent.EditableField
 import io.github.sandeepvijayarao09.anu.core.agent.RiskTier
 import io.github.sandeepvijayarao09.anu.core.agent.Tool
 import io.github.sandeepvijayarao09.anu.core.agent.ToolContext
@@ -145,6 +146,12 @@ class CreateEventTool(private val calendar: CalendarSource, private val zone: ()
     override val returnsUntrustedContent = false
 
     override fun risk(input: CreateEventInput) = if (input.attendees.isEmpty()) RiskTier.WRITE_PRIVATE else RiskTier.WRITE_EXTERNAL
+    // Times stay as they are: typed as text they'd be easy to get wrong. Adding invitees makes it an invite.
+    override val editable = listOf(
+        EditableField("title", "Title", EditableField.Kind.LINE),
+        EditableField("location", "Place", EditableField.Kind.LINE, optional = true),
+        EditableField("attendees", "Invite", EditableField.Kind.LIST),
+    )
 
     override fun describe(input: CreateEventInput): String {
         val zone = zone()

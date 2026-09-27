@@ -1,5 +1,6 @@
 package io.github.sandeepvijayarao09.anu.connector.mcp
 
+import io.github.sandeepvijayarao09.anu.core.agent.EditableField
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
@@ -93,6 +94,26 @@ internal object McpSchemas {
         "null" -> value is JsonNull
         else -> true
     }
+
+    /**
+     * What the user may change on the approval sheet (§7.2): top-level text properties, but not fixed
+     * choices (`enum`, `const`) or machine formats such as dates. The server wrote the labels, so they
+     * are cleaned like everything else it says.
+     */
+    fun editable(schema: JsonObject): List<EditableField> {
+        val properties = schema["properties"] as? JsonObject ?: return emptyList()
+        val required = (schema["required"] as? JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }.orEmpty().toSet()
+        return properties.mapNotNull { (name, value) ->
+            val property = value as? JsonObject
+            if (property == null || "string" !in declaredTypes(property) || listOf("enum", "const", "format").any { it in property }) return@mapNotNull null
+            val title = (property["title"] as? JsonPrimitive)?.contentOrNull?.let { McpText.clean(it, 40) }?.takeIf(String::isNotBlank)
+            EditableField(name, title ?: label(name), EditableField.Kind.TEXT, optional = name !in required)
+        }
+    }
+
+    /** "note_text" and "noteText" read as "Note text". */
+    private fun label(name: String): String =
+        name.replace('_', ' ').replace(Regex("([a-z])([A-Z])"), "$1 $2").lowercase().replaceFirstChar { it.uppercase() }
 
     private fun declaredTypes(schema: JsonObject): List<String> = when (val type = schema["type"]) {
         is JsonPrimitive -> listOfNotNull(type.contentOrNull)

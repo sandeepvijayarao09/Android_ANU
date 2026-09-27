@@ -1,6 +1,7 @@
 package io.github.sandeepvijayarao09.anu.feature.settings
 
 import io.github.sandeepvijayarao09.anu.core.agent.ToolAuditEntry
+import io.github.sandeepvijayarao09.anu.core.agent.ToolBroker
 import io.github.sandeepvijayarao09.anu.core.model.BrainId
 import io.github.sandeepvijayarao09.anu.core.model.ModelState
 import io.github.sandeepvijayarao09.anu.core.security.LedgerEntry
@@ -84,6 +85,7 @@ internal fun characterCount(count: Int, locale: Locale = Locale.getDefault()): S
 internal fun outcomeLabel(action: ToolAuditEntry): String = when {
     action.outcome == "no answer in time" -> "Not answered in time, so not done"
     action.approved == false -> "You declined"
+    action.outcome == ToolBroker.OK_EDITED -> "You edited and approved it, and it was done"
     action.outcome == "ok" && action.approved == true -> "You approved, and it was done"
     action.outcome == "ok" -> "Done"
     action.outcome == "replayed" -> "Already done, not repeated"

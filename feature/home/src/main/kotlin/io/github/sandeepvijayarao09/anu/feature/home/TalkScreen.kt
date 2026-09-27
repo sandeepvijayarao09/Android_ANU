@@ -139,7 +139,7 @@ fun TalkScreen(
             )
         }
     }
-    ConversationSheets(state, viewModel::approve, viewModel::deny, viewModel::approveCloud, viewModel::declineCloud)
+    ConversationSheets(state, viewModel::approve, viewModel::deny, viewModel::revise, viewModel::approveCloud, viewModel::declineCloud)
 }
 
 @Composable
@@ -434,5 +434,5 @@ fun AssistantCard(
             ) { Icon(icon, contentDescription = label, Modifier.size(18.dp), tint = colors.onPrimary) }
         }
     }
-    ConversationSheets(state, viewModel::approve, viewModel::deny, viewModel::approveCloud, viewModel::declineCloud)
+    ConversationSheets(state, viewModel::approve, viewModel::deny, viewModel::revise, viewModel::approveCloud, viewModel::declineCloud)
 }

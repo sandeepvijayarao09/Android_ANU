@@ -1,5 +1,6 @@
 package io.github.sandeepvijayarao09.anu.connector.gmail
 
+import io.github.sandeepvijayarao09.anu.core.agent.EditableField
 import io.github.sandeepvijayarao09.anu.core.agent.RiskTier
 import io.github.sandeepvijayarao09.anu.core.agent.Tool
 import io.github.sandeepvijayarao09.anu.core.agent.ToolContext
@@ -121,6 +122,14 @@ private fun summary(verb: String, input: EmailInput): String = buildString {
     if (input.replyToThreadId != null) append(", as a reply")
 }
 
+/** What the user may change on the approval sheet (§7.2). The thread a reply belongs to stays as it is. */
+internal val EMAIL_EDITABLE = listOf(
+    EditableField("to", "To", EditableField.Kind.LIST),
+    EditableField("cc", "Cc", EditableField.Kind.LIST),
+    EditableField("subject", "Subject", EditableField.Kind.LINE),
+    EditableField("body", "Message", EditableField.Kind.TEXT),
+)
+
 /** Saves a draft in the user's own mailbox. Nobody else sees it, so it is WRITE_PRIVATE. */
 class CreateDraftTool(private val gmail: GmailClient) : Tool<EmailInput, DraftOutput> {
     override val name = "email_create_draft"
@@ -132,6 +141,7 @@ class CreateDraftTool(private val gmail: GmailClient) : Tool<EmailInput, DraftOu
 
     override fun risk(input: EmailInput) = RiskTier.WRITE_PRIVATE
     override fun describe(input: EmailInput) = summary("Save a draft", input)
+    override val editable = EMAIL_EDITABLE
 
     override suspend fun invoke(input: EmailInput, context: ToolContext): DraftOutput {
         val (raw, thread) = compose(gmail, input)
@@ -150,6 +160,7 @@ class SendEmailTool(private val gmail: GmailClient) : Tool<EmailInput, SentOutpu
 
     override fun risk(input: EmailInput) = RiskTier.WRITE_EXTERNAL
     override fun describe(input: EmailInput) = summary("Send an email", input)
+    override val editable = EMAIL_EDITABLE
 
     override suspend fun invoke(input: EmailInput, context: ToolContext): SentOutput {
         val (raw, thread) = compose(gmail, input)

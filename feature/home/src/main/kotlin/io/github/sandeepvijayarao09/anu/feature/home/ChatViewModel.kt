@@ -282,6 +282,9 @@ class ChatViewModel(
 
     fun deny(id: String) = approvals.decide(id, ApprovalDecision.Denied("they tapped Don't do it"))
 
+    /** The user changed what the tool allows. This approves nothing: the broker checks it and asks again (§7.2). */
+    fun revise(id: String, payload: JsonObject) = approvals.decide(id, ApprovalDecision.Revised(payload))
+
     fun stop() {
         running?.cancel()
     }

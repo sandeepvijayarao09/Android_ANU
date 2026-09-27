@@ -92,6 +92,7 @@ export JAVA_HOME=/opt/homebrew/opt/openjdk@21
 - **Typing through adb** sends key events, which takes Android out of touch mode, as a hardware keyboard does. Keyboard focus then moves when dialogs close.
 - **Seeing an empty Talk page without wiping your chat:** install the `play` build too (`assemblePlayDebug`). It's a separate app with its own data.
 - **Dark mode on the emulator:** `adb shell cmd uimode night yes` (and `no` to switch back).
+- **Edit on the approval sheet:** with the mock MCP server running, ask "Add a note to Notes: …". The sheet's Edit shows the note's text; after Save changes, the sheet comes back checked, and the mock prints exactly what it received once you tap Send.
 - **The sphere** is an AGSL shader on Android 13+, and the emulator runs it. Its listening ripples need a real voice, so they can't be seen there. To see the Error state, send a message in the `play` build, which has no model; then reset its chat (`adb shell run-as io.github.sandeepvijayarao09.anu rm -rf no_backup/db`, with the app stopped).
 - **The assistant card's blur** works on `anu_api36`, which supports cross-window blur. Debug builds log which look the card got: `adb logcat -s Anu:D` shows `Assistant card: frosted`, or `opaque` when the system has blurs off. The home screen's wallpaper and icons show the blur best.
 - **The Privacy report** opens from the privacy indicator at the top right of any page, or Settings → Privacy report. It lists the Privacy Ledger, so it has entries only after something left the phone (for example a mock MCP or store request).
