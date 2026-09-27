@@ -1,5 +1,6 @@
 package io.github.sandeepvijayarao09.anu.core.memory
 
+import io.github.sandeepvijayarao09.anu.core.model.RelevantFact
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -253,6 +254,10 @@ class MemoryPipeline(
         }
         refreshProfile()
     }
+
+    /** The facts that bear on [message], most relevant first (§8.3, ADR-054). */
+    suspend fun relevant(message: String): List<RelevantFact> =
+        Relevance.pick(message, store.activeFacts()).map { RelevantFact(it.text, it.sensitive) }
 
     /**
      * The memory block on-device brains add to the system prompt (§8.3). The most important facts come

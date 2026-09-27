@@ -298,7 +298,7 @@ A modal sheet (`xl` corners, grabber, scrim):
 5. **Extra lines when they apply:**
    - "Written after reading someone else's email. Read it closely."
    - "Anu won't pay. You finish on shoes.example.com."
-   - For cloud consent: the redacted text Gemini would actually receive.
+   - For cloud consent: the redacted text Gemini would actually receive, and the facts from memory it would also see. They sit in a `background` panel under an "Include what Anu knows" switch, on by default, and dim when it's off. What's listed is exactly what goes; sensitive facts are never listed or sent.
 6. **Actions:**
    - A full-width `button-primary` named for the verb: Send, Start checkout, Add.
    - Below it, two equal `button-secondary` buttons: Edit and "Don't send" (or "Don't add"). When the tool allows no changes, "Don't send" is full width.
@@ -383,6 +383,7 @@ Three tabs with 24dp line icons at stroke 1.7 and 11sp labels. The selected tab 
 | 2026-09-26 | Red text uses `error-text` (#C92A2A light, #FF6961 dark) | #E5383B is about 4.2:1 on white and #FF453A about 4.1:1 on dark fills, below the 4.5:1 text rule |
 | 2026-09-26 | The Privacy report opens over the current page, and shows only what the ledger records | Tapping the indicator answers "what left?" from anywhere. The requests count and approval state wait until they're recorded: real counts only |
 | 2026-09-26 | Lists open as pages, single items as sheets; groups carry footers | Keeps Settings to four short groups, as in the approved mockup, with the explanations under each group |
+| 2026-09-26 | The cloud consent sheet lists the facts from memory Gemini would see, included by default | Personal answers from either model, with informed consent: the user sees exactly what goes and keeps it on the phone with one tap |
 | 2026-09-26 | Edit on the approval sheet comes back checked before anything runs | The user always approves exactly what will happen; saving a change is never approval |
 | 2026-09-26 | The sphere's ripples move its surface, never its outline; Error greys it after a failed turn | A moving outline would turn the object into a character. Only a turn that really failed greys it, never a decline |
 | 2026-09-26 | The assistant card is its own window with a hairline edge and no shadow | The system blur covers a window's background shape, so only a card-sized window frosts just the card. A shadow under the translucent card showed through and misplaced it on the emulator |

@@ -96,6 +96,8 @@ data class ContextView(
     val scale: Double = 1.0,
     /** The last on-device turn's estimate against the runtime's count. */
     val lastSample: TokenSample? = null,
+    /** How many facts from memory travelled with the newest message (ADR-054). */
+    val relevantFacts: Int = 0,
 ) {
     val trimmed: Boolean get() = shownFrom > 0
 }

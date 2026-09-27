@@ -45,6 +45,21 @@ class EgressTest {
     }
 
     @Test
+    fun `shared facts leave redacted like the rest, and the ledger counts them`() = runTest {
+        val facts = listOf("manager: Maya Chen", "Maya Chen · email: maya@example.com")
+        val prepared = gate.prepare(request.copy(sharedFacts = facts), destination = "generativelanguage.googleapis.com")
+        assertEquals(listOf("manager: Maya Chen", "Maya Chen · email: [EMAIL_2]"), prepared.request.sharedFacts)
+        val withFacts = ledger.entries.value.single()
+        assertEquals("email · 2 facts from memory", withFacts.purpose)
+        assertFalse(withFacts.toString().contains("Maya Chen"))
+
+        val plainLedger = InMemoryLedger()
+        EgressGate(plainLedger).prepare(request, destination = "generativelanguage.googleapis.com")
+        val plain = plainLedger.entries.value.single()
+        assertEquals(plain.characters + prepared.request.sharedFacts.sumOf { it.length }, withFacts.characters)
+    }
+
+    @Test
     fun `each egress is recorded without its content`() = runTest {
         gate.prepare(request, destination = "generativelanguage.googleapis.com")
         val entry = ledger.entries.value.single()

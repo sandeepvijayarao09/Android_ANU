@@ -40,7 +40,11 @@ sealed interface AgentEvent {
     data class Escalated(val from: Tier, val to: Tier, val reason: String) : AgentEvent
 
     /** Nothing more was sent. Ask the user, then run again with `cloudConsented = true` (§12.2). */
-    data class ConsentNeeded(val decision: RouteDecision) : AgentEvent
+    /**
+     * The turn needs the user's consent to use the cloud (§12.2). [facts] are the facts from memory the
+     * cloud would also see, if the user shares them (ADR-054): relevant ones only, never sensitive.
+     */
+    data class ConsentNeeded(val decision: RouteDecision, val facts: List<String> = emptyList()) : AgentEvent
 
     data class ToolStarted(val call: ToolCall) : AgentEvent
 
@@ -106,6 +110,12 @@ class Agent(
         sentAt: String? = null,
         /** What Anu remembers. Only on-device brains use it (ADR-038). */
         memory: String? = null,
+        /** Facts from memory that bear on the newest message, shown with it by on-device brains (ADR-054). */
+        relevant: String? = null,
+        /** The facts the user chose to share with the cloud on the consent sheet (ADR-054). */
+        sharedFacts: List<String> = emptyList(),
+        /** The facts to show on the consent sheet, if the turn needs consent (ADR-054). */
+        consentFacts: List<String> = emptyList(),
     ): Flow<AgentEvent> = flow {
         var route = route
         var decision = when (val result = router.route(route, device)) {
@@ -137,7 +147,7 @@ class Agent(
         }
 
         while (true) {
-            if (decision.consent == Consent.ASK) return@flow emit(AgentEvent.ConsentNeeded(decision))
+            if (decision.consent == Consent.ASK) return@flow emit(AgentEvent.ConsentNeeded(decision, consentFacts))
             if (announced != decision.tier) {
                 emit(AgentEvent.Routed(decision))
                 announced = decision.tier
@@ -159,6 +169,8 @@ class Agent(
                 sampling = if (repaired) Sampling.Precise else Sampling.Default,
                 sentAt = sentAt,
                 memory = memory,
+                relevant = relevant,
+                sharedFacts = sharedFacts,
             )
             val text = StringBuilder()
             val calls = mutableListOf<ToolCall>()

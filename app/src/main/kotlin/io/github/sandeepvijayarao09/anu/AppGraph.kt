@@ -294,13 +294,14 @@ class AppGraph(private val context: Context) {
             window = ContextWindow(budget = budgets.pro),
             tokens = tokenCalibration,
             extraTools = { turns -> mcp.registry.toolsFor(turns) },
+            relevant = { text -> memory.relevant(text) },
         ).also { session ->
             // How much of the chat the model sees, and how the estimates compare. Sizes only, never content.
             if (BuildConfig.DEBUG) {
                 scope.launch {
                     session.context.collect { view ->
                         val sample = view.lastSample?.let { " · last turn estimated ${it.estimated}, runtime counted ${it.counted}" }.orEmpty()
-                        Log.d(TAG, "Context: from message ${view.shownFrom} of ${view.messages}, ~${view.tokens} of ${view.budget} tokens, scale ${"%.2f".format(view.scale)}$sample")
+                        Log.d(TAG, "Context: from message ${view.shownFrom} of ${view.messages}, ~${view.tokens} of ${view.budget} tokens, ${view.relevantFacts} relevant facts, scale ${"%.2f".format(view.scale)}$sample")
                     }
                 }
             }

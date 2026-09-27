@@ -97,6 +97,37 @@ class ChatViewModelTest {
         assertEquals("Here's a plan.", bubbles.last().text)
     }
 
+    private fun withFacts(): ChatViewModel {
+        val brains = mapOf(Tier.BASE to base, Tier.PRO to pro, Tier.CLOUD to cloud)
+        val session = ChatSession(
+            Agent(Router(), BrainProvider { brains[it] }, ToolBroker(emptyList(), ApprovalCenter())),
+            relevant = { listOf(io.github.sandeepvijayarao09.anu.core.model.RelevantFact("manager: Maya Chen", sensitive = false)) },
+        )
+        return ChatViewModel(session, device = { device })
+    }
+
+    @Test
+    fun `the consent sheet lists the facts, and approving shares exactly those`() {
+        device = DeviceState(online = true, availableTiers = setOf(Tier.CLOUD))
+        val chat = withFacts()
+        chat.send("Lunch ideas for my manager")
+        assertEquals(listOf("manager: Maya Chen"), chat.state.value.consentFacts)
+        cloud.enqueue(Step.Reply("Try the new Thai place."))
+        chat.approveCloud(shareFacts = true)
+        assertEquals(listOf("manager: Maya Chen"), cloud.requests.last().sharedFacts)
+        assertEquals(emptyList<String>(), chat.state.value.consentFacts)
+    }
+
+    @Test
+    fun `keeping the facts on the phone sends none of them`() {
+        device = DeviceState(online = true, availableTiers = setOf(Tier.CLOUD))
+        val chat = withFacts()
+        chat.send("Lunch ideas for my manager")
+        cloud.enqueue(Step.Reply("Try the new Thai place."))
+        chat.approveCloud(shareFacts = false)
+        assertEquals(emptyList<String>(), cloud.requests.last().sharedFacts)
+    }
+
     @Test
     fun `declining consent sends nothing`() {
         device = DeviceState(online = true, availableTiers = setOf(Tier.CLOUD))

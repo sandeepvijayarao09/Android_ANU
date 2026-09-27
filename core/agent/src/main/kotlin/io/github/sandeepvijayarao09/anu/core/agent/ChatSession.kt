@@ -1,6 +1,8 @@
 package io.github.sandeepvijayarao09.anu.core.agent
 
 import io.github.sandeepvijayarao09.anu.core.model.ChatMessage
+import io.github.sandeepvijayarao09.anu.core.model.RelevantFact
+import io.github.sandeepvijayarao09.anu.core.model.factsBlock
 import io.github.sandeepvijayarao09.anu.core.model.DataClass
 import io.github.sandeepvijayarao09.anu.core.router.DeviceState
 import io.github.sandeepvijayarao09.anu.core.router.RouteRequest
@@ -52,6 +54,12 @@ class ChatSession(
      * tools once the user names the server (ADR-046). It may fetch them. A failure means none.
      */
     private val extraTools: suspend (turns: List<String>) -> List<String> = { emptyList() },
+    /**
+     * The facts from memory that bear on a message (§8.3, ADR-054): the user's newest message, after
+     * the one before it, so a follow-up such as "and her birthday?" still finds the person. A failure
+     * means none, never a failed chat.
+     */
+    private val relevant: suspend (text: String) -> List<RelevantFact> = { emptyList() },
 ) {
     private val lock = Mutex()
     private var transcript: MutableList<ChatMessage>? = null
@@ -67,8 +75,17 @@ class ChatSession(
     /** The saved conversation, loaded from [store] on first use. */
     suspend fun history(): List<ChatMessage> = lock.withLock { loaded().toList() }
 
-    /** Sends [text]. Use [pinned] for "Retry with Pro", and [cloudConsented] after the user approves cloud use. */
-    fun send(text: String, device: DeviceState, pinned: Tier? = null, cloudConsented: Boolean = false): Flow<AgentEvent> = flow {
+    /**
+     * Sends [text]. Use [pinned] for "Retry with Pro", and [cloudConsented] after the user approves cloud
+     * use, with the [sharedFacts] they saw on the consent sheet and chose to share (ADR-054).
+     */
+    fun send(
+        text: String,
+        device: DeviceState,
+        pinned: Tier? = null,
+        cloudConsented: Boolean = false,
+        sharedFacts: List<String> = emptyList(),
+    ): Flow<AgentEvent> = flow {
         lock.withLock {
             val transcript = loaded()
             val turns = transcript.filterIsInstance<ChatMessage.User>().map { it.text } + text
@@ -76,10 +93,14 @@ class ChatSession(
             val tools = (toolsFor(skill) + currentExtraTools(turns)).distinct()
             val now = clock()
             val memoryBlock = currentMemory()
+            val relevantFacts = currentRelevant(turns.takeLast(2).joinToString("\n"))
+            val relevantBlock = factsBlock(relevantFacts.map { it.text })
+            // The cloud may see only facts the user saw on the consent sheet: relevant ones, never sensitive.
+            val consentFacts = relevantFacts.filterNot { it.sensitive }.map { it.text }
             val message = ChatMessage.User(text)
             // What every turn carries besides the history. The note about left-out messages is counted
             // either way, so adding it can't push a turn over the budget.
-            val fixed = Tokens.of(systemPrompt(tools, trimmed = true)) + Tokens.of(memoryBlock) +
+            val fixed = Tokens.of(systemPrompt(tools, trimmed = true)) + Tokens.of(memoryBlock) + Tokens.of(relevantBlock) +
                 Tokens.ofTools(agent.toolSpecs(tools)) + Tokens.of(message)
             val scale = tokens.scale
             windowStart = window.start(transcript, windowStart, fixed, scale)
@@ -87,7 +108,7 @@ class ChatSession(
             val system = systemPrompt(tools, trimmed = windowStart > 0)
             val turn = shown + message
             val promptTokens = ceil((fixed + Tokens.of(shown)) * scale).toInt()
-            mutableContext.value = ContextView(windowStart, transcript.size, promptTokens, window.budget, scale, mutableContext.value.lastSample)
+            mutableContext.value = ContextView(windowStart, transcript.size, promptTokens, window.budget, scale, mutableContext.value.lastSample, relevantFacts.size)
             val route = RouteRequest(
                 text = text,
                 skill = skill,
@@ -97,7 +118,10 @@ class ChatSession(
                 cloudConsented = cloudConsented,
             )
             val turnKey = "$sessionId:${transcript.size}"
-            agent.run(route, device, system, turn, tools, turnKey = turnKey, sentAt = SENT_AT.format(now), memory = memoryBlock).collect { event ->
+            agent.run(
+                route, device, system, turn, tools, turnKey = turnKey, sentAt = SENT_AT.format(now), memory = memoryBlock,
+                relevant = relevantBlock, sharedFacts = if (cloudConsented) sharedFacts else emptyList(), consentFacts = consentFacts,
+            ).collect { event ->
                 if (event is AgentEvent.Completed) {
                     event.tokens?.let { sample ->
                         tokens.observe(sample)
@@ -191,6 +215,14 @@ class ChatSession(
         null
     }
 
+    private suspend fun currentRelevant(text: String): List<RelevantFact> = try {
+        relevant(text)
+    } catch (e: CancellationException) {
+        throw e
+    } catch (_: Exception) {
+        emptyList()
+    }
+
     private suspend fun currentExtraTools(turns: List<String>): List<String> = try {
         extraTools(turns)
     } catch (e: CancellationException) {
@@ -203,6 +235,7 @@ class ChatSession(
     private suspend fun loaded(): MutableList<ChatMessage> = transcript ?: store.load().toMutableList().also { transcript = it }
 
     companion object {
+
         const val DEFAULT_SYSTEM =
             "You are Anu, a private assistant running on the user's phone. Be concise, warm and accurate. " +
                 "If you are unsure, say so."

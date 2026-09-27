@@ -49,6 +49,9 @@ import io.github.sandeepvijayarao09.anu.core.ui.AnuButton
 import io.github.sandeepvijayarao09.anu.core.ui.AnuIcons
 import io.github.sandeepvijayarao09.anu.core.ui.AnuShapes
 import io.github.sandeepvijayarao09.anu.core.ui.AnuTheme
+import io.github.sandeepvijayarao09.anu.core.ui.AnuSwitch
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.ui.semantics.Role
 import io.github.sandeepvijayarao09.anu.core.ui.AnuTextField
 import io.github.sandeepvijayarao09.anu.core.ui.PrivacyDot
 import io.github.sandeepvijayarao09.anu.core.ui.WhereLine
@@ -65,11 +68,11 @@ internal fun ConversationSheets(
     onApprove: (String) -> Unit,
     onDeny: (String) -> Unit,
     onRevise: (String, JsonObject) -> Unit,
-    onApproveCloud: () -> Unit,
+    onApproveCloud: (shareFacts: Boolean) -> Unit,
     onDeclineCloud: () -> Unit,
 ) {
     state.approval?.let { request -> ApprovalSheet(request, onApprove, onDeny, onRevise) }
-    if (state.consentFor != null) CloudConsentSheet(onApproveCloud, onDeclineCloud)
+    if (state.consentFor != null) CloudConsentSheet(state.consentFacts, onApproveCloud, onDeclineCloud)
 }
 
 /** How a request reads on its sheet: the question, the verb, and where the payload goes. */
@@ -230,23 +233,26 @@ private fun ApprovalSheet(request: ApprovalRequest, onApprove: (String) -> Unit,
     }
 }
 
+/**
+ * Cloud consent (§12.2). The facts from memory that bear on the message are listed with a switch, on by
+ * default: what's listed is exactly what goes, and one tap keeps them on the phone (ADR-054).
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun CloudConsentSheet(onApprove: () -> Unit, onDecline: () -> Unit) {
+private fun CloudConsentSheet(facts: List<String>, onApprove: (shareFacts: Boolean) -> Unit, onDecline: () -> Unit) {
     val colors = AnuTheme.colors
+    val haptics = LocalHapticFeedback.current
+    var share by remember { mutableStateOf(true) }
     val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ModalBottomSheet(onDismissRequest = onDecline, sheetState = sheet, shape = AnuShapes.sheet, containerColor = colors.surface, scrimColor = colors.scrim) {
-        Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(start = 20.dp, end = 20.dp, bottom = 16.dp)) {
+        Column(Modifier.fillMaxWidth().navigationBarsPadding().verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, bottom = 16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Box(Modifier.size(44.dp).clip(AnuShapes.sm).background(colors.surface2), contentAlignment = Alignment.Center) {
                     Icon(AnuIcons.Sparkle, contentDescription = null, Modifier.size(22.dp), tint = colors.text)
                 }
                 Text("Use Gemini for this?", Modifier.semantics { heading() }, style = AnuTheme.type.title, color = colors.text)
             }
-            Row(Modifier.padding(top = 14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                PrivacyDot(away = true)
-                Text("Leaves your phone · to Gemini (Google)", style = AnuTheme.type.label, color = colors.awayText)
-            }
+            WhereLine(leaves = true, text = "Leaves your phone · to Gemini (Google)", modifier = Modifier.padding(top = 14.dp))
             Text(
                 "This needs the cloud model. Your message goes to Google with email addresses, phone and card numbers " +
                     "replaced, and the send is recorded in the Privacy report.",
@@ -254,8 +260,33 @@ private fun CloudConsentSheet(onApprove: () -> Unit, onDecline: () -> Unit) {
                 style = AnuTheme.type.body,
                 color = colors.text,
             )
+            if (facts.isNotEmpty()) {
+                Column(Modifier.padding(top = 16.dp).fillMaxWidth().clip(AnuShapes.md).background(colors.background).padding(horizontal = 14.dp, vertical = 4.dp)) {
+                    Row(
+                        Modifier.fillMaxWidth().heightIn(min = 48.dp).toggleable(value = share, role = Role.Switch) { on ->
+                            haptics.performHapticFeedback(if (on) HapticFeedbackType.ToggleOn else HapticFeedbackType.ToggleOff)
+                            share = on
+                        },
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Include what Anu knows", style = AnuTheme.type.bodyStrong, color = colors.text)
+                            Text(
+                                if (share) "Gemini also sees these, for a more personal answer" else "These stay on this phone",
+                                style = AnuTheme.type.label.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Normal),
+                                color = colors.textMuted,
+                            )
+                        }
+                        AnuSwitch(share, onCheckedChange = null)
+                    }
+                    facts.forEach { fact ->
+                        HorizontalDivider(thickness = 0.5.dp, color = colors.separator)
+                        Text(fact, Modifier.padding(vertical = 10.dp), style = AnuTheme.type.callout, color = if (share) colors.text else colors.textFaint)
+                    }
+                }
+            }
             Spacer(Modifier.height(20.dp))
-            AnuButton("Send to Gemini", onClick = onApprove, Modifier.fillMaxWidth())
+            AnuButton("Send to Gemini", onClick = { onApprove(share && facts.isNotEmpty()) }, Modifier.fillMaxWidth())
             Spacer(Modifier.height(10.dp))
             AnuButton("Keep on this phone", onClick = onDecline, Modifier.fillMaxWidth(), secondary = true)
         }

@@ -75,6 +75,8 @@ data class ChatUiState(
     val busy: Boolean = false,
     /** Set when a message needs cloud consent (§12.2). Holds the text waiting to be sent. */
     val consentFor: String? = null,
+    /** The facts from memory the cloud would also see, listed on the consent sheet (ADR-054). */
+    val consentFacts: List<String> = emptyList(),
     /** The oldest action waiting for the user's approval (I2). */
     val approval: ApprovalRequest? = null,
     /** True once the chat is longer than the model's view, so older messages are left out (ADR-040). */
@@ -267,14 +269,19 @@ class ChatViewModel(
         }
     }
 
-    fun approveCloud() {
-        val text = mutable.value.consentFor ?: return
-        mutable.update { it.copy(consentFor = null) }
-        run(text, cloudConsented = true)
+    /**
+     * The user approved the cloud for this message. With [shareFacts], the facts listed on the sheet go
+     * too, exactly those (ADR-054); without it, none do.
+     */
+    fun approveCloud(shareFacts: Boolean = true) {
+        val state = mutable.value
+        val text = state.consentFor ?: return
+        mutable.update { it.copy(consentFor = null, consentFacts = emptyList()) }
+        run(text, cloudConsented = true, sharedFacts = if (shareFacts) state.consentFacts else emptyList())
     }
 
     fun declineCloud() {
-        mutable.update { it.copy(consentFor = null) }
+        mutable.update { it.copy(consentFor = null, consentFacts = emptyList()) }
         add(Bubble(nextId++, fromUser = false, text = "Kept on this phone. Nothing was sent.", failed = true))
     }
 
@@ -289,13 +296,13 @@ class ChatViewModel(
         running?.cancel()
     }
 
-    private fun run(text: String, pinned: Tier? = null, cloudConsented: Boolean = false) {
+    private fun run(text: String, pinned: Tier? = null, cloudConsented: Boolean = false, sharedFacts: List<String> = emptyList()) {
         val id = nextId++
         add(Bubble(id, fromUser = false, text = "", streaming = true))
         mutable.update { it.copy(busy = true) }
         running = viewModelScope.launch {
             try {
-                session.send(text, device(), pinned, cloudConsented).collect { reduce(id, text, it) }
+                session.send(text, device(), pinned, cloudConsented, sharedFacts).collect { reduce(id, text, it) }
             } catch (e: CancellationException) {
                 edit(id) { it.copy(note = "Stopped") }
                 throw e
@@ -323,7 +330,7 @@ class ChatViewModel(
             }
             is AgentEvent.Escalated -> edit(id) { it.copy(tier = event.to, note = "Trying ${event.to.model}…") }
             is AgentEvent.ConsentNeeded -> mutable.update { state ->
-                state.copy(bubbles = state.bubbles.filterNot { it.id == id }, consentFor = text)
+                state.copy(bubbles = state.bubbles.filterNot { it.id == id }, consentFor = text, consentFacts = event.facts)
             }
             is AgentEvent.ToolStarted -> {
                 edit(id) { it.copy(text = "", note = activity(event.call.name)) }

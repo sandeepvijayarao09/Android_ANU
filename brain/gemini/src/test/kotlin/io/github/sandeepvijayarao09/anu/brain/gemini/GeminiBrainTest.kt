@@ -165,10 +165,31 @@ class GeminiBrainTest {
                 system = "You are Anu.",
                 transcript = listOf(ChatMessage.User("Book lunch")),
                 memory = "What you know about the user:\n- manager: Maya Chen",
+                relevant = "Facts from memory about this message:\n- Maya Chen · birthday: 12 March",
             ),
         ).toList()
         val body = server.takeRequest().body!!.utf8()
-        assertTrue(body, "Maya Chen" !in body && "What you know" !in body)
+        assertTrue(body, "Maya Chen" !in body && "What you know" !in body && "Facts from memory" !in body)
+        assertTrue(body, "Book lunch" in body)
+    }
+
+    @Test
+    fun `only the facts the user shared go, redacted, with the newest message`() = runBlocking {
+        server.enqueue(sse(text("ok", 5)))
+        brain.stream(
+            BrainRequest(
+                system = "You are Anu.",
+                transcript = listOf(ChatMessage.User("Gift ideas for my manager?")),
+                memory = "What you know about the user:\n- diet: vegan",
+                relevant = "Facts from memory about this message:\n- sister: Priya",
+                sharedFacts = listOf("manager: Maya Chen", "Maya Chen · email: maya@example.com"),
+            ),
+        ).toList()
+        val body = server.takeRequest().body!!.utf8()
+        assertTrue(body, "manager: Maya Chen" in body && "Gift ideas for my manager?" in body)
+        assertTrue(body, "maya@example.com" !in body)
+        assertTrue(body, "vegan" !in body && "Priya" !in body)
+        assertEquals("chat · 2 facts from memory", ledger.entries.value.last().purpose)
     }
 
     @Test

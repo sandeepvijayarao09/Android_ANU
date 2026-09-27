@@ -40,6 +40,18 @@ data class BrainRequest(
      * phone (§8.4, ADR-038).
      */
     val memory: String? = null,
+    /**
+     * Facts from memory that bear on the newest user message (§8.3, ADR-054), as a ready-to-read block.
+     * On-device brains show it with that message, like [sentAt], so the system prompt stays the same
+     * and the KV cache survives. Cloud brains never send it.
+     */
+    val relevant: String? = null,
+    /**
+     * The facts the user saw on the cloud consent sheet and chose to share for this request (ADR-054):
+     * only facts relevant to the message, never sensitive ones. Cloud brains send them with the newest
+     * message; the egress gate replaces personal details in them and the Privacy Ledger counts them (I3).
+     */
+    val sharedFacts: List<String> = emptyList(),
 ) {
     init {
         require(transcript.isNotEmpty()) { "transcript must not be empty" }
@@ -60,11 +72,27 @@ data class Sampling(val temperature: Double, val topP: Double, val topK: Int, va
 /** Index of the newest user message in [BrainRequest.transcript], the one [BrainRequest.sentAt] belongs to. */
 val BrainRequest.newestUserIndex: Int get() = transcript.indexOfLast { it is ChatMessage.User }
 
-/** The text a brain shows the model for the user message at [index]: the newest one starts with [BrainRequest.sentAt]. */
-fun BrainRequest.userText(index: Int): String {
+/**
+ * The text a brain shows the model for the user message at [index]. The newest one starts with
+ * [BrainRequest.sentAt], after [facts]: the [BrainRequest.relevant] block on the phone, the block of
+ * [BrainRequest.sharedFacts] in the cloud.
+ */
+fun BrainRequest.userText(index: Int, facts: String? = relevant): String {
     val text = (transcript[index] as ChatMessage.User).text
-    return if (sentAt != null && index == newestUserIndex) "[$sentAt] $text" else text
+    if (index != newestUserIndex) return text
+    val stamped = if (sentAt != null) "[$sentAt] $text" else text
+    return if (facts != null) "$facts\n\n$stamped" else stamped
 }
+
+/** Heads the facts shown with a message (ADR-054). */
+const val FACTS_HEADER = "Facts from memory about this message (the user's own data):"
+
+/** How facts from memory read with a message: the header, then one fact per line. Null for none. */
+fun factsBlock(facts: List<String>): String? =
+    if (facts.isEmpty()) null else (listOf(FACTS_HEADER) + facts.map { "- $it" }).joinToString("\n")
+
+/** A fact from memory that bears on a message (§8.3, ADR-054). A [sensitive] one never leaves the phone. */
+data class RelevantFact(val text: String, val sensitive: Boolean)
 
 /** The system instruction an on-device brain uses: [BrainRequest.system], then [BrainRequest.memory]. */
 val BrainRequest.onDeviceSystem: String?

@@ -3,6 +3,7 @@ package io.github.sandeepvijayarao09.anu.brain.gemini
 import io.github.sandeepvijayarao09.anu.core.model.BrainEvent
 import io.github.sandeepvijayarao09.anu.core.model.BrainRequest
 import io.github.sandeepvijayarao09.anu.core.model.ChatMessage
+import io.github.sandeepvijayarao09.anu.core.model.factsBlock
 import io.github.sandeepvijayarao09.anu.core.model.userText
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -21,7 +22,11 @@ import kotlinx.serialization.json.putJsonObject
  */
 internal object GeminiWire {
 
-    /** [BrainRequest.memory] is never sent: the profile stays on the phone (§8.4, ADR-038). */
+    /**
+     * [BrainRequest.memory] is never sent: the profile stays on the phone (§8.4, ADR-038). Neither is the
+     * on-device [BrainRequest.relevant] block. Only [BrainRequest.sharedFacts], which the user saw on the
+     * consent sheet and the egress gate has already redacted, go with the newest message (ADR-054).
+     */
     fun body(request: BrainRequest): JsonObject = buildJsonObject {
         request.system?.let { system ->
             putJsonObject("systemInstruction") { putJsonArray("parts") { addJsonObject { put("text", system) } } }
@@ -60,7 +65,7 @@ internal object GeminiWire {
     private fun content(request: BrainRequest, index: Int): JsonObject = when (val message = request.transcript[index]) {
         is ChatMessage.User -> buildJsonObject {
             put("role", "user")
-            putJsonArray("parts") { addJsonObject { put("text", request.userText(index)) } }
+            putJsonArray("parts") { addJsonObject { put("text", request.userText(index, facts = factsBlock(request.sharedFacts))) } }
         }
         is ChatMessage.Model -> buildJsonObject {
             put("role", "model")

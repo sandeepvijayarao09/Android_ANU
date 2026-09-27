@@ -1,6 +1,6 @@
 # Anu for Android: Architecture
 
-Version 1.13.0 · Draft · 2026-09-26
+Version 1.14.0 · Draft · 2026-09-26
 Status: proposed. OD-1 to OD-4 were resolved on 2026-09-25 (§16).
 Product intent lives in [VISION.md](VISION.md).
 
@@ -479,6 +479,11 @@ Untrusted content goes in clearly delimited data blocks. Budgets are set per tie
 
 **Memory (ADR-038).** The memory block is read fresh for every turn and goes to on-device brains only. It changes rarely during a chat, because learning runs after the user leaves the app (ADR-037), so the KV cache survives. Its header says it is kept up to date and wins over older messages in the chat, unless the user has just said otherwise. On the emulator, the model otherwise trusted an old "I'm vegetarian" over the user's own correction to "vegan".
 
+**Relevant facts (ADR-054).** Before every model call, the phone gathers the facts from memory that bear on the user's newest message, read after the one before it so a follow-up such as "and her birthday?" still finds the person (`Relevance` in `core:memory`, §8.3).
+- They ride with the newest message, like the time, never in the system prompt, and are never saved into the transcript. The engine compares the clean transcript, so the KV cache survives. On the emulator, "Where does my sister live?" carried 2 facts, and E4B answered "Your sister, Priya, lives in Pune".
+- On-device brains always see them. The cloud sees only the facts listed on the consent sheet that the user left included, never sensitive ones (§8.4, §12.2).
+- Debug builds log how many facts went with each turn, never the facts.
+
 **Time and tool hints (ADR-033).** The system prompt carries the date, never the time: the time goes with the newest user message, so the on-device KV cache survives between turns. Each tool hint is given only when its tool is offered. For example, "call `messages_reply` with the final text; it takes the chat's name or phone number" appears only with the messaging tools.
 
 **Extra tools per turn (ADR-046).** Besides the skill's tools, a turn gets the tools of MCP servers named in the user's last three messages: at most six, best matches first. A server's tools are fetched the first time they are needed and kept for its `ttlMs`, at most a day. With shopping tools, the prompt says that the user approves the order and pays on the store's site, and never to say an order is placed.
@@ -486,7 +491,7 @@ Untrusted content goes in clearly delimited data blocks. Budgets are set per tie
 #### Conversation window (ADR-040)
 
 The chat is one long conversation. The model sees only its newest part that fits the prompt budget. The whole chat stays saved and on screen.
-- **What counts.** The system prompt, the memory block, the definitions of the offered tools, the new message and the shown history.
+- **What counts.** The system prompt, the memory block, the relevant facts, the definitions of the offered tools, the new message and the shown history.
 - **Estimated, then calibrated (ADR-041).** Raw estimates are on the safe side: prose at 3.5 characters a token, and JSON (tool definitions, tool calls and results) at 2.5. After each on-device turn, the agent compares the raw estimate of exactly what was sent and generated with the runtime's own count (`getTokenCount()`).
   - The first ratio is taken as is. Later ones are smoothed in (0.3) and clamped (0.5–2.5). Turns under 200 tokens are skipped, because the template's markers dominate them.
   - Budgets multiply raw estimates by the ratio plus a 5% margin. The ratio is saved in the app's settings, so it survives restarts.
@@ -563,6 +568,7 @@ flowchart LR
 - Retrieval is hybrid: entity match, then vector similarity, then recency, within the context builder's budget.
 - **Vector search, v1:** int8 vectors stored in the database, with brute-force top-k over a candidate set pre-filtered by entity and time.
 - A dedicated vector index is adopted only if measured latency exceeds the budget.
+- **As built (ADR-054):** relevance per message, without vectors. People the message names (as a fact's subject or value), the user's relations it mentions, and shared topic words, with plurals and possessives matched. At most 8 facts, about 600 characters, the strongest matches first and then the most important.
 
 ### 8.4 User control and privacy
 
@@ -571,7 +577,7 @@ flowchart LR
   - lets the user confirm, edit or delete facts;
   - supports never-learn rules for a contact, a mail label, a messaging app or a topic.
 - **Deletion cascades (I5):** deleting a source re-evaluates everything derived from it.
-- **The profile never leaves the device by default.** Cloud requests receive only the minimal, policy-approved facts, and each one is ledgered (I3).
+- **The profile never leaves the device by default.** Cloud requests receive only the minimal, policy-approved facts, and each one is ledgered (I3). As built (ADR-054): only the facts relevant to the message, never sensitive ones, listed on the cloud consent sheet and sent only if the user leaves them included. The egress gate redacts them, and the ledger entry counts them ("chat · 2 facts from memory"). With no consent sheet, no facts go.
 
 ### 8.5 As built in Phase 3 (v1)
 
@@ -590,7 +596,7 @@ flowchart LR
   - A deleted fact leaves only a SHA-256 fingerprint of subject, relation and value, so it isn't learned again.
 - **Profile.** Each section is rendered from its facts, most important first: the user's own facts, then confidence, then recency. A new version is saved only when the text changes. Model-written summaries are Planned for nightly consolidation.
 - **When (ADR-037).** Never mid-chat. After the user leaves the app, if the battery isn't low; twice a day while charging; or "Learn now" in the Memory tab. A background run stops between messages if the user returns, and frees the model when done (P8).
-- **Retrieval v1.** The memory block holds the most important facts, grouped by section, within about 1,500 characters, for on-device brains only (ADR-038). `memory_search` finds facts by name or topic. Entity matching and vector search are Planned; vectors wait for spike S3.
+- **Retrieval v1.** The memory block holds the most important facts, grouped by section, within about 1,500 characters, for on-device brains only (ADR-038). Each message also carries the facts relevant to it (ADR-054, §7.3). `memory_search` finds facts by name or topic. Entity resolution and vector search are Planned; vectors wait for spike S3.
 - **Tools.** `memory_remember` (`WRITE_PRIVATE`: automatic unless the run is tainted), `memory_search` (READ), `memory_forget` (`DESTRUCTIVE`: the approval sheet lists the exact facts, and only those are deleted, even if memory changes in between).
 - **Memory tab.** Facts grouped by section, with search. A fact reads as its value with how it relates to the user ("Maya Chen", "Your manager"), or as a sentence when the relation is a verb ("Priya lives in Pune"). The user's own facts say "You said"; learned ones have a Confirm pill. Tapping a fact opens a sheet with the dated words it came from ("because of"). Controls: That's right, Correct, Delete, and Forget on a source message. Forgetting a message removes what came only from it and restores what it had replaced (I5). A fact the user confirmed survives, because the confirmation is also a source (I4).
 - **Planned:** entities with aliases and a link to contacts; episodes and nightly consolidation (dedupe, decay); never-learn rules; retention for event content; a memory eval (§15). Long chats are trimmed, with memory carrying what falls out (§7.3, ADR-040).
@@ -741,7 +747,7 @@ Outlook / Microsoft 365 is not in v1 (OD-2). The connector contract allows addin
 
 ### 12.2 Egress pipeline (the only path to the cloud, I3)
 
-The memory block is never part of a cloud request (ADR-038). A unit test checks that the Gemini request body never contains it.
+The memory block is never part of a cloud request (ADR-038), and neither is the on-device list of relevant facts. Only the facts the user left included on the consent sheet go (ADR-054): the egress gate redacts them like the rest of the request, counts their characters, and the ledger entry names how many. Unit tests check that the Gemini request body carries exactly those facts, redacted, and never the memory block.
 
 1. **Minimize:** include only the context the task needs.
 2. **Classify:** assign S-classes.
@@ -1058,6 +1064,7 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 | 051 | 2026-09-26 | The assistant card is its own floating window, exactly the card's size, with the system's cross-window blur behind it (`Window.setBackgroundBlurRadius`) under the `material` tint. The window manager dims the rest of the screen and closes the card on a tap outside. `WindowManager`'s blur listener switches the card to the opaque surface color whenever blurs are off. No window shadow | Only cross-window blur can blur another app (`RenderEffect` blurs only Anu's own drawing), and it covers the window's background shape, so a full-screen window would blur the whole screen. The system turns blurs off at any time, and the text must stay readable on a solid color then. On the emulator a window shadow moved the frosted card below its frame and showed no shadow, so the edge is a hairline instead |
 | 052 | 2026-09-26 | The sphere is an AGSL `RuntimeShader` on Android 13+. Each pixel's place on the disk gives a sphere's normal, lit by a key light from the upper left: the pearl's wrapped light and sheen, obsidian's crisp highlight, rim light and hairline, and an inner light the glass bends. While listening, waves move the surface normal, not the outline, so the highlight and inner light ripple with the voice. Android 12 keeps the gradient drawing. The Error state greys it for about 1.5 s after a turn fails, counted by the chat from zero each time a screen opens; declining the cloud, and a tier that fails before a stronger one answers, don't count. Animated values are read only while drawing | DESIGN.md asked for refraction and ripples, which gradients can't draw. A moving outline would read as a character; a moving surface stays an object. Counting failures from the screen's opening means old failures never flash, and only a turn that really failed does. Reading animations while drawing redraws each frame without recomposing |
 | 053 | 2026-09-26 | Edit on the approval sheet. Tools declare `editable` fields; saving an edit is a `Revised` decision that approves nothing. The broker refuses changes to other fields, checks the edit like the model's arguments, and asks again with the re-encoded payload, new summary, risk and destination, even when the new input would run without asking. The tool runs under the final payload's key; the result is also stored under the original key | I2 stays exact: the user approves the payload that will run, as the broker encodes it, never text the sheet assembled. Rechecking catches invalid edits and a change of risk, such as adding invitees. Identifiers and targets stay out of editing, so an edit can't redirect an action. A retry of the model's first call must not act twice |
+| 054 | 2026-09-26 | Personal context for every message. Before each model call, the phone picks the facts that bear on the message (people named, the user's relations, shared topics; vectors after S3). They ride with the newest message, never in the system prompt or the saved chat. On-device brains always see them. Gemini sees only the relevant, non-sensitive facts listed on the consent sheet, included by default and removable with one tap: exactly those go, through the egress gate, and the ledger counts them. With no consent sheet, no facts go. Amends ADR-038 | The user asked for prompt, then user context, then a personalized answer from either model. Riding with the message keeps the on-device KV cache, as the time does (ADR-033). §8.4 always meant the cloud to get only minimal, consented facts; showing the exact list keeps consent informed, and sensitive facts never leave. Names and topics miss implicit context, which is the cautious failure |
 
 ### Component status
 
@@ -1082,7 +1089,7 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 | Encrypted database (`core:data`): Room 2.8 + SQLCipher 4.19, key wrapping, transcript, ledger, audit, memory and connector stores; schema v4 | 1 | **Verified on the Anu emulator**: the encryption-at-rest and migration device tests pass (no plain header, no canary, wrong key refused; v1→v2, v2→v3 and v3→v4 keep data). Plus 12 JVM tests |
 | Persistence wired: chat history restored at launch, ledger persisted, vault activity shown in Settings | 1 | Implemented, with a ViewModel test for restore. Not yet run on a device |
 | App shell: Talk, Memory and Settings pages (ADR-043) | 1 | Implemented. Runs on the Anu emulator |
-| Chat UI (`feature:home`): streaming, the answering model's label, Retry with a stronger model, the cloud consent sheet, Stop, Markdown, long-chat line | 1 | Implemented. It runs end to end on the Anu emulator with E4B, and has 14 JVM tests. The cloud consent sheet isn't exercised on a device yet (needs a Gemini key) |
+| Chat UI (`feature:home`): streaming, the answering model's label, Retry with a stronger model, the cloud consent sheet (with the facts Gemini would see, ADR-054), Stop, Markdown, long-chat line | 1 | Implemented. It runs end to end on the Anu emulator with E4B, and has JVM tests, including sharing exactly the listed facts or none. The cloud consent sheet isn't exercised on a device yet (needs a Gemini key) |
 | Save the answering tier with each message (restored answers currently lose their badge) | 1 | Planned: schema v2 |
 | Open the database off the main thread (44–95 ms today) | 1 | Planned |
 | `ChatSession` (transcript as the truth, consent resend, take back last, stable prompt, skill replay, memory block, turns offered to memory) in `core:agent` | 1 | Implemented, with 12 unit tests |
@@ -1098,7 +1105,7 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 | AI Scheduling v1 (chat with calendar and contacts tools) | 2 | Implemented. Verified by hand on the emulator; no eval set yet (§15) |
 | AI Email v1: email skill detection, email tools plus contacts and calendar lookups, drafts and approval-gated sends | 2 | Implemented. Not yet run against a real mailbox (see the Gmail row) |
 | Tool audit and idempotency persistence (schema v2), Activity in Settings | 2 | Implemented. Migration test passes on the emulator |
-| Memory pipeline v1 (`core:memory`): capture, on-device extraction, reconcile, versioned profile, memory block, memory tools, background learning (ADR-036 to ADR-039) | 3 | Implemented. 19 JVM tests, 2 Robolectric tests on the real schema, and a v2→v3 migration device test. Verified by hand on the Anu emulator with E4B: learning after leaving the app, use in chat, corrections, remember and approval-gated forget. No memory eval yet (§15), so not Verified |
+| Memory pipeline v1 (`core:memory`): capture, on-device extraction, reconcile, versioned profile, memory block, relevant facts per message (ADR-054), memory tools, background learning (ADR-036 to ADR-039) | 3 | Implemented. 19 JVM tests, 2 Robolectric tests on the real schema, and a v2→v3 migration device test. Verified by hand on the Anu emulator with E4B: learning after leaving the app, use in chat, corrections, remember and approval-gated forget. No memory eval yet (§15), so not Verified Relevant facts: 4 JVM tests for the picker, plus chat, egress and Gemini tests; on the emulator, a question about "my sister" carried 2 facts and E4B answered from them |
 | Memory Inspector (`feature:memory`): facts grouped by section with search, "You said" or a Confirm pill, a sheet per fact with its dated sources, That's right, Correct, Delete, Forget a message, Learn now, and Add (the user's own words, read by the on-device model and kept as theirs) | 3 | Implemented. 7 JVM tests for how facts read and match search; Add has 2. The redesigned tab was checked on anu_api36 in light and dark: search, a fact's sheet, and the Add sheet |
 | Memory, later: entities and aliases, episodes, nightly consolidation, vector retrieval (S3), never-learn rules, learning from connectors, retention, memory eval | 3 | Planned |
 | AI Writing everywhere (`feature:writing`, `WritingActivity`): six actions and custom instructions, Replace or Copy (ADR-042) | 3 | Implemented. 10 JVM tests. Verified by hand on the Anu emulator through the real text-selection menu in Settings. No writing eval yet (§15) |
@@ -1114,6 +1121,11 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 | Hardening, release readiness | 5 | Planned |
 
 ### Changelog
+
+- **1.14.0** (2026-09-26): personal context for every message (ADR-054).
+  - Before each model call, the phone gathers the facts relevant to the message: people named, the user's relations, shared topics (`Relevance`). They ride with the message, so the KV cache survives, and are never saved into the chat.
+  - Gemini gets only the relevant, non-sensitive facts listed on the consent sheet, included by default with one tap to leave them out. The egress gate redacts them, and the Privacy report says how many went.
+  - Debug builds log the number of relevant facts per turn.
 
 - **1.13.0** (2026-09-26): Edit on the approval sheet (ADR-053).
   - Tools declare `editable` fields; the sheet turns them into a form. Saving is a `Revised` decision, which approves nothing: the broker checks the edit like the model's arguments and asks again with exactly what will run (I2).

@@ -49,13 +49,16 @@ class EgressGate(private val ledger: PrivacyLedger, private val clock: () -> Ins
         val redacted = request.copy(
             system = request.system?.let(session::redact),
             transcript = request.transcript.map { it.redactWith(session) },
+            // Facts the user chose to share on the consent sheet leave too, so they pass the same way (ADR-054).
+            sharedFacts = request.sharedFacts.map(session::redact),
         )
         val found = session.counts.keys.mapTo(mutableSetOf()) { it.dataClass }
+        val facts = request.sharedFacts.size
         ledger.record(
             LedgerEntry(
                 at = clock(),
                 destination = destination,
-                purpose = request.purpose,
+                purpose = request.purpose + if (facts == 0) "" else " · $facts ${if (facts == 1) "fact" else "facts"} from memory",
                 dataClasses = request.dataClasses + found,
                 redacted = session.counts,
                 characters = redacted.characterCount(),
@@ -73,7 +76,7 @@ class EgressGate(private val ledger: PrivacyLedger, private val clock: () -> Ins
         is ChatMessage.Tool -> ChatMessage.Tool(results.map { it.copy(result = session.redact(it.result)) })
     }
 
-    private fun BrainRequest.characterCount(): Int = (system?.length ?: 0) + transcript.sumOf { message ->
+    private fun BrainRequest.characterCount(): Int = (system?.length ?: 0) + sharedFacts.sumOf { it.length } + transcript.sumOf { message ->
         when (message) {
             is ChatMessage.User -> message.text.length
             is ChatMessage.Model -> message.text.length + message.toolCalls.sumOf { it.arguments.toString().length }
