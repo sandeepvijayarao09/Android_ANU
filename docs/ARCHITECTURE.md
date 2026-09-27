@@ -1,6 +1,6 @@
 # Anu for Android: Architecture
 
-Version 1.16.0 · Draft · 2026-09-27
+Version 1.17.0 · Draft · 2026-09-27
 Status: proposed. OD-1 to OD-4 were resolved on 2026-09-25 (§16).
 Product intent lives in [VISION.md](VISION.md).
 
@@ -485,7 +485,7 @@ Untrusted content goes in clearly delimited data blocks. Budgets are set per tie
 - On-device brains always see them. The cloud sees only the facts listed on the consent sheet that the user left included, never sensitive ones (§8.4, §12.2).
 - Debug builds log how many facts went with each turn, never the facts.
 
-**Time and tool hints (ADR-033).** The system prompt carries the date, never the time: the time goes with the newest user message, so the on-device KV cache survives between turns. Each tool hint is given only when its tool is offered. For example, "call `messages_reply` with the final text; it takes the chat's name or phone number" appears only with the messaging tools.
+**Time and tool hints (ADR-033).** The system prompt carries the date, never the time: the time goes with the newest user message, so the on-device KV cache survives between turns. The prompt says that message may start with facts from memory, then the time in brackets, and that neither is to be repeated (ADR-058). Each tool hint is given only when its tool is offered. For example, "call `messages_reply` with the final text; it takes the chat's name or phone number" appears only with the messaging tools.
 
 **Extra tools per turn (ADR-046).** Besides the skill's tools, a turn gets the tools of MCP servers named in the user's last three messages: at most six, best matches first. A server's tools are fetched the first time they are needed and kept for its `ttlMs`, at most a day. With shopping tools, the prompt says that the user approves the order and pays on the store's site, and never to say an order is placed.
 
@@ -512,6 +512,8 @@ The chat is one long conversation. The model sees only its newest part that fits
   - If it still claims, the request escalates.
   - If no tier is left, the answer is shown marked "not actually done".
   - This was found on the emulator: E4B claimed it had created an invite that it never requested. The broker had correctly stopped nothing, because nothing was asked for, but the chat still showed a false claim.
+- **Answers never quote the message's framing (ADR-058).** An answer that contains the newest message's send time in brackets, or the facts header, is discarded and written again once with greedy sampling. If the retry quotes them too, they are cut from it, rather than escalating the chat to the cloud over wording.
+  - This was found on the emulator. At temperature 1.0, E4B once answered "Also, you mentioned: "[Sun 2026-09-27 01:32] Plan a dinner for tonight."" In 36 samples on the same model and a similar chat it never did, so the echo is rare. A check can be proven; wording alone can't.
 - **Every answer shows its real actions.** The chat lists, under each answer, what the broker actually did: done, declined, or failed. Each line uses the tool's own summary, never the model's words. The user sees the truth whatever the model writes.
 
 ### 7.5 Proactive agents
@@ -1101,6 +1103,7 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 | 055 | 2026-09-26 | Search by meaning with EmbeddingGemma 300M (mixed precision, 512 tokens, CPU), run through the AI Edge RAG library's `GemmaEmbeddingModel`, since LiteRT-LM's `EmbeddingEngine` needs a `.litertlm` bundle that exists only for the Tensor G4 NPU. Only the library's Gemma embedder is used and packaged. Facts get 256-value vectors in the encrypted database, made after every change; a message counts a fact by shared words or by closeness in meaning. The model is gated on Hugging Face, so the owner downloads it and installs it from a computer | The user chose EmbeddingGemma for quality and size over an ungated, larger model. Word matching misses implicit context ("plan dinner" and a vegetarian diet). Vectors are derived from facts, so they get the same protection and are deleted with them. Excluding the library's other parts keeps about 70 MB of unused native code and a duplicate network stack out of the app |
 | 056 | 2026-09-26 | S3's rule for search by meaning. A fact counts by meaning if it is at least 0.37 close and stands out from the message's other facts by 1.25 standard deviations, or by closeness alone when there are fewer than 5 facts. Messages without meaningful words skip the search, and greetings and numbers under 100 don't count as words. Relevant facts read the newest message on its own, and the one before only when the newest points back to someone it doesn't name ("her", "them"). Amends ADR-054 | Measured on the emulator, raw closeness overlaps between right facts, unrelated ones and small talk, and some facts are close to everything, so a cut-off alone lets small talk through. Together, the two tests found 11 of 12 facts with no small talk. Reading two messages together carried the last topic into the next: "a gift for Maya in Pune" |
 | 057 | 2026-09-27 | The user's own statement brings back a fact they deleted or corrected: Memory → Add or "Remember that…" clears its fingerprint and keeps the fact. Learning from chat still never brings it back. Amends ADR-039 | On the emulator, Add said "Anu didn't find anything to remember" for "I'm vegetarian" and "I'm vegan", though E4B extracted both. Their fingerprints, from an earlier correction and deletion, blocked them, and "Remember that…" would have failed. The fingerprint exists to stop Anu relearning from chat what the user took back, not to overrule the user (P5) |
+| 058 | 2026-09-27 | An answer that quotes the newest message's framing (its send time in brackets, or the facts header) is invalid output: it is written again once with greedy sampling, and cut if it still quotes it. The system prompt now says the message may start with facts, then the time, and that neither is repeated | On the emulator, E4B at temperature 1.0 answered with "[Sun 2026-09-27 01:32] Plan a dinner for tonight" quoted back. The framing has to stay in the message for the KV cache (ADR-033, ADR-054), and the echo was too rare to reproduce (0 of 36), so only a check is provable. The old note said the message starts with the time, which stopped being true with ADR-054. Escalating to the cloud over wording would send the chat out for nothing |
 
 ### Component status
 
@@ -1134,7 +1137,7 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 | Token calibration (`TokenCalibration`, `TokenSample`): runtime counts against raw estimates, separate prose and JSON rates, saved across restarts (ADR-041) | 3 | Implemented, with 4 unit tests plus agent and chat tests. Measured on the Anu emulator with E4B; the reference phone's numbers are still to come |
 | Settings UI (`feature:settings`): voice (the assistant, "Hey Anu"), connections with privacy dots (calendar and contacts, messaging apps, SMS in `personal`, Gmail, services, stores), models (with delete confirmation), the Gemini key into the vault, Activity, Vault activity, and the Privacy report (ADR-050) | 1 | Implemented. 9 JVM tests for the records (periods, seven-day counts, wording). Every page and sheet checked on anu_api36 in light and dark, including Try again against the mock MCP server |
 | App wiring (`AppGraph`, device state, no-backup rules) | 1 | Implemented; lint clean (two warnings: newer Gradle available, no app icon yet) |
-| Agent loop, Tool Broker, approvals, taint, claim check (`core:agent`) | 2 | Implemented. JVM tests (19 for the broker, 6 of them for Edit), and works end to end on the Anu emulator with E4B: lookups, free slots, an approval-gated invite, and an MCP note fixed with Edit, where the mock server received exactly the edited text |
+| Agent loop, Tool Broker, approvals, taint, claim check, framing check (`core:agent`) | 2 | Implemented. JVM tests (19 for the broker, 6 of them for Edit; 2 agent tests and a model test for the framing check, ADR-058), and works end to end on the Anu emulator with E4B: lookups, free slots, an approval-gated invite, and an MCP note fixed with Edit, where the mock server received exactly the edited text |
 | Connectors: calendar, contacts | 2 | Implemented. JVM tests, plus provider tests on the Anu emulator (real `CalendarContract` and `ContactsContract`) |
 | Gmail connector (`connector:gmail`): search, thread, draft, send; host-bound tokens; MIME writer; ledgered egress | 2 | Implemented. 8 JVM tests (fake server). On the emulator the Connect button starts Google's own consent flow, and cancelling is handled. **Live Gmail untested:** it needs the owner's one-time Google Cloud setup ([GMAIL_SETUP.md](GMAIL_SETUP.md)) and their Google account on the device |
 | Connectors: messages (notifications), SMS (`personal`) | 2 | **Verified on the Anu emulator** with E4B and Google Messages: reading a real SMS from its notification, an approved reply sent through the notification's reply button (confirmed in the SMS provider), a declined reply that sent nothing, SMS search, and code masking. 4 instrumented tests and 10 JVM tests. WhatsApp and Telegram are untested (S5) |
@@ -1158,6 +1161,10 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 | Hardening, release readiness | 5 | Planned |
 
 ### Changelog
+
+- **1.17.0** (2026-09-27): answers never quote the message's framing (ADR-058).
+  - An answer that quotes the newest message's send time in brackets, or the facts header, is written again once with greedy sampling, and the framing is cut if the retry quotes it too.
+  - The system prompt now says the newest message may start with facts from memory, then the time, and that neither is to be repeated.
 
 - **1.16.0** (2026-09-27): the user's own word brings back a deleted fact (ADR-057).
   - Memory → Add and "Remember that…" clear the fingerprint a deletion or correction left, and keep the fact. Learning from chat still never brings it back.

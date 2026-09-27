@@ -84,6 +84,19 @@ fun BrainRequest.userText(index: Int, facts: String? = relevant): String {
     return if (facts != null) "$facts\n\n$stamped" else stamped
 }
 
+/**
+ * Whether [answer] quotes the framing [userText] adds to the newest message: its send time in brackets,
+ * or the facts header (ADR-058). A sampled model sometimes copies it; such an answer is invalid output.
+ */
+fun BrainRequest.echoesFraming(answer: String): Boolean = sentAt != null && "[$sentAt]" in answer || FACTS_HEADER in answer
+
+/** [answer] without the framing it quoted, for an answer that still quotes it after a retry. */
+fun BrainRequest.withoutFraming(answer: String): String {
+    var out = answer.replace(FACTS_HEADER, "")
+    if (sentAt != null) out = out.replace("[$sentAt] ", "").replace("[$sentAt]", "")
+    return out.trim()
+}
+
 /** Heads the facts shown with a message (ADR-054). */
 const val FACTS_HEADER = "Facts from memory about this message (the user's own data):"
 

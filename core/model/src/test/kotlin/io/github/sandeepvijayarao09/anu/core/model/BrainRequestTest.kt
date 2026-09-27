@@ -2,7 +2,9 @@ package io.github.sandeepvijayarao09.anu.core.model
 
 import kotlinx.serialization.json.JsonObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class BrainRequestTest {
@@ -46,5 +48,16 @@ class BrainRequestTest {
         assertEquals("[Sat 2026-09-26 12:00] For Maya's birthday", request.userText(2, facts = null))
         assertEquals("$FACTS_HEADER\n- a\n- b", factsBlock(listOf("a", "b")))
         assertEquals(null, factsBlock(emptyList()))
+    }
+
+    @Test
+    fun `an answer that quotes the framing is spotted, and the framing can be cut from it`() {
+        val request = BrainRequest(transcript = listOf(ChatMessage.User("Plan a dinner")), sentAt = "Sun 2026-09-27 01:32")
+        assertTrue(request.echoesFraming("You mentioned: \"[Sun 2026-09-27 01:32] Plan a dinner.\""))
+        assertTrue(request.echoesFraming("$FACTS_HEADER diet: vegetarian"))
+        assertFalse("the date alone is fine", request.echoesFraming("It's Sun 2026-09-27 01:32 now."))
+        assertFalse(request.copy(sentAt = null).echoesFraming("[Sun 2026-09-27 01:32] Plan a dinner"))
+        assertEquals("Plan a dinner: try a risotto.", request.withoutFraming("[Sun 2026-09-27 01:32] Plan a dinner: try a risotto."))
+        assertEquals("diet: vegetarian. Try a risotto.", request.withoutFraming("$FACTS_HEADER diet: vegetarian. Try a risotto."))
     }
 }

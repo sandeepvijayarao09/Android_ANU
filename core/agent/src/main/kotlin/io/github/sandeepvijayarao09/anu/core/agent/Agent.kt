@@ -5,10 +5,12 @@ import io.github.sandeepvijayarao09.anu.core.model.BrainEvent
 import io.github.sandeepvijayarao09.anu.core.model.BrainLocation
 import io.github.sandeepvijayarao09.anu.core.model.BrainRequest
 import io.github.sandeepvijayarao09.anu.core.model.ChatMessage
+import io.github.sandeepvijayarao09.anu.core.model.echoesFraming
 import io.github.sandeepvijayarao09.anu.core.model.Sampling
 import io.github.sandeepvijayarao09.anu.core.model.ToolCall
 import io.github.sandeepvijayarao09.anu.core.model.ToolSpec
 import io.github.sandeepvijayarao09.anu.core.model.ToolResult
+import io.github.sandeepvijayarao09.anu.core.model.withoutFraming
 import io.github.sandeepvijayarao09.anu.core.router.Consent
 import io.github.sandeepvijayarao09.anu.core.router.DeviceState
 import io.github.sandeepvijayarao09.anu.core.router.RouteDecision
@@ -215,6 +217,18 @@ class Agent(
                         return@flow
                     }
                     continue
+                }
+                if (request.echoesFraming(text.toString())) {
+                    // The model quoted the time or the facts it was given with the message (ADR-058). Write the
+                    // answer again once; if it still quotes them, cut them rather than send the chat to the cloud.
+                    if (!repaired) {
+                        emit(AgentEvent.Discarded(decision.tier, "quoted the message's framing"))
+                        repaired = true
+                        continue
+                    }
+                    val cleaned = request.withoutFraming(text.toString())
+                    text.setLength(0)
+                    text.append(cleaned)
                 }
                 // An answer may only claim what the broker recorded (ADR-027).
                 val wroteSomething = actions.any { it.wrote && it.status == ActionRecord.Status.DONE }

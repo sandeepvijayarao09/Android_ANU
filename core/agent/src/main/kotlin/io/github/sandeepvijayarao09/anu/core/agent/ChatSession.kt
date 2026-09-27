@@ -168,7 +168,8 @@ class ChatSession(
         // model re-read the whole conversation on every turn. The time goes with the message (ADR-018).
         val now = clock()
         append("\n\nToday: ").append(TODAY.format(now)).append(" (").append(now.zone.id).append(").")
-        append(" The user's newest message starts with the local time they sent it, in brackets.")
+        append(" The user's newest message may start with facts from memory about it, then the local time they sent it, in brackets.")
+        append(" Both are for you: never repeat the time or quote the facts.")
         if (trimmed) append(" This chat is long, so its oldest messages are left out here. If you need something from earlier, ask the user.")
         if (tools.isNotEmpty()) {
             // Small models are poor at date arithmetic, so give them the dates (§7.3).
