@@ -1,10 +1,12 @@
 package io.github.sandeepvijayarao09.anu.brain.litertlm
 
+import android.app.ActivityManager
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
 import android.content.pm.ServiceInfo
 import android.os.Build
+import android.os.SystemClock
 import androidx.core.app.NotificationCompat
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
@@ -26,6 +28,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import okhttp3.OkHttpClient
 import java.io.File
+import kotlin.math.roundToInt
 
 /**
  * Finds, downloads and configures the on-device models (ARCHITECTURE §5).
@@ -49,7 +52,14 @@ class ModelManager(
         return File(modelsDir, artifact.fileName).takeIf { it.length() == artifact.sizeBytes }
     }
 
-    override fun info(id: BrainId): ModelInfo = artifactFor(id).let { ModelInfo(id, it.fileName, it.sizeBytes, it.variant.name, it.cacheBytes) }
+    override fun info(id: BrainId): ModelInfo =
+        artifactFor(id).let { ModelInfo(id, it.fileName, it.sizeBytes, it.variant.name, it.cacheBytes, ModelCatalog.minMemoryGb(id)) }
+
+    override val deviceMemoryGb: Int by lazy {
+        val memory = ActivityManager.MemoryInfo().also { context.getSystemService(ActivityManager::class.java).getMemoryInfo(it) }
+        val advertised = if (Build.VERSION.SDK_INT >= 34) memory.advertisedMem else 0
+        memoryGb(memory.totalMem, advertised)
+    }
 
     override fun isInstalled(id: BrainId): Boolean = installedFile(id) != null
 
@@ -63,7 +73,11 @@ class ModelManager(
                 info == null -> ModelState.NotInstalled
                 info.state == WorkInfo.State.FAILED -> ModelState.Failed(info.outputData.getString(KEY_ERROR) ?: "download failed")
                 info.state.isFinished -> ModelState.NotInstalled
-                else -> ModelState.Downloading(info.progress.getLong(KEY_DONE, 0), info.progress.getLong(KEY_TOTAL, artifactFor(id).sizeBytes))
+                else -> ModelState.Downloading(
+                    info.progress.getLong(KEY_DONE, 0),
+                    info.progress.getLong(KEY_TOTAL, artifactFor(id).sizeBytes),
+                    info.progress.getLong(KEY_RATE, 0),
+                )
             }
         }
 
@@ -93,6 +107,9 @@ class ModelManager(
         )
     }
 
+    /** Runtime options for [brain]: the runtime's counters when [benchmark] is set, for the debug speed log. */
+    fun engineOptions(brain: BrainId, benchmark: Boolean): EngineOptions = EngineOptions(benchmark = benchmark)
+
     private fun backendFor(variant: ModelVariant): Backend = when (variant) {
         ModelVariant.CPU -> Backend.CPU()
         ModelVariant.GPU -> Backend.GPU()
@@ -104,6 +121,7 @@ class ModelManager(
         const val KEY_FILE = "file"
         const val KEY_DONE = "done"
         const val KEY_TOTAL = "total"
+        const val KEY_RATE = "rate"
         const val KEY_ERROR = "error"
 
         fun workName(artifact: ModelArtifact) = "model-download-${artifact.fileName}"
@@ -118,6 +136,20 @@ class ModelManager(
             Build.HARDWARE == "ranchu" || Build.HARDWARE == "goldfish" || Build.PRODUCT.startsWith("sdk_gphone")
 
         fun modelsDir(context: Context) = File(context.noBackupFilesDir, "models")
+
+        /**
+         * The phone's memory in GB as it's sold (ADR-066). Android 14 reports that as [advertised], a little more than
+         * the [total] the system can use: 16 GiB on the Pixel 10 Pro, which has 15.2 GiB to use. Devices give it in
+         * binary or decimal units, and it's trusted only when it's close to the total: the 10 GB emulator claims
+         * 16,000,000,000 bytes. Otherwise the total counts, in GiB.
+         */
+        fun memoryGb(total: Long, advertised: Long): Int = when {
+            advertised <= 0 || advertised > total * 1.25 -> (total / GIB).roundToInt()
+            advertised % GIB.toLong() == 0L -> (advertised / GIB).roundToInt()
+            else -> (advertised / 1e9).roundToInt()
+        }
+
+        private const val GIB = 1024.0 * 1024 * 1024
     }
 }
 
@@ -146,12 +178,15 @@ class ModelDownloadWorker(context: Context, params: WorkerParameters) : Coroutin
             ?: return Result.failure(workDataOf(ModelManager.KEY_ERROR to "unknown model file"))
         setForeground(foregroundInfo(artifact, 0))
         var lastPercent = -1
+        val started = SystemClock.elapsedRealtime()
+        var from = -1L
         return try {
             ResumableDownload(OkHttpClient()).run(artifact, File(ModelManager.modelsDir(applicationContext), artifact.fileName)) { done, total ->
+                if (from < 0) from = done
                 val percent = (done * 100 / total).toInt()
                 if (percent != lastPercent) {
                     lastPercent = percent
-                    setProgressAsync(workDataOf(ModelManager.KEY_DONE to done, ModelManager.KEY_TOTAL to total))
+                    setProgressAsync(workDataOf(ModelManager.KEY_DONE to done, ModelManager.KEY_TOTAL to total, ModelManager.KEY_RATE to rate(done - from, started)))
                     setForegroundAsync(foregroundInfo(artifact, percent))
                 }
             }
@@ -161,6 +196,12 @@ class ModelDownloadWorker(context: Context, params: WorkerParameters) : Coroutin
         } catch (e: java.io.IOException) {
             Result.retry()
         }
+    }
+
+    /** The average since this run started, once there are two seconds to go on, so the first figure isn't a guess. */
+    private fun rate(bytes: Long, started: Long): Long {
+        val seconds = (SystemClock.elapsedRealtime() - started) / 1000.0
+        return if (seconds < 2) 0 else (bytes / seconds).toLong()
     }
 
     private fun foregroundInfo(artifact: ModelArtifact, percent: Int): ForegroundInfo {

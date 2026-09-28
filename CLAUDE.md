@@ -59,6 +59,10 @@ export JAVA_HOME=/opt/homebrew/opt/openjdk@21
 - Optional runner arguments:
   - `-Pandroid.testInstrumentationRunnerArguments.backend=GPU` (or `GOOGLE_TENSOR`)
   - `...modelPath=/data/local/tmp/anu/models/<file>.litertlm`
+  - `...speculative=on` (or `off`) for the brain and extraction tests' engines; unset keeps the runtime's default (ADR-069).
+  - `S1BenchmarkTest#measuresSpeculativeDecoding` compares the runtime's default, off and on; `...modes=on+off` picks the runs and their order.
+- Run one test method per command: a `class=` list with a comma ran only its first test.
+- AGP saves the device's whole logcat for each test under `build/outputs/androidTest-results/`. On the phone that includes other apps' logs, so read only the `AnuS1` or `AnuS3` lines from it.
 - These tests skip themselves when the model is missing.
 - The encryption-at-rest check needs no model: `./gradlew :core:data:connectedDebugAndroidTest`.
 - Changing an entity? Bump the `AnuDatabase` version, add a migration, and commit the new schema JSON in `core/data/schemas`.
@@ -67,9 +71,10 @@ export JAVA_HOME=/opt/homebrew/opt/openjdk@21
   - Start it with `emulator -avd anu_api36 -no-snapshot`.
   - Its serial changes between runs. Check with `adb -s <serial> emu avd name`.
   - Emulators use the CPU model files (ADR-025), and so do phones until their chip's GPU passes S1 (ADR-059).
-- **The reference phone is a Pixel 10 Pro** (Tensor G5, Android 17, arm64); find its serial with `adb devices -l`. Spike S3's model files are in its `/data/local/tmp/anu/models/`, so `ANDROID_SERIAL=<serial> ./gradlew :brain:embedding:connectedDebugAndroidTest` runs there as is. Ask before installing the app or large models on it. The calendar, contacts and messages device tests write into real data, so run them on `anu_api36` only.
+- **The reference phone is a Pixel 10 Pro** (Tensor G5, Android 17, arm64); find its serial with `adb devices -l`. Spike S3's model files are in its `/data/local/tmp/anu/models/`, so `ANDROID_SERIAL=<serial> ./gradlew :brain:embedding:connectedDebugAndroidTest` runs there as is. Ask before installing the app or large models on it, and that includes copying a model into its `/data/local/tmp` for a test, even from Anu's own storage there. Before a heavy test, check that it's idle: `adb shell dumpsys power | grep lastUserActivityTime`. The calendar, contacts and messages device tests write into real data, so run them on `anu_api36` only.
 - **Installing a local model into the app** (debug builds only, no download): `scripts/dev-install-model.sh <serial> <file.litertlm>`. It checks the SHA-256 against `ModelCatalog` first.
 - **Search by meaning (ADR-055)** needs EmbeddingGemma's two files, which only the owner can download (the Hugging Face repo is gated). Install each with the same script: `scripts/dev-install-model.sh <serial> ~/Downloads/embeddinggemma-300M_seq256_mixed-precision.tflite`, then `… ~/Downloads/sentencepiece.model` (ADR-062 moved from the 512-token file). Settings → Models shows it as installed; facts get their vectors when the app starts, after a change to memory, or when you leave the app.
+  - On the device itself, Settings → Models → Choose a file installs either file from its storage, such as its Downloads folder (ADR-067). The name doesn't matter; the bytes must match the catalog. To try it on the emulator, `adb push` a file to `/sdcard/Download/`.
   - Its eval (spike S3) needs the files in `/data/local/tmp/anu/models/` too: `adb push` both, then `ANDROID_SERIAL=<serial> ./gradlew :brain:embedding:connectedDebugAndroidTest` and `adb logcat -d -s AnuS3`. It skips itself without them.
   - Keep the emulator's window in front while timing: behind other windows the Mac runs it about 4× slower.
   - In the app, `adb logcat -s Anu:D` shows `Relevant facts: N in X ms, search by meaning on, I of M facts indexed` for each message.
@@ -88,6 +93,7 @@ export JAVA_HOME=/opt/homebrew/opt/openjdk@21
   - To see what the model extracts, run `ANDROID_SERIAL=<serial> ./gradlew :brain:litertlm:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=io.github.sandeepvijayarao09.anu.brain.litertlm.MemoryExtractionTest`, then `adb logcat -d -s AnuS1`. It needs the E4B file in `/data/local/tmp/anu/models/`.
 - **Writing on the emulator:** the real path is long-press text in any app's text field, then ⋮, then "Anu". The system Settings search box works without any account. To open the sheet directly: `adb shell "am start -n io.github.sandeepvijayarao09.anu.personal/io.github.sandeepvijayarao09.anu.WritingActivity -a android.intent.action.PROCESS_TEXT -t text/plain --es android.intent.extra.PROCESS_TEXT 'some text'"`. Don't sign into or set up other apps (such as Google Messages' first-run screen) to test it.
 - **Context and tokens:** debug builds log each turn's window and token sizes, never content: `adb logcat -s Anu:D` shows `Context: from message X of N, ~T of B tokens, F relevant facts, scale S · last turn estimated E, runtime counted C`. F is how many facts from memory went with the message (ADR-054). The learned ratio is kept in the app's settings (`token_ratio`); clearing app data resets it.
+  - Each on-device turn also logs its speed from the runtime's own counters (ADR-068): `Speed: Pro on CPU read R tokens at … tok/s, first token after … ms, wrote W at … tok/s`.
 - **Debugging a stuck turn:** the app is debuggable, so `adb forward tcp:8711 jdwp:<pid>` and `jdb` can print the pending approvals. Don't hold a breakpoint on the main thread while touching the screen: the ANR dialog that follows keeps coming back until the app restarts.
 - **Resetting the chat without re-copying the model:** `adb shell run-as io.github.sandeepvijayarao09.anu.personal rm -rf no_backup/db`, with the app stopped.
 - **Anu as the assistant on `anu_api36`** (development shortcut, Anu's emulator only): `adb shell cmd role add-role-holder android.app.role.ASSISTANT io.github.sandeepvijayarao09.anu.personal`. Open it with `adb shell input keyevent KEYCODE_ASSIST`; `cmd voiceinteraction show` needs a system permission.

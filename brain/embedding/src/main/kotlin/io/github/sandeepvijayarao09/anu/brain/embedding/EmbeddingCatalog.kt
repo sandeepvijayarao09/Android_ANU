@@ -3,9 +3,9 @@ package io.github.sandeepvijayarao09.anu.brain.embedding
 /**
  * The search-by-meaning model (ADR-055): EmbeddingGemma 300M, mixed precision, 256 tokens, for the CPU. Messages
  * and facts are short, and a query always fills its token window, so 256 tokens halve the work of 512 (ADR-062).
- * Its Hugging Face repo is gated, so the user downloads it after accepting the Gemma terms, and it is
- * installed from their computer: scripts/dev-install-model.sh checks these hashes first. Each file's name,
- * size and hash stay on one line, which is how the script finds them.
+ * Its Hugging Face repo is gated, so the user downloads it after accepting the Gemma terms, then installs it in
+ * Settings → Models → Choose a file (ADR-067), or from a computer with scripts/dev-install-model.sh. Both check
+ * these hashes first. Each file's name, size and hash stay on one line, which is how the script finds them.
  */
 object EmbeddingCatalog {
     data class Artifact(val name: String, val bytes: Long, val sha256: String)

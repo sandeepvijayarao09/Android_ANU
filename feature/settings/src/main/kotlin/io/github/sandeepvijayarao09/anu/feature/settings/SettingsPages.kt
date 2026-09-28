@@ -1,6 +1,8 @@
 package io.github.sandeepvijayarao09.anu.feature.settings
 
 import android.Manifest
+import android.net.Uri
+import android.provider.OpenableColumns
 import android.text.format.DateFormat
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -278,10 +280,14 @@ private fun AddStoreSheet(onDismiss: () -> Unit, onAdd: (String) -> Unit) {
     }
 }
 
-/** The on-device models (§5): download, progress, and delete. Answers from them never leave the phone. */
+/**
+ * The on-device models (§5): download, progress, and delete, and installing a file the user already has (ADR-067).
+ * Answers from them never leave the phone.
+ */
 @Composable
 internal fun ModelsPage(viewModel: SettingsViewModel, sentToday: Int, onOpenPrivacy: () -> Unit, onBack: () -> Unit) {
     val rows by viewModel.modelRows.collectAsStateWithLifecycle()
+    val message by viewModel.message.collectAsStateWithLifecycle()
     LifecycleResumeEffect(Unit) {
         viewModel.refreshModels()
         onPauseOrDispose {}
@@ -289,6 +295,7 @@ internal fun ModelsPage(viewModel: SettingsViewModel, sentToday: Int, onOpenPriv
     // Downloads show progress in a notification; they still run if the user declines this.
     val notifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
     AnuPage("Models", sentToday, onOpenPrivacy, back = BACK, onBack = onBack, subtitle = "Gemma runs on this phone, so its answers never leave it.") {
+        message?.let { text -> item(key = "message") { Notice(text, viewModel::dismissMessage) } }
         item(key = "models") {
             Column {
                 SectionHeader("On this phone")
@@ -312,12 +319,58 @@ internal fun ModelsPage(viewModel: SettingsViewModel, sentToday: Int, onOpenPriv
             }
         }
         item(key = "search") { SearchByMeaningGroup(viewModel) }
+        if (viewModel.canInstallFiles) item(key = "file") { InstallFromFileGroup(viewModel) }
+    }
+}
+
+/**
+ * Installs a model file that's already on the phone, such as one downloaded in the browser (ADR-067). The system's
+ * file picker hands over only the file the user chooses, and Anu keeps it only if it matches a file it knows.
+ */
+@Composable
+private fun InstallFromFileGroup(viewModel: SettingsViewModel) {
+    val installing by viewModel.installing.collectAsStateWithLifecycle()
+    val resolver = LocalContext.current.contentResolver
+    // Model files have no standard type, so the picker shows every file.
+    val pick = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
+        if (uri != null) {
+            val size = resolver.query(uri, arrayOf(OpenableColumns.SIZE), null, null, null)?.use { cursor ->
+                if (cursor.moveToFirst() && !cursor.isNull(0)) cursor.getLong(0) else null
+            }
+            viewModel.install(size) { resolver.openInputStream(uri) ?: error("the file couldn't be opened") }
+        }
+    }
+    val colors = AnuTheme.colors
+    Column {
+        SectionHeader("From a file")
+        Group {
+            when (val progress = installing) {
+                null -> GroupRow("Choose a file", chevron = true, onClick = { pick.launch(arrayOf("*/*")) })
+                else -> Column {
+                    val fraction = if (progress.total > 0) (progress.done.toFloat() / progress.total).coerceIn(0f, 1f) else 0f
+                    GroupRow("Checking and installing", subtitle = "${(fraction * 100).roundToInt()}% of ${gigabytes(progress.total)}")
+                    LinearProgressIndicator(
+                        progress = { fraction },
+                        modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 12.dp),
+                        color = colors.accent,
+                        trackColor = colors.surface2,
+                        strokeCap = StrokeCap.Round,
+                        gapSize = 0.dp,
+                        drawStopIndicator = {},
+                    )
+                }
+            }
+        }
+        GroupFooter(
+            "For a model you downloaded yourself, such as EmbeddingGemma after accepting its licence on Hugging Face. " +
+                "Anu installs only the exact files it lists, checked byte for byte, whatever the file is called.",
+        )
     }
 }
 
 /**
  * Search by meaning (ADR-055): EmbeddingGemma finds facts that bear on a message though they share no word.
- * Its licence is accepted on Hugging Face, so for now it is installed from a computer.
+ * Its licence is accepted on Hugging Face, so the user downloads its two files and installs them (ADR-067).
  */
 @Composable
 private fun SearchByMeaningGroup(viewModel: SettingsViewModel) {
@@ -341,7 +394,8 @@ private fun SearchByMeaningGroup(viewModel: SettingsViewModel) {
             if (ready) {
                 "Anu finds facts that bear on a message even when they share no words, such as your diet when you plan a dinner. It runs on this phone."
             } else {
-                "Its licence is accepted on Hugging Face, so for now it's installed from a computer. Until then, Anu matches names and topics."
+                "Its licence is accepted on Hugging Face, so you download its two files there, then choose each one under From a file. " +
+                    "Until then, Anu matches names and topics."
             },
         )
     }
@@ -352,13 +406,14 @@ private fun ModelRowView(row: ModelRow, onDownload: () -> Unit, onDelete: () -> 
     val colors = AnuTheme.colors
     val name = modelName(row.info.id)
     val size = gigabytes(row.info.sizeBytes)
-    val about = "${modelTier(row.info.id)} · ${row.info.variant.uppercase()} · ${modelSpace(row)}"
+    val about = "${modelTier(row.info.id)} · ${row.info.variant.uppercase()} · ${modelSpace(row)}" + (memoryNote(row)?.let { "\n$it" } ?: "")
     var confirmDelete by remember { mutableStateOf(false) }
     when (val state = row.state) {
         ModelState.NotInstalled -> GroupRow(name, subtitle = about, trailing = { AnuTextButton("Download", onClick = onDownload) })
         is ModelState.Downloading -> Column {
             val fraction = if (state.total > 0) state.done.toFloat() / state.total else 0f
-            GroupRow(name, subtitle = "Downloading · ${(fraction * 100).roundToInt()}% of $size", trailing = { AnuTextButton("Cancel", onClick = onDelete) })
+            val left = timeLeft(state)?.let { " · $it" }.orEmpty()
+            GroupRow(name, subtitle = "Downloading · ${(fraction * 100).roundToInt()}% of $size$left", trailing = { AnuTextButton("Cancel", onClick = onDelete) })
             LinearProgressIndicator(
                 progress = { fraction },
                 modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 12.dp),

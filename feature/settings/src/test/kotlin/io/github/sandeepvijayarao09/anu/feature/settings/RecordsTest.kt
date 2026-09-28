@@ -4,6 +4,7 @@ import io.github.sandeepvijayarao09.anu.core.agent.RiskTier
 import io.github.sandeepvijayarao09.anu.core.agent.ToolAuditEntry
 import io.github.sandeepvijayarao09.anu.core.model.BrainId
 import io.github.sandeepvijayarao09.anu.core.model.DataClass
+import io.github.sandeepvijayarao09.anu.core.model.InstallOutcome
 import io.github.sandeepvijayarao09.anu.core.model.ModelInfo
 import io.github.sandeepvijayarao09.anu.core.model.ModelState
 import io.github.sandeepvijayarao09.anu.core.security.LedgerEntry
@@ -112,5 +113,35 @@ class RecordsTest {
         assertEquals("Gemma 4 E4B", modelsSummary(listOf(row(BrainId.BASE, ModelState.NotInstalled), row(BrainId.PRO, ModelState.Ready))))
         assertEquals("E2B and E4B", modelsSummary(listOf(row(BrainId.BASE, ModelState.Ready), row(BrainId.PRO, ModelState.Ready))))
         assertEquals("Downloading 25%", modelsSummary(listOf(row(BrainId.BASE, ModelState.Downloading(25, 100)), row(BrainId.PRO, ModelState.Ready))))
+    }
+
+    @Test
+    fun `a model the phone has too little memory for says so, and one it has enough for doesn't`() {
+        val e4b = ModelInfo(BrainId.PRO, "gemma-4-E4B-it.litertlm", 3_659_530_240, "CPU", minMemoryGb = 12)
+        assertEquals("Made for 12\u00A0GB of memory; this phone has 10\u00A0GB, so it may be slow", memoryNote(ModelRow(e4b, ModelState.Ready, deviceMemoryGb = 10)))
+        assertNull(memoryNote(ModelRow(e4b, ModelState.Ready, deviceMemoryGb = 16)))
+        assertNull("unknown memory", memoryNote(ModelRow(e4b, ModelState.Ready, deviceMemoryGb = 0)))
+        assertNull("no guidance", memoryNote(ModelRow(e4b.copy(minMemoryGb = 0), ModelState.Ready, deviceMemoryGb = 4)))
+    }
+
+    @Test
+    fun `a download says how long it has left once its speed is known`() {
+        val gb = 1_000_000_000L
+        assertNull("speed not known yet", timeLeft(ModelState.Downloading(0, 4 * gb)))
+        assertEquals("about a minute left", timeLeft(ModelState.Downloading(3 * gb, 3 * gb + 30_000_000, bytesPerSecond = 1_000_000)))
+        assertEquals("about 3 min left", timeLeft(ModelState.Downloading(gb, 3 * gb + 700_000_000, bytesPerSecond = 16_000_000)))
+        assertEquals("about 1 h left", timeLeft(ModelState.Downloading(0, 3_600_000_000, bytesPerSecond = 1_000_000)))
+        assertEquals("about 1 h 5 min left", timeLeft(ModelState.Downloading(0, 3_900_000_000, bytesPerSecond = 1_000_000)))
+    }
+
+    @Test
+    fun `installing a file says what happened`() {
+        assertEquals("Installed Gemma 4 E4B.", installMessage(InstallOutcome.Done("Gemma 4 E4B")))
+        assertEquals(
+            "Installed EmbeddingGemma's tokenizer. It also needs EmbeddingGemma 300M (embeddinggemma.tflite).",
+            installMessage(InstallOutcome.Done("EmbeddingGemma's tokenizer", "EmbeddingGemma 300M (embeddinggemma.tflite)")),
+        )
+        assertEquals("Gemma 4 E4B is already installed.", installMessage(InstallOutcome.AlreadyThere("Gemma 4 E4B")))
+        assertEquals("No.", installMessage(InstallOutcome.Refused("No.")))
     }
 }

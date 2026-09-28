@@ -87,6 +87,7 @@ private fun AnuHome(graph: AppGraph) {
             mcp = graph.mcp,
             shopping = graph.stores,
             searchByMeaning = { graph.embedder() != null },
+            installer = graph.installer,
         )
     }
     var micGranted by remember { mutableStateOf(context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) }

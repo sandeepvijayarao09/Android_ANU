@@ -11,8 +11,13 @@ import android.provider.Settings
 import android.util.Log
 import androidx.core.content.edit
 import io.github.sandeepvijayarao09.anu.brain.gemini.GeminiBrain
+import io.github.sandeepvijayarao09.anu.brain.litertlm.ModelArtifact
+import io.github.sandeepvijayarao09.anu.brain.litertlm.ModelCatalog
 import io.github.sandeepvijayarao09.anu.brain.litertlm.ModelManager
+import io.github.sandeepvijayarao09.anu.brain.litertlm.ModelVariant
 import io.github.sandeepvijayarao09.anu.core.model.Embedder
+import io.github.sandeepvijayarao09.anu.core.model.ModelInstaller
+import io.github.sandeepvijayarao09.anu.brain.embedding.EmbeddingCatalog
 import io.github.sandeepvijayarao09.anu.brain.embedding.GemmaEmbedder
 import io.github.sandeepvijayarao09.anu.brain.litertlm.OnDeviceBrains
 import io.github.sandeepvijayarao09.anu.core.agent.BrainProvider
@@ -124,7 +129,12 @@ class AppGraph(private val context: Context) {
     private val egress by lazy { EgressGate(ledger) }
 
     val models = ModelManager(context)
-    val onDevice = OnDeviceBrains(models, maxNumTokens = ON_DEVICE_CONTEXT)
+    // Each on-device turn's speed, from the runtime's own counters, in debug builds only. Numbers only, never content.
+    val onDevice = OnDeviceBrains(
+        models,
+        maxNumTokens = ON_DEVICE_CONTEXT,
+        onTurn = if (BuildConfig.DEBUG) { id, speed -> Log.d(TAG, "Speed: ${speedLine(id, models.info(id).variant, speed)}") } else null,
+    )
 
     /** Prompt budgets from the same context, so what the router sends to a device tier fits it (ADR-040). */
     private val budgets = TierBudgets.forContext(ON_DEVICE_CONTEXT)
@@ -228,6 +238,22 @@ class AppGraph(private val context: Context) {
     /** Search by meaning (ADR-055), once both of its files are installed. Checked again until they are. */
     private var searchModel: Embedder? = null
     val embedder: () -> Embedder? = { searchModel ?: GemmaEmbedder.installed(File(context.noBackupFilesDir, "models"))?.also { searchModel = it } }
+
+    /**
+     * Installs a model file the user already has, if it's one this phone uses (ADR-067): a chat model's chosen build,
+     * or one of search by meaning's two files, which then get their vectors at once.
+     */
+    val installer: ModelInstaller by lazy {
+        val search = EmbeddingCatalog.MODEL.let { KnownFile(it.name, it.bytes, it.sha256, "EmbeddingGemma 300M", pairedWith = EmbeddingCatalog.TOKENIZER.name) }
+        val tokenizer = EmbeddingCatalog.TOKENIZER.let { KnownFile(it.name, it.bytes, it.sha256, "EmbeddingGemma's tokenizer", pairedWith = EmbeddingCatalog.MODEL.name) }
+        fun chat(artifact: ModelArtifact, what: String) = KnownFile(artifact.fileName, artifact.sizeBytes, artifact.sha256, what)
+        CatalogInstaller(
+            File(context.noBackupFilesDir, "models"),
+            wanted = { listOf(chat(models.artifactFor(BrainId.BASE), "Gemma 4 E2B"), chat(models.artifactFor(BrainId.PRO), "Gemma 4 E4B"), search, tokenizer) },
+            known = ModelCatalog.all.map { chat(it, "${if (it.brain == BrainId.BASE) "Gemma 4 E2B" else "Gemma 4 E4B"}'s ${buildName(it.variant)}") } + listOf(search, tokenizer),
+            onInstalled = { file -> if (file == search || file == tokenizer) scope.launch { runCatching { memory.index() } } },
+        )
+    }
 
     val memory by lazy {
         MemoryPipeline(
@@ -361,6 +387,15 @@ class AppGraph(private val context: Context) {
         /** Where the emulator reaches the Mac's test servers. */
         val DEV_HOSTS = setOf("10.0.2.2", "localhost", "127.0.0.1")
     }
+}
+
+/** How the Models page names a build of a model file (ADR-019). */
+internal fun buildName(variant: ModelVariant): String = when (variant) {
+    ModelVariant.CPU -> "CPU build"
+    ModelVariant.GPU -> "GPU build"
+    ModelVariant.NPU_TENSOR_G5 -> "Tensor G5 build"
+    ModelVariant.NPU_TENSOR_G6 -> "Tensor G6 build"
+    ModelVariant.NPU_SNAPDRAGON_SM8750 -> "Snapdragon 8 Elite build"
 }
 
 /** Saves the Gemini key into the vault, bound to Google's API host and to the Gemini brain alone (§11). */

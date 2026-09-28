@@ -325,6 +325,9 @@ It opens from the power button, the corner swipe or "Hey Anu".
 - **Footers:** a group can end with a 13sp `text-muted` footnote saying what the group does with your data. Explanations go there, not in every row.
 - **Action rows** such as "Add a server" have an `accent` title with a plus icon.
 - **Model rows** (Settings → Models) give the tier, the build and the real space: "Pro · CPU · needs 5.9 GB" before download, "Pro · CPU · 5.9 GB used" once installed. Both count the weight cache a model keeps after its first run; the footer says why a model needs more than its download.
+  - A phone with less memory than a model asks for gets a second line: "Made for 12 GB of memory; this phone has 10 GB, so it may be slow". It informs; Download still works. Numbers and their units never split across lines.
+  - A download says how long it has left once its speed is known: "Downloading · 42% of 3.7 GB · about 3 min left".
+- **From a file** (Settings → Models): one row, "Choose a file", opens the system's file picker. While a file is checked it becomes "Checking and installing" with a percentage and a progress bar. What happened appears as a notice at the top of the page, in plain words: "Installed EmbeddingGemma's tokenizer.", or why a file wasn't kept. The footer says Anu keeps only the exact files it lists.
 - **Pages or sheets:** a list opens as a page (Services, Stores, Models, Activity, Vault activity); a single item with several actions opens as a sheet (a server, a store, the Gemini key), with its details in a `background` panel and a destructive action as a secondary button with `error-text`.
 
 ### Memory
@@ -390,3 +393,4 @@ Three tabs with 24dp line icons at stroke 1.7 and 11sp labels. The selected tab 
 | 2026-09-26 | The assistant card is its own window with a hairline edge and no shadow | The system blur covers a window's background shape, so only a card-sized window frosts just the card. A shadow under the translucent card showed through and misplaced it on the emulator |
 | 2026-09-27 | Model rows show the space a model really takes, with its weight cache | "3.7 GB" hid E4B's 2.2 GB cache, and Delete said it freed less than it did. What a download costs and what Delete frees should be exact |
 | 2026-09-27 | The sphere rests when idle; its animations run only in their state and only on screen | The idle breath redrew the whole screen at 120 Hz on the Pixel 10 Pro, 43% of a CPU core, and it followed no real event |
+| 2026-09-28 | Models show a memory note, a download's time left, and a From a file row | Following Google's AI Edge Gallery where it helps: its memory warning and download estimate. Installing from a file lets a model downloaded in the browser be installed without a computer, and only an exact catalog file is kept. Speed figures stay out of the chat: they help developers, not the conversation |

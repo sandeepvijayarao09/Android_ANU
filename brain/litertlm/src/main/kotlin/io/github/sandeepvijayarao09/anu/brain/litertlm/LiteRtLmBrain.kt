@@ -4,6 +4,7 @@ import com.google.ai.edge.litertlm.Contents
 import com.google.ai.edge.litertlm.Conversation
 import com.google.ai.edge.litertlm.ConversationConfig
 import com.google.ai.edge.litertlm.Engine
+import com.google.ai.edge.litertlm.ExperimentalApi
 import com.google.ai.edge.litertlm.Message
 import com.google.ai.edge.litertlm.MessageCallback
 import com.google.ai.edge.litertlm.ResponseFormat
@@ -31,6 +32,13 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import java.util.concurrent.atomic.AtomicLong
+
+/**
+ * One on-device turn's speed, from the runtime's own counters (debug builds, §15): the tokens it read and at what
+ * rate, how long the first token took from sending, and the tokens it wrote. Numbers only, never content.
+ */
+data class TurnSpeed(val read: Int, val readPerSecond: Double, val firstTokenMs: Long, val written: Int, val writtenPerSecond: Double)
 
 /**
  * Gemma 4 E2B or E4B running through LiteRT-LM (ARCHITECTURE §5).
@@ -46,6 +54,8 @@ class LiteRtLmBrain(
     override val capabilities: BrainCapabilities,
     private val engines: EngineHolder,
     private val dispatcher: CoroutineDispatcher = Dispatchers.IO,
+    /** Told each turn's speed when the engine keeps the runtime's counters ([EngineOptions.benchmark]). */
+    private val onTurn: ((TurnSpeed) -> Unit)? = null,
 ) : Brain {
 
     /** One generation at a time per model. It also guards [cached]. */
@@ -62,8 +72,11 @@ class LiteRtLmBrain(
             session = active
             val reply = StringBuilder()
             val calls = mutableListOf<ToolCall>()
+            val sent = AtomicLong()
+            val first = AtomicLong()
             val callback = object : MessageCallback {
                 override fun onMessage(message: Message) {
+                    first.compareAndSet(0, System.nanoTime())
                     val delta = message.text()
                     if (delta.isNotEmpty()) {
                         reply.append(delta)
@@ -78,6 +91,7 @@ class LiteRtLmBrain(
 
                 override fun onDone() {
                     active.history = request.transcript + ChatMessage.Model(reply.toString(), calls.toList())
+                    onTurn?.let { report -> speed(active.conversation, sent.get(), first.get())?.let(report) }
                     trySend(BrainEvent.Usage(contextTokens = active.conversation.getTokenCount()))
                     trySend(BrainEvent.Finished(if (calls.isEmpty()) StopReason.COMPLETE else StopReason.TOOL_CALLS))
                     finished.complete(true)
@@ -90,6 +104,7 @@ class LiteRtLmBrain(
                 }
             }
             try {
+                sent.set(System.nanoTime())
                 active.conversation.sendMessageAsync(
                     request.messageAt(request.transcript.lastIndex),
                     callback,
@@ -136,6 +151,20 @@ class LiteRtLmBrain(
             ),
         )
         return CachedConversation(key, conversation, history)
+    }
+
+    /** The runtime's counters for the turn that just finished, with the time to the first token measured here. */
+    @OptIn(ExperimentalApi::class)
+    private fun speed(conversation: Conversation, sent: Long, first: Long): TurnSpeed? {
+        if (!engines.options.benchmark) return null
+        val info = runCatching { conversation.getBenchmarkInfo() }.getOrNull() ?: return null
+        return TurnSpeed(
+            read = info.lastPrefillTokenCount,
+            readPerSecond = info.lastPrefillTokensPerSecond,
+            firstTokenMs = if (first > 0) (first - sent) / 1_000_000 else -1,
+            written = info.lastDecodeTokenCount,
+            writtenPerSecond = info.lastDecodeTokensPerSecond,
+        )
     }
 
     private suspend fun release(session: CachedConversation, finished: CompletableDeferred<Boolean>) {

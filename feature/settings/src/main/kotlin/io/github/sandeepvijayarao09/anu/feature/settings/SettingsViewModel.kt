@@ -7,8 +7,10 @@ import androidx.lifecycle.viewModelScope
 import io.github.sandeepvijayarao09.anu.core.agent.ToolAuditEntry
 import io.github.sandeepvijayarao09.anu.core.model.BrainId
 import io.github.sandeepvijayarao09.anu.core.model.ModelInfo
+import io.github.sandeepvijayarao09.anu.core.model.ModelInstaller
 import io.github.sandeepvijayarao09.anu.core.model.ModelState
 import io.github.sandeepvijayarao09.anu.core.model.OnDeviceModels
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -21,6 +23,7 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import java.io.InputStream
 import java.time.Instant
 
 /** The Gemini key as the settings screen sees it. The key goes straight into the vault and is never shown again (§11). */
@@ -32,8 +35,14 @@ interface CloudKeySettings {
     suspend fun remove()
 }
 
-/** A model on the Models page, with the space its files take now (ADR-061). */
-data class ModelRow(val info: ModelInfo, val state: ModelState, val spaceUsed: Long = 0)
+/**
+ * A model on the Models page, with the space its files take now (ADR-061) and the phone's memory, which a model
+ * may need more of (ADR-066).
+ */
+data class ModelRow(val info: ModelInfo, val state: ModelState, val spaceUsed: Long = 0, val deviceMemoryGb: Int = 0)
+
+/** A file being checked and installed from the phone's storage (ADR-067). */
+data class FileInstall(val done: Long, val total: Long)
 
 /** An account connected through the provider's own consent screen, such as Gmail (§9). */
 interface AccountConnection {
@@ -130,12 +139,14 @@ class SettingsViewModel(
     private val shopping: StoreSettings? = null,
     /** Whether search by meaning's model is installed (ADR-055). Null when the app has no search by meaning. */
     private val searchByMeaning: (() -> Boolean)? = null,
+    /** Installs a model file the user already has (ADR-067). Null where the app can't. */
+    private val installer: ModelInstaller? = null,
 ) : ViewModel() {
 
     private val mutableSearch = MutableStateFlow(searchByMeaning?.invoke())
     val searchInstalled: StateFlow<Boolean?> = mutableSearch.asStateFlow()
 
-    /** The model is installed from a computer, so check again when the page shows. */
+    /** The model can also be installed from a computer, so check again when the page shows. */
     fun refreshSearch() {
         mutableSearch.value = searchByMeaning?.invoke()
     }
@@ -243,7 +254,9 @@ class SettingsViewModel(
     @OptIn(ExperimentalCoroutinesApi::class)
     val modelRows: StateFlow<List<ModelRow>> = refresh.flatMapLatest {
         combine(models.state(BrainId.BASE), models.state(BrainId.PRO)) { base, pro ->
-            listOf(BrainId.BASE to base, BrainId.PRO to pro).map { (id, state) -> ModelRow(models.info(id), state, models.spaceUsed(id)) }
+            listOf(BrainId.BASE to base, BrainId.PRO to pro).map { (id, state) ->
+                ModelRow(models.info(id), state, models.spaceUsed(id), models.deviceMemoryGb)
+            }
         }
     }.flowOn(Dispatchers.IO).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
@@ -262,6 +275,31 @@ class SettingsViewModel(
     val message: StateFlow<String?> = mutableMessage.asStateFlow()
 
     fun download(id: BrainId) = models.download(id)
+
+    val canInstallFiles: Boolean get() = installer != null
+    private val mutableInstalling = MutableStateFlow<FileInstall?>(null)
+    val installing: StateFlow<FileInstall?> = mutableInstalling.asStateFlow()
+
+    /** Checks and installs a file the user chose; [size] is what its provider reported, if anything. */
+    fun install(size: Long?, open: () -> InputStream) {
+        val installer = installer ?: return
+        if (mutableInstalling.value != null) return
+        mutableInstalling.value = FileInstall(0, size ?: 0)
+        viewModelScope.launch {
+            try {
+                val outcome = installer.install(size, open) { done, total -> mutableInstalling.value = FileInstall(done, total) }
+                mutableMessage.value = installMessage(outcome)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                mutableMessage.value = "Couldn't read that file: ${e.message}"
+            } finally {
+                mutableInstalling.value = null
+                refresh.value++
+                refreshSearch()
+            }
+        }
+    }
 
     fun delete(id: BrainId) {
         models.delete(id)

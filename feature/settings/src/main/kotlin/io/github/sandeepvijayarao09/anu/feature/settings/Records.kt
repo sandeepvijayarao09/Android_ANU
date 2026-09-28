@@ -3,6 +3,7 @@ package io.github.sandeepvijayarao09.anu.feature.settings
 import io.github.sandeepvijayarao09.anu.core.agent.ToolAuditEntry
 import io.github.sandeepvijayarao09.anu.core.agent.ToolBroker
 import io.github.sandeepvijayarao09.anu.core.model.BrainId
+import io.github.sandeepvijayarao09.anu.core.model.InstallOutcome
 import io.github.sandeepvijayarao09.anu.core.model.ModelState
 import io.github.sandeepvijayarao09.anu.core.security.LedgerEntry
 import io.github.sandeepvijayarao09.anu.core.security.PiiKind
@@ -105,6 +106,36 @@ internal fun gigabytes(bytes: Long, locale: Locale = Locale.getDefault()): Strin
 internal fun modelSpace(row: ModelRow, locale: Locale = Locale.getDefault()): String = when (row.state) {
     ModelState.Ready -> "${gigabytes(row.spaceUsed, locale)} used"
     else -> "needs ${gigabytes(row.info.spaceNeeded, locale)}"
+}
+
+/**
+ * When the phone has less memory than a model asks for (ADR-066). It still runs, so this informs rather than
+ * blocks. Null when the phone has enough, or its memory is unknown.
+ */
+internal fun memoryNote(row: ModelRow): String? {
+    val needs = row.info.minMemoryGb
+    val has = row.deviceMemoryGb
+    // A no-break space keeps each number with its unit when the line wraps.
+    return if (has in 1 until needs) "Made for $needs\u00A0GB of memory; this phone has $has\u00A0GB, so it may be slow" else null
+}
+
+/** How long a download has left at its average speed so far, or null until that's known. */
+internal fun timeLeft(download: ModelState.Downloading): String? {
+    if (download.bytesPerSecond <= 0 || download.total <= download.done) return null
+    val minutes = Math.ceil((download.total - download.done).toDouble() / download.bytesPerSecond / 60).toLong()
+    return when {
+        minutes <= 1 -> "about a minute left"
+        minutes < 60 -> "about $minutes min left"
+        minutes % 60 == 0L -> "about ${minutes / 60} h left"
+        else -> "about ${minutes / 60} h ${minutes % 60} min left"
+    }
+}
+
+/** What installing a file did, as the Models page says it (ADR-067). */
+internal fun installMessage(outcome: InstallOutcome): String = when (outcome) {
+    is InstallOutcome.Done -> "Installed ${outcome.what}." + (outcome.alsoNeeds?.let { " It also needs $it." } ?: "")
+    is InstallOutcome.AlreadyThere -> "${outcome.what} is already installed."
+    is InstallOutcome.Refused -> outcome.reason
 }
 
 /** The Models row's value: a download in progress, else which models are on the phone. */

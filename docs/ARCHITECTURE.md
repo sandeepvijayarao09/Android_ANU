@@ -1,6 +1,6 @@
 # Anu for Android: Architecture
 
-Version 1.22.0 · Draft · 2026-09-27
+Version 1.23.0 · Draft · 2026-09-28
 Status: proposed. OD-1 to OD-4 were resolved on 2026-09-25 (§16).
 Product intent lives in [VISION.md](VISION.md).
 
@@ -301,16 +301,32 @@ Application ID: `io.github.sandeepvijayarao09.anu`. It can change until the firs
   - **One context size (ADR-040).** A single constant, 4,096 tokens today, sets the engines' `maxNumTokens`. The router's prompt budgets and the chat window are derived from it, so a prompt sent to a device tier fits it. S1 on the reference phone may raise it.
   - **Backends.** `CPU`, `GPU`, `NPU` and `GOOGLE_TENSOR` (the Pixel TPU) are all available. S1 measures each on the reference device.
   - **CPU until a chip's GPU is verified (ADR-059).** Phones and emulators use the CPU build unless their chip is in `ModelCatalog.GPU_VERIFIED`, which S1 fills and which is empty today. On the Pixel 10 Pro (Tensor G5), E4B's GPU build loaded but wrote garbage.
+    - Its generic file on the GPU is how Google's AI Edge Gallery runs Gemma 4. On the same phone, a first run answered correctly: prompts were read about 4× faster and answers written about 15% slower (spike log, 2026-09-28).
+    - It's adopted only after a run on an idle phone passes the contract and extraction tests.
+  - **Runtime flags (ADR-068).** LiteRT-LM reads speculative decoding and its benchmark counters from process-wide `ExperimentalFlags` when an engine loads. `EngineHolder` sets them from `EngineOptions` under one lock while an engine loads, then restores them, so engines never read each other's.
+  - **Speculative decoding stays off (ADR-069).** Gemma 4's files carry multi-token prediction heads: `Capabilities.hasSpeculativeDecodingSupport()` is true for E4B's generic file, byte for byte the file the Gallery ships.
+    - On the Pixel 10 Pro's CPU it gave no gain: 4.7 against 5.8 tokens/s on a short answer, and 6.6 against 6.4 on a long one, with the same greedy answers.
+    - The runtime's default is off, so nothing is set. It's measured again with the GPU.
+  - **What the file declares** (`Capabilities`, E4B's generic file): text, image and audio input; no thinking or function-calling metadata; no sampler defaults, so Anu keeps Gemma's published ones. Tool calls work through the runtime's tool format all the same (S1).
   - **Metrics.** `ExperimentalFlags.enableBenchmark` reports init time, time to first token, and prefill/decode tokens per second. It is used by S1 and the performance evals.
+    - In debug builds it also feeds the speed log (ADR-068). `adb logcat -s Anu:D` shows `Speed: Pro on CPU read R tokens at … tok/s, first token after … ms, wrote W at … tok/s` for each on-device turn: numbers only.
+    - Speed isn't shown in the chat.
   - **Embeddings.** LiteRT-LM 0.17.1 ships an `EmbeddingEngine`, but it loads `.litertlm` bundles. EmbeddingGemma's CPU build is a `.tflite` with a separate SentencePiece tokenizer, and its only bundles target the Tensor G4 NPU. So S3 runs it through the AI Edge RAG library instead (ADR-055).
   - **Evals on the Mac.** `litertlm-jvm` (the same API on macOS) lets `eval` run real-model evals on the development Mac without a phone.
 - **ModelManager.**
-  - An artifact manifest lists name, version, URL, SHA-256, size and minimum RAM for each model.
-  - Downloads run through WorkManager: resumable, and on unmetered networks by default.
+  - An artifact manifest lists name, version, URL, SHA-256 and size for each model file.
+  - **Memory guidance (ADR-066).** Each model carries the memory Google's AI Edge Gallery asks for: E2B 8 GB, E4B 12 GB.
+    - The Models page says so when a phone has less. The model can still be downloaded.
+    - The phone's memory is Android 14's advertised size when it's within 25% of the total the system can use, and that total otherwise.
+  - Downloads run through WorkManager: resumable, and on unmetered networks by default. The Models page shows the time left, from the download's average speed.
   - The hash is verified before load, and files live in `noBackupFilesDir`.
   - **Delivery:**
     - `personal`: download inside the app from pinned URLs. The `litert-community` Hugging Face repos are **not gated** (checked 2026-09-25), so no token is needed. During development, `adb push` from the local Hugging Face cache.
     - `play`: Play for On-device AI packs, in Phase 5.
+    - **From a file (ADR-067).** Settings → Models → Choose a file installs a model file the user already has, such as EmbeddingGemma downloaded in the phone's browser after accepting its licence.
+      - The system's file picker hands over only that file.
+      - It's kept only if its size and SHA-256 match a file this phone uses: a chat model's chosen build, or one of search by meaning's two files. It's installed under its catalog name, whatever it's called.
+      - It's hashed while it's copied. A file whose size matches nothing is refused before it's read.
   - **Artifact per backend and chip (ADR-019).** Hugging Face publishes a different file for each backend. Today every device gets the CPU build (ADR-059); a first-run benchmark may choose per device later. Sizes as of 2026-09-25:
 
     | Model | CPU (generic) | GPU | NPU |
@@ -805,7 +821,7 @@ Recommend a **paid** Gemini tier for personal data. Google's terms for unpaid Ge
   - **Approval sheet:** the exact payload, where it goes, and Edit for the fields the tool allows (ADR-053). A saved edit comes back checked, marked "Edited by you", before anything runs.
   - **Pages** (`AnuPage`): a bar with the privacy indicator, which no page can hide, and a large title that collapses into the bar on scroll. Pages inside Settings have a back button named for where it goes.
   - **Memory:** facts grouped by section, with search. The user's own facts say "You said"; learned ones have a Confirm pill. A fact's sheet shows the dated words it came from, with That's right, Correct, Delete and Forget.
-  - **Settings:** four short groups (Voice, Connections, Intelligence, Privacy) with values on the right. Connection rows carry a privacy dot: green for calendar, contacts, chats and SMS; orange, with a count, for Gmail, services and stores, which TalkBack reads as "reached over the internet". Services, Stores, Models, Activity and Vault activity are pages; a server, a store, the Gemini key and adding things are sheets.
+  - **Settings:** four short groups (Voice, Connections, Intelligence, Privacy) with values on the right. Connection rows carry a privacy dot: green for calendar, contacts, chats and SMS; orange, with a count, for Gmail, services and stores, which TalkBack reads as "reached over the internet". Services, Stores, Models, Activity and Vault activity are pages; a server, a store, the Gemini key and adding things are sheets. Models shows the real space each model takes, a note when the phone has less memory than a model asks for, a download's time left, and From a file (ADR-061, ADR-066, ADR-067).
   - **Privacy report** (ADR-050): opens over the current page, from the privacy indicator or Settings. Today's count, a seven-day row of real counts, and each send by period (today, this week, earlier) with its destination, purpose, size and what was replaced first, all from the Privacy Ledger.
   - **Privacy indicator:** its count comes from today's Privacy Ledger entries, and its orange arc from new ones.
   - **Assistant card** (ADR-051): its own floating window, the size of the card, 26dp from the bottom over a 12% dim. The system's cross-window blur frosts the app behind the card only, under the `material` tint. When the system turns blurs off (battery saver, media tunneling, the developer option), the card turns opaque.
@@ -881,7 +897,7 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 
 | ID | Question to answer with measurements |
 |---|---|
-| S1 | LiteRT-LM with Gemma 4 E2B and E4B: API surface, load time, time to first token, tokens/s, peak RAM, native tool calling, context limits, how well cancellation works. **E2B and E4B measured** on the reference phone (see the spike log). The Tensor G5 NPU build can't run with LiteRT-LM 0.17.1 |
+| S1 | LiteRT-LM with Gemma 4 E2B and E4B: API surface, load time, time to first token, tokens/s, peak RAM, native tool calling, context limits, how well cancellation works. **E2B and E4B measured** on the reference phone (see the spike log). The Tensor G5 NPU build can't run with LiteRT-LM 0.17.1. Speculative decoding gives no gain on the CPU. E4B's generic file answers correctly on the Tensor G5 GPU in a first run, reading prompts about 4× faster |
 | S2 | `personal` model delivery: can the app download straight from Hugging Face, or is it gated? `adb push` for development. (Play for On-device AI packs are left to Phase 5.) |
 | S3 | On-device embeddings: EmbeddingGemma on LiteRT, or the fallback. Quality and speed. **Done** on the emulator and the reference phone, a Pixel 10 Pro (see the spike log) |
 | S4 | Gmail through `AuthorizationClient` with restricted scopes, in testing mode. **Partly done:** the flow launches from Anu (Play services 25.26 on the emulator). Consent and the live API wait for the owner's Cloud setup |
@@ -890,8 +906,64 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 | S7 | Room + SQLCipher performance at the expected data volume, including vectors |
 | S8 | Gemini API with the owner's key: `parametersJsonSchema` and `responseJsonSchema` accepted, thought-signature round trip, the `-latest` aliases, and the SSE framing |
 | S9 | Voice on the reference phone: the on-device recognizer's language pack, recognition quality, "Hey Anu" false wakes and misses, and battery per hour of listening |
+| S10 | Gemini Nano through AICore (ML Kit's GenAI Prompt API, `com.google.mlkit:genai-prompt`), a model the system manages, so nothing to download. Approved as a spike on 2026-09-28 (ADR-065); a new runtime needs its results before any decision. On the reference phone: whether it's available (`checkStatus`); how long warm-up and a writing task take against E2B and E4B; how good its rewrites and summaries are on the writing eval; whether anything leaves the phone while it runs (I3); and whether it runs in the background, for memory. Its API takes one prompt, with no chat template and no tool calls, so it could serve only single-turn work such as AI Writing (I8) |
+| S11 | Photo input with Gemma 4 through LiteRT-LM (`Content.ImageBytes`, `EngineConfig.visionBackend`). Approved as a spike on 2026-09-28 (ADR-065), after the GPU check: vision on the GPU (the Gallery's setup) against the CPU, the memory and time a photo adds, `Capabilities.maxVisionTokenBudget`, and answers on made-up photos. A photo stays on the phone: it's never sent to Gemini and never learned by memory |
+
+**Reference app compared: Google AI Edge Gallery 1.0.19 (2026-09-28, ADR-065).** Google's own app for the same runtime and models, read from its source and its model list. Where it's measured better, Anu follows it; where it trades safety for convenience, Anu's invariants win.
+
+| Area | Google AI Edge Gallery | Anu | Choice |
+|---|---|---|---|
+| Runtime | LiteRT-LM 0.11.0 on its main branch | LiteRT-LM 0.17.1 | Anu's: newer, with `Capabilities`, speculative decoding and `EmbeddingEngine` |
+| Backend | Each model lists accelerators in order ("gpu,cpu"). Gemma 4 runs its generic file on the GPU, with images on the GPU and audio on the CPU | The CPU until a chip passes S1 (ADR-059) | Anu's rule, with the Gallery's candidate: the generic file on the GPU, which answered correctly on the Tensor G5 where the GPU file wrote garbage. Adopted once a clean run passes the tests |
+| Speculative decoding | Off by default; a switch per chat when the file supports it | Not used | Measured: no gain on the CPU, so off (ADR-069). Measured again with the GPU |
+| Weight cache | `cacheDir` set only for models in `/data/local/tmp` | Always app-private (ADR-020) | Anu's |
+| Sampling and context | Gemma's defaults (top-k 64, top-p 0.95, temperature 1.0); 4,000 tokens by default, up to 32,000 | The same defaults, with greedy decoding for structured output and repairs; 4,096 tokens (ADR-040) | Anu's. A larger context waits for S1's peak-memory measurement |
+| Model list | A JSON list per app version, fetched from GitHub. Files are pinned to a Hugging Face commit, without hashes | A catalog built into the app: pinned URLs, SHA-256, sizes and measured caches (ADR-061) | Anu's: a hash catches a changed file, and no remote list can redirect a download (§12.3). Anu's files are byte for byte the Gallery's |
+| Memory guidance | `minDeviceMemoryInGb` (E2B 8, E4B 12), with a warning and "proceed anyway" | None | Adopted: a note on the Models page, with Download still allowed (ADR-066) |
+| Downloads | WorkManager, resumable, with speed and time left | WorkManager, resumable, Wi-Fi only, SHA-256 checked before use | Anu's, plus the time left |
+| Local files | Imports any model file from storage, unchecked | Only `scripts/dev-install-model.sh`, from a computer | Adopted, Anu's way: only an exact catalog file is kept (ADR-067) |
+| Gated models | Hugging Face sign-in in the app (AppAuth), keeping the user's token | The owner downloads EmbeddingGemma | Not adopted: From a file covers it without Anu holding a token. If one is ever needed, it's a vault item bound to `huggingface.co` |
+| Speed figures | Per message in the chat on request; a benchmark screen; memory and power monitors | S1's device tests | Debug builds log each turn's speed (ADR-068). Not in the chat |
+| Tools | The runtime calls tools itself (`ToolProvider`), with a manual fallback | The runtime only reports calls; the Tool Broker runs them (ADR-017) | Anu's: policy and approvals can't be bypassed (P2, I2) |
+| Approvals | MCP calls ask each time unless always allowed; Android intents ask for permission | Risk tiers, the exact payload, taint and an audit (§7) | Anu's |
+| Secrets | A skill's secret is typed into a dialog and kept for the skill; its first 3 characters are logged | Vault handles; values attached only for bound hosts (I1) | Anu's |
+| Skills | `SKILL.md` instructions, optionally with JavaScript run in a hidden WebView, added from links or a featured list | Built-in skills chosen by keyword rules (§10); third parties only as MCP tools behind the broker | Anu's: downloaded code handling secrets would break I1–I3 |
+| Images and audio | Ask Image (the vision encoder on the GPU) and Audio Scribe | Text only; S6 plans audio | Spike S11, approved 2026-09-28: photos on the phone, after the GPU check |
+| Gemini Nano (AICore) | A second runtime, through ML Kit's GenAI Prompt API | None | Spike S10, approved 2026-09-28: a new runtime is measured before any decision. It could serve writing and summaries on Pixels, with no download |
+| Thinking | A switch for models that support it | Off | Off: the file declares no thinking to LiteRT-LM 0.17.1, and at 6–7 tokens/s thinking would add tens of seconds |
+| Chats and prompts | Many chats per model, a history sheet, an editable system prompt | One conversation with memory (ADR-040), and a stable system prompt per tier and skill (ADR-033) | Anu's: an assistant keeps one relationship, and a stable prompt keeps the KV cache |
+| Constrained tool calls | `enableConversationConstrainedDecoding` in some tasks | Strict validation, one repair, then escalation (P6) | Planned: measure tool-call validity with it on E4B before adopting |
 
 **Spike log.** Measured results only, newest first.
+
+- **S1, runtime options and the GPU, 2026-09-28.** Pixel 10 Pro (Tensor G5, Android 17), E4B's generic file (`gemma-4-E4B-it.litertlm`, the same bytes as the Gallery's), greedy decoding, `S1BenchmarkTest#measuresSpeculativeDecoding`.
+  - **What the file declares** (`Capabilities`): speculative decoding; text, image and audio input; no thinking or function-calling metadata; no sampler defaults.
+  - **CPU, speculative decoding:** no gain.
+
+    | | Runtime default | Off | On |
+    |---|---|---|---|
+    | Short answer (129 tokens) | 6.4 tok/s | 5.8 tok/s | 4.7 tok/s |
+    | 814-token prompt, read | 65.6 tok/s | 57.4 tok/s | 52.9 tok/s |
+    | 814-token prompt, first token | 12.5 s | 14.3 s | 15.5 s |
+    | Its answer (102 tokens) | 7.2 tok/s | 6.4 tok/s | 6.6 tok/s |
+
+    - The three runs gave the same answers word for word, so the default is off.
+    - They ran in that order, and a warming phone may favour the first. On gained nothing either way.
+  - **GPU, the generic file:** correct answers, where the GPU file wrote garbage (ADR-059). The phone was in use during this run, so these numbers are a first look.
+
+    | | CPU, off | GPU, off | GPU, on |
+    |---|---|---|---|
+    | Short prompt, first token | 2.5 s | 1.0 s | 1.0 s |
+    | 814-token prompt, read | 57.4 tok/s | 263.6 tok/s | 284.0 tok/s |
+    | 814-token prompt, first token | 14.3 s | 3.3 s | 3.0 s |
+    | Short answer | 5.8 tok/s | 5.5 tok/s | 4.6 tok/s |
+    | Long answer | 6.4 tok/s | 5.0 tok/s | 6.9 tok/s |
+
+    - Loading took 52.7 s the first time, while the GPU's programs and weights were prepared, and 10.6–21.6 s after that.
+    - The answers differed a little between loads (one added "in three bullet points"), as 16-bit GPU arithmetic can.
+  - **Memory:** the phone reports 16 GiB as sold (17,179,869,184 bytes) and 16.3 GB for the system. The emulator claims 16,000,000,000 bytes with 10.4 GB for the system (ADR-066).
+  - **Emulator:** the same test gave the same answers in all three modes. But its speeds were 3–5× below run 2's, because two other projects' emulators were running and the Mac was short of memory. Speed is measured on the phone.
+  - **Next:** repeat the GPU run on an idle phone in both orders (`modes=on+off`). Then run the contract and extraction tests on the GPU, and measure the GPU's cache on disk.
 
 - **S3 with the 256-token file, 2026-09-27** (`embeddinggemma-300M_seq256_mixed-precision.tflite`, ADR-062).
   - **Same answers:** across the eval's 276 message and fact pairs, closeness matched the 512-token file's to four decimals, so the picks and the rule are unchanged. It found 11 of 12 facts, with 3 wrong and none for small talk.
@@ -1148,6 +1220,11 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 | 062 | 2026-09-27 | Search by meaning uses EmbeddingGemma's 256-token file instead of the 512-token one, and facts are indexed when the app starts too. Amends ADR-055 | A query always fills its token window, so 256 tokens halve the work. Messages and facts are short: closeness matched the 512-token file to four decimals over 276 pairs. Search went from 1054 to 466 ms on the phone. The new model ID gives every fact a new vector, and indexing at start does that at once, instead of after the next learning run |
 | 063 | 2026-09-27 | The sphere rests when idle. Its endless animations (the inner light's turn, the speaking pulse, the listening ripples) run only in their state and only while the sphere is on screen | On the Pixel 10 Pro, the idle breath and the other loops ran all the time: the screen redrew at 120 Hz, taking 43% of a CPU core with 20 ms frames. They kept running after a tab switch, because the Talk page stays composed off-screen. With them frozen, idle frames went from about 300 in 5 s to 0 on every tab. DESIGN.md already asked that every sphere animation follow a real event |
 | 064 | 2026-09-27 | Memory learns only when the phone is idle and charging, or on "Learn now". Amends ADR-037 | Learning loads E4B and took about 2.5 CPU cores the moment the user left the app, and several GB of memory. The reference phone had 2.2 GB free, so it slowed whatever app the user opened next. Facts now arrive later, such as overnight |
+| 065 | 2026-09-28 | Google's AI Edge Gallery 1.0.19 was compared with Anu area by area (§16). Anu keeps its runtime version, weight cache, pinned catalog with hashes, Tool Broker, approvals, vault and built-in skills. It adopts the Gallery's memory guidance, a download's time left, installing from a file (Anu's way), and the runtime's speed counters for debugging. The Gallery's generic file on the GPU becomes the GPU rule's candidate. Gemini Nano through AICore and photo input become spikes S10 and S11, approved by the owner. Hugging Face sign-in isn't adopted | The Gallery is Google's own reference for the same runtime and models, so where it's measured better, Anu follows. Where it trades safety for convenience (tools the runtime runs itself, remote lists without hashes, secrets typed into skills, downloaded JavaScript), Anu's invariants win |
+| 066 | 2026-09-28 | Models carry the memory Google's Gallery asks for: E2B 8 GB, E4B 12 GB. The Models page notes when the phone has less, and still allows the download. The phone's memory is Android 14's advertised size when that's within 25% of the total the system can use, and the total otherwise | Below that, a model still runs, but Android closes other apps and it may be slow, which the user should know before a 3.7 GB download. The 10.4 GB emulator claims 16 GB, and the Pixel reports GiB where the emulator reports decimal bytes |
+| 067 | 2026-09-28 | Settings → Models → Choose a file installs a model file the user already has. It's kept only if its size and SHA-256 match a file this phone uses, under its catalog name. It's hashed while it's copied, and a file whose size matches nothing isn't read. Amends ADR-055 | EmbeddingGemma is gated, so the owner downloads it, and it needed a computer to install. The Gallery imports any file unchecked, but the threat model (§12.3) needs every model file checked. A browser may rename a download ("sentencepiece (1).model"), so the bytes decide, never the name |
+| 068 | 2026-09-28 | LiteRT-LM's process-wide flags are set only while an engine loads, from `EngineOptions`, under one lock, then restored. Debug builds keep the runtime's benchmark counters and log each on-device turn's speed; release builds don't. Speed isn't shown in the chat | Flags read when an engine loads would otherwise leak between engines. The Gallery shows speed cards in its chat for developers; for Anu that's development information, and the log carries numbers, never content |
+| 069 | 2026-09-28 | Speculative decoding (Gemma 4's multi-token prediction) stays off on the CPU, the runtime's default | On the Pixel 10 Pro's CPU it wrote 4.7 tokens/s against 5.8 on a short answer and 6.6 against 6.4 on a long one, with identical greedy answers. The Gallery leaves it off by default too. It's measured again with the GPU |
 
 ### Component status
 
@@ -1155,13 +1232,15 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 |---|---|---|
 | Project scaffold: Gradle 9.6, AGP 9.4.1, Kotlin 2.4.20; `app` with `personal` and `play` flavors | 0 | Implemented. Both flavors build |
 | CI workflow (`.github/workflows/ci.yml`), including the Play SMS-permission check | 0 | Implemented, not yet run (the repo hasn't been pushed). The SMS check runs locally |
-| Spike S1 (runtime on device) | 0 | In progress. Run 2 on the Anu emulator passed: contract, tools, schema, cancel, memory. On the reference phone (Pixel 10 Pro), E4B's CPU build passes all 6 tests at 6–7 tokens/s, and its GPU build writes garbage (ADR-059). E2B's CPU build is faster (9–9.5 tokens/s) but missed "I'm vegan" in extraction. The Tensor G5 NPU build can't run with LiteRT-LM 0.17.1. Peak RAM and context limits are still to measure |
+| Spike S1 (runtime on device) | 0 | In progress. Run 2 on the Anu emulator passed: contract, tools, schema, cancel, memory. On the reference phone (Pixel 10 Pro), E4B's CPU build passes all 6 tests at 6–7 tokens/s, and its GPU build writes garbage (ADR-059). E2B's CPU build is faster (9–9.5 tokens/s) but missed "I'm vegan" in extraction. The Tensor G5 NPU build can't run with LiteRT-LM 0.17.1. Speculative decoding gives no gain on the phone's CPU (ADR-069). E4B's generic file answered correctly on the phone's GPU in a first run, reading prompts about 4× faster; the run is to repeat on an idle phone with the contract and extraction tests. Peak RAM and context limits are still to measure |
 | Spike S2 (model delivery) | 0 | Partly done: ungated, and per-backend files found |
 | Spike S3 (on-device embeddings) | 0 | Verified on the Anu emulator and the reference phone (Pixel 10 Pro). Its eval (`S3EmbeddingTest`) passes on both: 11 of 12 facts found, 3 wrong in 11 messages, and no small talk with facts. A search takes about 0.19–0.23 s on the emulator and 0.47 s on the phone, on one CPU thread, with the 256-token file (ADR-062) |
 | Spikes S4–S7 | 0 | Planned |
+| Spikes S10 (Gemini Nano through AICore) and S11 (photo input) | 0 | Planned, approved by the owner on 2026-09-28. S11 follows the GPU check |
 | `core:model`: brain contracts, `JsonSchemas`, `ToolSpec` | 1 | Implemented. JVM unit tests pass; the tool-call path is not yet verified on a real model |
-| `brain:litertlm`: `LiteRtLmBrain`, `EngineHolder` | 1 | Implemented. Real-model tests pass on the Anu emulator and the reference phone (E4B, CPU) |
-| ModelManager: pinned catalog, resumable verified download worker, CPU until a chip's GPU is verified (ADR-059) | 1 | Implemented, with 9 JVM tests (resume, restart, corrupted file deleted, catalog, variant choice, space and cache cleanup). On the reference phone, the worker downloaded and verified the 2.97 GB E4B GPU build in about 1.5 minutes |
+| `brain:litertlm`: `LiteRtLmBrain`, `EngineHolder` | 1 | Implemented. Real-model tests pass on the Anu emulator and the reference phone (E4B, CPU). Runtime options per engine and the debug speed log (ADR-068), with 2 JVM tests for the log line |
+| ModelManager: pinned catalog, resumable verified download worker, CPU until a chip's GPU is verified (ADR-059), memory guidance (ADR-066), a download's speed | 1 | Implemented, with 12 JVM tests (resume, restart, corrupted file deleted, catalog, variant choice, space and cache cleanup, the phone's memory). On the reference phone, the worker downloaded and verified the 2.97 GB E4B GPU build in about 1.5 minutes. The time left hasn't been seen in a real download yet |
+| Install from a file (`CatalogInstaller` in `app`, ADR-067) | 1 | Implemented, with 8 JVM tests. On anu_api36, through the system's file picker: a text file was refused, and EmbeddingGemma's tokenizer, renamed "sentencepiece (1).model", was installed under its catalog name with the right SHA-256. Search by meaning then showed as installed |
 | Residency: one model at a time (`OnDeviceBrains`) | 1 | Implemented. Not device-tested; thresholds come from S1 |
 | `core:security`: PII detection, redaction, `EgressGate`, ledger interface | 1 | Implemented, with 9 unit tests. The ledger is persisted by `core:data` |
 | `brain:gemini` | 1 | Implemented, with 6 unit tests against a fake server. Not verified against the live API (S8) |
@@ -1179,7 +1258,7 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 | `ChatSession` (transcript as the truth, consent resend, take back last, stable prompt, skill replay, memory block, turns offered to memory) in `core:agent` | 1 | Implemented, with 12 unit tests |
 | Conversation window (`ContextWindow`, `Tokens`): whole exchanges, chunked trimming, the long-chat note (ADR-040) | 3 | Implemented, with 8 unit tests plus chat and screen tests. Verified by hand on the Anu emulator: trimming at overflow, a steady start with cache reuse, and memory for what fell out |
 | Token calibration (`TokenCalibration`, `TokenSample`): runtime counts against raw estimates, separate prose and JSON rates, saved across restarts (ADR-041) | 3 | Implemented, with 4 unit tests plus agent and chat tests. Measured on the Anu emulator with E4B; the reference phone's numbers are still to come |
-| Settings UI (`feature:settings`): voice (the assistant, "Hey Anu"), connections with privacy dots (calendar and contacts, messaging apps, SMS in `personal`, Gmail, services, stores), models (with delete confirmation and the real space each takes, ADR-061), the Gemini key into the vault, Activity, Vault activity, and the Privacy report (ADR-050) | 1 | Implemented. 10 JVM tests for the records (periods, seven-day counts, wording, model space). Every page and sheet checked on anu_api36 in light and dark, including Try again against the mock MCP server |
+| Settings UI (`feature:settings`): voice (the assistant, "Hey Anu"), connections with privacy dots (calendar and contacts, messaging apps, SMS in `personal`, Gmail, services, stores), models (with delete confirmation and the real space each takes, ADR-061; the memory note, ADR-066; a download's time left; From a file, ADR-067), the Gemini key into the vault, Activity, Vault activity, and the Privacy report (ADR-050) | 1 | Implemented. 13 JVM tests for the records (periods, seven-day counts, wording, model space, memory note, time left, install messages). Every page and sheet checked on anu_api36 in light and dark, including Try again against the mock MCP server |
 | App wiring (`AppGraph`, device state, no-backup rules) | 1 | Implemented; lint clean (two warnings: newer Gradle available, no app icon yet) |
 | Agent loop, Tool Broker, approvals, taint, claim check, framing check (`core:agent`) | 2 | Implemented. JVM tests (19 for the broker, 6 of them for Edit; 2 agent tests and a model test for the framing check, ADR-058), and works end to end on the Anu emulator with E4B: lookups, free slots, an approval-gated invite, and an MCP note fixed with Edit, where the mock server received exactly the edited text |
 | Connectors: calendar, contacts | 2 | Implemented. JVM tests, plus provider tests on the Anu emulator (real `CalendarContract` and `ContactsContract`) |
@@ -1205,6 +1284,13 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 | Hardening, release readiness | 5 | Planned |
 
 ### Changelog
+
+- **1.23.0** (2026-09-28): Google's AI Edge Gallery compared with Anu (ADR-065 to ADR-069).
+  - A table in §16 compares 20 areas and says which way Anu goes in each.
+  - The Models page notes when the phone has less memory than a model asks for, shows a download's time left, and installs a model file from the phone (From a file), keeping only exact catalog files.
+  - Engines load with their own runtime options. Debug builds log each on-device turn's speed.
+  - Measured on the reference phone: speculative decoding gives no gain on the CPU, so it stays off. E4B's generic file answers correctly on the GPU, reading prompts about 4× faster, and is the next GPU candidate.
+  - Spikes S10 (Gemini Nano through AICore) and S11 (photo input) are planned, with the owner's approval.
 
 - **1.22.0** (2026-09-27): the lag on the reference phone (ADR-063, ADR-064).
   - The sphere rests when idle, and its animations run only in their state and only on screen. An idle Anu now draws no frames: on the emulator, 0 in 5 s on every tab where there were about 300.

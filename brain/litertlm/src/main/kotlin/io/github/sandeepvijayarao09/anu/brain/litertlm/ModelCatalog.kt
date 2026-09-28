@@ -45,6 +45,17 @@ object ModelCatalog {
      */
     val GPU_VERIFIED: Set<String> = emptySet()
 
+    /**
+     * The memory a phone should have for each model, in GB, as Google's AI Edge Gallery asks (`minDeviceMemoryInGb`
+     * in its 1.0.19 model list). Below it a model still runs, but Android closes other apps to make room, and it may
+     * be slow (ADR-066).
+     */
+    fun minMemoryGb(brain: BrainId): Int = when (brain) {
+        BrainId.BASE -> 8
+        BrainId.PRO -> 12
+        else -> 0
+    }
+
     /** The build to prefer on a device with [socModel]: the GPU only on a [verified] chip, never on an emulator. */
     fun preferredVariant(socModel: String, emulator: Boolean, verified: Set<String> = GPU_VERIFIED): ModelVariant =
         if (!emulator && socModel in verified) ModelVariant.GPU else ModelVariant.CPU

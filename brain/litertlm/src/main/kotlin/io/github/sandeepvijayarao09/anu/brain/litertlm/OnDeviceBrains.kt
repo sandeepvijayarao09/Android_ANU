@@ -18,7 +18,12 @@ import kotlinx.coroutines.sync.withLock
  * - Whether a 12–16 GB phone can keep Base and Pro both loaded is decided by S1 measurements, not
  *   assumed. The first S1 run needed about 9 GB for E4B alone.
  */
-class OnDeviceBrains(private val models: ModelManager, private val maxNumTokens: Int = 4_096) {
+class OnDeviceBrains(
+    private val models: ModelManager,
+    private val maxNumTokens: Int = 4_096,
+    /** Keeps the runtime's counters and is told each turn's speed, for the debug log (§15). Numbers only. */
+    private val onTurn: ((BrainId, TurnSpeed) -> Unit)? = null,
+) {
 
     private class Slot(val id: BrainId, val holder: EngineHolder, val brain: LiteRtLmBrain)
 
@@ -55,8 +60,9 @@ class OnDeviceBrains(private val models: ModelManager, private val maxNumTokens:
         slot?.let { if (it.id == id) return it.brain }
         release()
         val config = models.engineConfig(id, maxNumTokens) ?: error("$id model is not installed")
-        val holder = EngineHolder(config)
-        return LiteRtLmBrain(id, capabilities, holder).also { slot = Slot(id, holder, it) }
+        val holder = EngineHolder(config, models.engineOptions(id, benchmark = onTurn != null))
+        val report = onTurn?.let { told -> { speed: TurnSpeed -> told(id, speed) } }
+        return LiteRtLmBrain(id, capabilities, holder, onTurn = report).also { slot = Slot(id, holder, it) }
     }
 
     private suspend fun release() {
