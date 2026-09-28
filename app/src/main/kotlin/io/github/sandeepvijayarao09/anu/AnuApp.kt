@@ -21,8 +21,13 @@ class AnuApp : Application() {
     override fun onCreate() {
         super.onCreate()
         graph = AppGraph(this)
-        // Off the main thread: this also opens the database, and it gives the memory tools their facts.
-        graph.scope.launch { graph.memory.start() }
+        // Off the main thread: this also opens the database, and it gives the memory tools their facts. Then facts
+        // without a vector for the installed search model get one, as after that model is installed or replaced
+        // (ADR-062). The model loads only if a fact is missing its vector.
+        graph.scope.launch {
+            graph.memory.start()
+            runCatching { graph.memory.index() }
+        }
         // The services and stores saved in Settings, kept in step with the database (ADR-046, ADR-047).
         graph.scope.launch { graph.mcp.sync() }
         graph.scope.launch { graph.stores.sync() }

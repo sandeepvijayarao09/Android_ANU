@@ -1,6 +1,6 @@
 # Anu for Android: Architecture
 
-Version 1.20.0 · Draft · 2026-09-27
+Version 1.21.0 · Draft · 2026-09-27
 Status: proposed. OD-1 to OD-4 were resolved on 2026-09-25 (§16).
 Product intent lives in [VISION.md](VISION.md).
 
@@ -240,7 +240,7 @@ sequenceDiagram
 | Async | Coroutines and Flow, structured concurrency | Cancellation must reach native generation (I7) |
 | Serialization | kotlinx.serialization | Tool JSON Schemas are generated from serializers |
 | On-device LLM | LiteRT-LM Android, `com.google.ai.edge.litertlm:litertlm-android` | 0.17.1 is the latest on Google Maven as of 2026-09-25; version pinned in Phase 0 |
-| Embeddings | EmbeddingGemma 300M (mixed precision, 512 tokens, CPU) through the AI Edge RAG library 0.3.0's `GemmaEmbeddingModel` (ADR-055, S3) | Its native code is arm64 only (23.7 MB). The library's MediaPipe LLM runtime, second OkHttp and copy of `org.json` are excluded, and so are its three other native libraries |
+| Embeddings | EmbeddingGemma 300M (mixed precision, 256 tokens, CPU; ADR-062) through the AI Edge RAG library 0.3.0's `GemmaEmbeddingModel` (ADR-055, S3) | Its native code is arm64 only (23.7 MB). The library's MediaPipe LLM runtime, second OkHttp and copy of `org.json` are excluded, and so are its three other native libraries |
 | Cloud LLM | `personal`: Gemini API with the owner's key from the vault, sent in the `x-goog-api-key` header, never the URL. `play`: Firebase AI Logic, evaluated in Phase 5 | ADR-013 |
 | Build flavors | `personal` and `play` | ADR-012 |
 | Google auth | Credential Manager + Google Identity Services `AuthorizationClient` | Per-scope, incremental consent |
@@ -574,7 +574,7 @@ flowchart LR
 - **Vector search, v1:** int8 vectors stored in the database, with brute-force top-k over a candidate set pre-filtered by entity and time.
 - A dedicated vector index is adopted only if measured latency exceeds the budget.
 - **Search by meaning (ADR-055).** With EmbeddingGemma installed, every active fact gets a vector: 256 values (Matryoshka), at unit length, from the fact in the user's voice ("My diet: vegetarian"), embedded as a retrieval document. They're kept in `fact_vectors` (schema v5), one per fact and model, and deleted with the fact.
-  - Facts are embedded after every change to memory, and in the background learning run, so facts learned before the model was installed catch up.
+  - Facts are embedded after every change to memory, in the background learning run, and when the app starts. So facts learned before the model was installed, or with an earlier one, catch up at once (ADR-062). Nothing loads when every fact has its vector.
   - Each message is embedded as a retrieval query, unless it has no words that carry meaning: "Thanks!", "OK" and "Good morning" skip the search.
   - A fact counts if it shares a word with the message, or by meaning (ADR-056). By meaning, it must be at least 0.37 close by cosine and stand out from the message's other facts by 1.25 standard deviations. With fewer than 5 facts their spread says little, so closeness alone decides. Closeness adds to the word score, so "plan dinner" finds "diet: vegetarian".
   - Both tests are needed (S3). Raw closeness overlaps: right facts score from 0.35, unrelated ones up to 0.44, and small talk up to 0.52. Some facts, such as a favorite sport, are close to almost everything.
@@ -893,6 +893,18 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 
 **Spike log.** Measured results only, newest first.
 
+- **S3 with the 256-token file, 2026-09-27** (`embeddinggemma-300M_seq256_mixed-precision.tflite`, ADR-062).
+  - **Same answers:** across the eval's 276 message and fact pairs, closeness matched the 512-token file's to four decimals, so the picks and the rule are unchanged. It found 11 of 12 facts, with 3 wrong and none for small talk.
+  - **Faster:**
+
+    | | Emulator | Pixel 10 Pro |
+    |---|---|---|
+    | A search per message (median, eval) | 188 ms (was 454) | 466 ms (was 1054) |
+    | Indexing, per fact | 186 ms (was 451) | 346 ms (was 954) |
+    | Loading and the first query | 0.42 s (was 0.7) | 1.0 s (was 1.8) |
+
+  - **In the app on the emulator:** after the switch, the startup index gave all 6 facts new vectors. "Plan a dinner for tonight" then found the diet fact in 232 ms, where it had taken 533–691 ms.
+
 - **S1 on the reference phone, 2026-09-27.** Pixel 10 Pro (Tensor G5, Android 17, 15 GB RAM), E4B.
   - **GPU build** (`gemma-4-E4B-it-gpu.litertlm`): the app's own download fetched and verified it in about 1.5 minutes over Wi-Fi, the worker's first run on a device. The engine loaded on the GPU (16-bit, texture weights). But it wrote garbage: for "I'm vegetarian", `{{": []] \    \   \   \  ||`. So Memory → Add said "Anu couldn't read that" (ADR-059).
   - **CPU build:** correct answers. The same extraction test returned clean facts for all four statements.
@@ -939,7 +951,7 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
     - One thread does all of it, on a 3.05 GHz core: the library has no thread setting, and a query always fills 512 tokens. The test process may not use the phone's fastest core, which Android keeps for the app on screen, so the app may be a little faster.
     - Quality is the same as on the emulator: the same picks, 11 of 12 facts, 3 wrong, and no small talk with facts.
     - The library's GPU option aborts the process ("Check failed: delegate != nullptr"), so the app stays on the CPU.
-    - Faster options: EmbeddingGemma's 256-token file (about half the work), or a runtime that uses several threads.
+    - Faster options: EmbeddingGemma's 256-token file (about half the work; done in ADR-062), or a runtime that uses several threads.
 
 - **Voice, assistant, MCP and shopping end to end, 2026-09-26.** Anu emulator, E4B CPU.
   - **Talk page:** the orb and captions render, and the pager moves between Talk, Memory and Settings. The emulator's on-device recognizer has no English pack (error 13), so the page says so and offers the download. It wasn't started: downloads are the user's choice.
@@ -1133,6 +1145,7 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 | 059 | 2026-09-27 | Phones use the CPU build of each model until their chip's GPU build passes S1 (`ModelCatalog.GPU_VERIFIED`, empty today). Emulators always use it. Amends ADR-019 and ADR-025 | On the Pixel 10 Pro (Tensor G5), E4B's GPU build loaded but wrote garbage, while the CPU build was correct at 6–7 tokens/s. EmbeddingGemma's GPU option aborted on the same phone. A slow answer beats a garbled one, and an unmeasured GPU can't be trusted |
 | 060 | 2026-09-27 | Memory extraction uses Pro (E4B) when it's installed, and Base (E2B) otherwise | On the reference phone, E2B answered `{"facts":[]}` for "I'm vegan", which E4B keeps. Learning runs after the user leaves the app (ADR-037), so accuracy counts more than E2B's 1.5× speed. Memory → Add waits a little longer when both models are installed |
 | 061 | 2026-09-27 | The Models page shows the space a model really takes: "needs 5.9 GB" before download and "5.9 GB used" once installed, counting the weight cache it writes on its first run. Deleting a model deletes its cache | The page said "3.7 GB" for E4B, but its cache adds 2.21 GB, measured on the phone. Deleting left the cache behind, so "This frees 3.7 GB" was wrong twice. The cache sizes are measured, not estimated: E2B's is 30% of its file and E4B's 60% |
+| 062 | 2026-09-27 | Search by meaning uses EmbeddingGemma's 256-token file instead of the 512-token one, and facts are indexed when the app starts too. Amends ADR-055 | A query always fills its token window, so 256 tokens halve the work. Messages and facts are short: closeness matched the 512-token file to four decimals over 276 pairs. Search went from 1054 to 466 ms on the phone. The new model ID gives every fact a new vector, and indexing at start does that at once, instead of after the next learning run |
 
 ### Component status
 
@@ -1142,7 +1155,7 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 | CI workflow (`.github/workflows/ci.yml`), including the Play SMS-permission check | 0 | Implemented, not yet run (the repo hasn't been pushed). The SMS check runs locally |
 | Spike S1 (runtime on device) | 0 | In progress. Run 2 on the Anu emulator passed: contract, tools, schema, cancel, memory. On the reference phone (Pixel 10 Pro), E4B's CPU build passes all 6 tests at 6–7 tokens/s, and its GPU build writes garbage (ADR-059). E2B's CPU build is faster (9–9.5 tokens/s) but missed "I'm vegan" in extraction. The Tensor G5 NPU build can't run with LiteRT-LM 0.17.1. Peak RAM and context limits are still to measure |
 | Spike S2 (model delivery) | 0 | Partly done: ungated, and per-backend files found |
-| Spike S3 (on-device embeddings) | 0 | Verified on the Anu emulator and the reference phone (Pixel 10 Pro). Its eval (`S3EmbeddingTest`) passes on both: 11 of 12 facts found, 3 wrong in 11 messages, and no small talk with facts. A search takes about 0.45–0.7 s on the emulator and 1.05 s on the phone, on one CPU thread |
+| Spike S3 (on-device embeddings) | 0 | Verified on the Anu emulator and the reference phone (Pixel 10 Pro). Its eval (`S3EmbeddingTest`) passes on both: 11 of 12 facts found, 3 wrong in 11 messages, and no small talk with facts. A search takes about 0.19–0.23 s on the emulator and 0.47 s on the phone, on one CPU thread, with the 256-token file (ADR-062) |
 | Spikes S4–S7 | 0 | Planned |
 | `core:model`: brain contracts, `JsonSchemas`, `ToolSpec` | 1 | Implemented. JVM unit tests pass; the tool-call path is not yet verified on a real model |
 | `brain:litertlm`: `LiteRtLmBrain`, `EngineHolder` | 1 | Implemented. Real-model tests pass on the Anu emulator and the reference phone (E4B, CPU) |
@@ -1190,6 +1203,10 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 | Hardening, release readiness | 5 | Planned |
 
 ### Changelog
+
+- **1.21.0** (2026-09-27): search by meaning uses EmbeddingGemma's 256-token file (ADR-062).
+  - It's 2.3–2.4× faster, with the same closeness to four decimals: 466 ms a search on the reference phone, and 232 ms in the app on the emulator.
+  - Facts are indexed when the app starts too, so a new search model is used at once.
 
 - **1.20.0** (2026-09-27): the Models page shows the real space (ADR-061).
   - A model shows what it needs before it's downloaded and what it uses once it is, with its weight cache: E2B needs 3.4 GB, and E4B uses 5.9 GB.

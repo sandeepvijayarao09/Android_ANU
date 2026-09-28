@@ -28,7 +28,7 @@ import kotlin.system.measureNanoTime
  * brings to a message, through memory's own path (indexing, the query, the decision rule in Relevance).
  * Push the two files once, then run:
  *
- *   adb push embeddinggemma-300M_seq512_mixed-precision.tflite sentencepiece.model /data/local/tmp/anu/models/
+ *   adb push embeddinggemma-300M_seq256_mixed-precision.tflite sentencepiece.model /data/local/tmp/anu/models/
  *   ANDROID_SERIAL=<serial> ./gradlew :brain:embedding:connectedDebugAndroidTest
  *   adb logcat -d -s AnuS3
  *
