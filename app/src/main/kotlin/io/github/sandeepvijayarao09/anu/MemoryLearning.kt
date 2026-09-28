@@ -12,29 +12,29 @@ import androidx.work.WorkerParameters
 import java.time.Duration
 
 /**
- * When memory learns (ADR-037). Never mid-chat: extraction uses the same on-device model, and running
- * it between turns would throw away the chat's KV cache (ADR-033).
- * - Soon after the user leaves the app, if the battery isn't low. The few messages of a session take
- *   one short model call each.
- * - Twice a day while charging, to catch up on anything left (P8).
- * - "Learn now" in the Memory tab runs in the app itself.
+ * When memory learns (ADR-037, ADR-064). Never mid-chat: extraction uses the same on-device model, and running
+ * it between turns would throw away the chat's KV cache (ADR-033). Never while the phone is in use either:
+ * learning loads E4B, and on a phone short of memory it slowed the next app the user opened.
+ * - Queued when the user leaves the app, it runs once the phone is idle and charging, such as overnight.
+ * - Twice a day, on the same conditions, to catch up on anything left (P8).
+ * - "Learn now" in the Memory tab runs in the app itself, at once.
  */
 object MemoryLearning {
-    private const val SOON = "memory-learn"
+    private const val LEARN = "memory-learn"
     private const val CATCH_UP = "memory-catch-up"
 
-    fun soon(context: Context) {
-        val request = OneTimeWorkRequestBuilder<MemoryWorker>()
-            .setConstraints(Constraints.Builder().setRequiresBatteryNotLow(true).build())
-            .build()
-        WorkManager.getInstance(context).enqueueUniqueWork(SOON, ExistingWorkPolicy.KEEP, request)
+    /** Idle, charging and not low (ADR-064). */
+    internal fun constraints(): Constraints =
+        Constraints.Builder().setRequiresDeviceIdle(true).setRequiresCharging(true).setRequiresBatteryNotLow(true).build()
+
+    fun whenIdle(context: Context) {
+        val request = OneTimeWorkRequestBuilder<MemoryWorker>().setConstraints(constraints()).build()
+        WorkManager.getInstance(context).enqueueUniqueWork(LEARN, ExistingWorkPolicy.KEEP, request)
     }
 
     fun scheduleCatchUp(context: Context) {
-        val request = PeriodicWorkRequestBuilder<MemoryWorker>(Duration.ofHours(12))
-            .setConstraints(Constraints.Builder().setRequiresCharging(true).setRequiresBatteryNotLow(true).build())
-            .build()
-        WorkManager.getInstance(context).enqueueUniquePeriodicWork(CATCH_UP, ExistingPeriodicWorkPolicy.KEEP, request)
+        val request = PeriodicWorkRequestBuilder<MemoryWorker>(Duration.ofHours(12)).setConstraints(constraints()).build()
+        WorkManager.getInstance(context).enqueueUniquePeriodicWork(CATCH_UP, ExistingPeriodicWorkPolicy.UPDATE, request)
     }
 }
 

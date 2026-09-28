@@ -51,6 +51,8 @@ android {
 }
 
 dependencies {
+    testImplementation(libs.junit)
+
     implementation(project(":feature:home"))
     implementation(project(":core:ui"))
     implementation(project(":feature:settings"))

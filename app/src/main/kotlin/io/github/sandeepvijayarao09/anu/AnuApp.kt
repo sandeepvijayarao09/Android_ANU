@@ -56,7 +56,7 @@ class AnuApp : Application() {
             started--
             if (started == 0 && !activity.isChangingConfigurations) {
                 visible.value = false
-                MemoryLearning.soon(this@AnuApp)
+                MemoryLearning.whenIdle(this@AnuApp)
             }
         }
 

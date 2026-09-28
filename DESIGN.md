@@ -156,7 +156,7 @@ components:
 - Apple's privacy indicators and Apple Intelligence Report: the model for Anu's privacy dots and Privacy report.
 
 **First five seconds:**
-- A pearl sphere breathing on a quiet gray page. It's the only object on screen, and it has depth.
+- A pearl sphere resting on a quiet gray page. It's the only object on screen, and it has depth.
 - "On device" with a green dot in the corner, before you've asked anything.
 - Large, confident type: "Good afternoon".
 - One composer, one microphone. There's nothing to learn.
@@ -254,7 +254,7 @@ There is no face, mascot or character. The sphere is procedural, not an image: C
 
 | State | Driven by | Behavior |
 |---|---|---|
-| Idle | nothing happening | breathes: scale 1.0 to 1.015 over 4.8 s |
+| Idle | nothing happening | rests: still, so an idle screen draws no frames |
 | Listening | mic open, RMS level | surface follows your voice (up to 1.045); an inner `accent` light brightens with the level |
 | Thinking | tokens streaming | the internal light turns once every 2.4 s; it stops when the tokens stop |
 | Speaking | text to speech playing | a gentle pulse while speech plays |
@@ -389,3 +389,4 @@ Three tabs with 24dp line icons at stroke 1.7 and 11sp labels. The selected tab 
 | 2026-09-26 | The sphere's ripples move its surface, never its outline; Error greys it after a failed turn | A moving outline would turn the object into a character. Only a turn that really failed greys it, never a decline |
 | 2026-09-26 | The assistant card is its own window with a hairline edge and no shadow | The system blur covers a window's background shape, so only a card-sized window frosts just the card. A shadow under the translucent card showed through and misplaced it on the emulator |
 | 2026-09-27 | Model rows show the space a model really takes, with its weight cache | "3.7 GB" hid E4B's 2.2 GB cache, and Delete said it freed less than it did. What a download costs and what Delete frees should be exact |
+| 2026-09-27 | The sphere rests when idle; its animations run only in their state and only on screen | The idle breath redrew the whole screen at 120 Hz on the Pixel 10 Pro, 43% of a CPU core, and it followed no real event |

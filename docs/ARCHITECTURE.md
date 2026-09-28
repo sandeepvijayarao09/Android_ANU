@@ -1,6 +1,6 @@
 # Anu for Android: Architecture
 
-Version 1.21.0 · Draft · 2026-09-27
+Version 1.22.0 · Draft · 2026-09-27
 Status: proposed. OD-1 to OD-4 were resolved on 2026-09-25 (§16).
 Product intent lives in [VISION.md](VISION.md).
 
@@ -480,7 +480,7 @@ Untrusted content goes in clearly delimited data blocks. Budgets are set per tie
 
 **Dates for scheduling.** Small models are poor at date arithmetic. S1 on the emulator saw E4B turn "tomorrow" into the wrong day. So scheduling prompts include a small table: today, tomorrow, and the next seven days with weekday names and ISO dates. They also say that calling `calendar_create_event` *is* how to ask the user, because the approval sheet is the confirmation.
 
-**Memory (ADR-038).** The memory block is read fresh for every turn and goes to on-device brains only. It changes rarely during a chat, because learning runs after the user leaves the app (ADR-037), so the KV cache survives. Its header says it is kept up to date and wins over older messages in the chat, unless the user has just said otherwise. On the emulator, the model otherwise trusted an old "I'm vegetarian" over the user's own correction to "vegan".
+**Memory (ADR-038).** The memory block is read fresh for every turn and goes to on-device brains only. It changes rarely during a chat, because learning runs only when the phone is idle and charging (ADR-064), so the KV cache survives. Its header says it is kept up to date and wins over older messages in the chat, unless the user has just said otherwise. On the emulator, the model otherwise trusted an old "I'm vegetarian" over the user's own correction to "vegan".
 
 **Relevant facts (ADR-054).** Before every model call, the phone gathers the facts from memory that bear on the user's newest message (`Relevance` in `core:memory`, §8.3). The message is read on its own. Only when it points back to someone it doesn't name ("And for her birthday?") is it read after the message before it, which says who (ADR-056).
 - They ride with the newest message, like the time, never in the system prompt, and are never saved into the transcript. The engine compares the clean transcript, so the KV cache survives. On the emulator, "Where does my sister live?" carried 2 facts, and E4B answered "Your sister, Priya, lives in Pune".
@@ -608,7 +608,7 @@ flowchart LR
   - A deleted fact leaves only a SHA-256 fingerprint of subject, relation and value, so it isn't learned again from chat. A correction leaves one for the old value.
   - The user's own statement (Memory → Add, or "Remember that…") brings the fact back and clears its fingerprint (ADR-057).
 - **Profile.** Each section is rendered from its facts, most important first: the user's own facts, then confidence, then recency. A new version is saved only when the text changes. Model-written summaries are Planned for nightly consolidation.
-- **When (ADR-037).** Never mid-chat. After the user leaves the app, if the battery isn't low; twice a day while charging; or "Learn now" in the Memory tab. A background run stops between messages if the user returns, and frees the model when done (P8).
+- **When (ADR-037, ADR-064).** Never mid-chat, and never while the phone is in use: when the phone is idle and charging (queued when the user leaves the app, and twice a day), or "Learn now" in the Memory tab. A background run stops between messages if the user returns, and frees the model when done (P8).
 - **Retrieval v1.** The memory block holds the most important facts, grouped by section, within about 1,500 characters, for on-device brains only (ADR-038). Each message also carries the facts relevant to it (ADR-054, §7.3). `memory_search` finds facts by name or topic. Relevant facts also match by meaning when EmbeddingGemma is installed (ADR-055). Entity resolution is Planned.
 - **Tools.** `memory_remember` (`WRITE_PRIVATE`: automatic unless the run is tainted), `memory_search` (READ), `memory_forget` (`DESTRUCTIVE`: the approval sheet lists the exact facts, and only those are deleted, even if memory changes in between).
 - **Memory tab.** Facts grouped by section, with search. A fact reads as its value with how it relates to the user ("Maya Chen", "Your manager"), or as a sentence when the relation is a verb ("Priya lives in Pune"). The user's own facts say "You said"; learned ones have a Confirm pill. Tapping a fact opens a sheet with the dated words it came from ("because of"). Controls: That's right, Correct, Delete, and Forget on a source message. Forgetting a message removes what came only from it and restores what it had replaced (I5). A fact the user confirmed survives, because the confirmation is also a source (I4).
@@ -800,7 +800,7 @@ Recommend a **paid** Gemini tier for personal data. Google's terms for unpaid Ge
 
 **Visual design (ADR-048 to ADR-053).** [DESIGN.md](../DESIGN.md) is the source of truth for colors, type, components and motion ("quiet precision", approved 2026-09-26): neutral surfaces, Google Sans Flex, a procedural sphere as Anu's presence, and color reserved for privacy (green stays on the phone, orange leaves it). Every surface in DESIGN.md is built:
 - **Built:** the theme and the sphere; Talk, the approval and cloud-consent sheets, the assistant card and the tab bar; Memory, Settings and the Privacy report.
-  - **The sphere** (ADR-052): an AGSL shader on Android 13+, lit per pixel, with ripples on its surface that follow the voice and an inner light the glass bends. Android 12 draws the same materials with gradients. Every state follows a real event, including Error: a failed turn greys it briefly.
+  - **The sphere** (ADR-052): an AGSL shader on Android 13+, lit per pixel, with ripples on its surface that follow the voice and an inner light the glass bends. Android 12 draws the same materials with gradients. Every state follows a real event, including Error: a failed turn greys it briefly. It rests when idle, and each endless animation runs only in its state and only while the sphere is on screen, so an idle screen draws no frames (ADR-063).
   - **Talk:** empty, the thread with receipts, listening, and the composer.
   - **Approval sheet:** the exact payload, where it goes, and Edit for the fields the tool allows (ADR-053). A saved edit comes back checked, marked "Edited by you", before anything runs.
   - **Pages** (`AnuPage`): a bar with the privacy indicator, which no page can hide, and a large title that collapses into the bar on scroll. Pages inside Settings have a back button named for where it goes.
@@ -815,7 +815,7 @@ Recommend a **paid** Gemini tier for personal data. Google's terms for unpaid Ge
 
 | Surface | How |
 |---|---|
-| Talk page (ADR-043) | The first of three pages: Talk, Memory and Settings, swiped or chosen in the bar. The sphere (DESIGN.md) breathes when idle, follows the voice level, turns its light while tokens stream, pulses while Anu speaks, sweeps an orange arc when a ledger entry is written, and greys briefly when a turn fails. Voice and typing share one surface: the empty state with suggestions, the thread with receipts and the answering model, the listening layout with live speech, and the composer. Voice uses only the on-device `SpeechRecognizer` (a missing language pack is downloaded only when the user taps) and `TextToSpeech`, spoken sentence by sentence as the answer streams; Mute and Stop are one tap. Only the visible page is composed, so keyboard focus can't jump the pager. Whether Gemma 4's own audio input can replace speech recognition is spike S6 |
+| Talk page (ADR-043) | The first of three pages: Talk, Memory and Settings, swiped or chosen in the bar. The sphere (DESIGN.md) rests when idle (ADR-063), follows the voice level, turns its light while tokens stream, pulses while Anu speaks, sweeps an orange arc when a ledger entry is written, and greys briefly when a turn fails. Voice and typing share one surface: the empty state with suggestions, the thread with receipts and the answering model, the listening layout with live speech, and the composer. Voice uses only the on-device `SpeechRecognizer` (a missing language pack is downloaded only when the user taps) and `TextToSpeech`, spoken sentence by sentence as the answer streams; Mute and Stop are one tap. Only the visible page is composed, so keyboard focus can't jump the pager. Whether Gemma 4's own audio input can replace speech recognition is spike S6 |
 | Assistant overlay (ADR-044) | Anu can be the phone's digital assistant (`ROLE_ASSISTANT`), chosen in Android's settings from Settings → Voice → Set up. Holding the power button, or the corner swipe, opens `AssistantActivity`: a frosted card over the current app (ADR-051) that listens at once and shares the one conversation. Screen content (assist data) is ignored in v1 |
 | "Hey Anu" (ADR-045) | Opt-in, in Settings → Voice, once Anu is the assistant. While the screen is on and no Anu screen shows, the on-device recognizer listens in rounds; "Hey Anu, …" or "Anu, …" opens the assistant with the rest as the request. After a reboot it resumes when Anu next opens |
 | Writing everywhere | `ACTION_PROCESS_TEXT` actions in the text-selection toolbar; share target. **As built (ADR-042):** "Anu" in any app's text-selection menu opens a sheet over that app, with six actions and a field for the user's own instruction. The result streams in, and Replace sends it back, or Copy when the other app marked the text read-only. The share target is Planned |
@@ -1146,6 +1146,8 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 | 060 | 2026-09-27 | Memory extraction uses Pro (E4B) when it's installed, and Base (E2B) otherwise | On the reference phone, E2B answered `{"facts":[]}` for "I'm vegan", which E4B keeps. Learning runs after the user leaves the app (ADR-037), so accuracy counts more than E2B's 1.5× speed. Memory → Add waits a little longer when both models are installed |
 | 061 | 2026-09-27 | The Models page shows the space a model really takes: "needs 5.9 GB" before download and "5.9 GB used" once installed, counting the weight cache it writes on its first run. Deleting a model deletes its cache | The page said "3.7 GB" for E4B, but its cache adds 2.21 GB, measured on the phone. Deleting left the cache behind, so "This frees 3.7 GB" was wrong twice. The cache sizes are measured, not estimated: E2B's is 30% of its file and E4B's 60% |
 | 062 | 2026-09-27 | Search by meaning uses EmbeddingGemma's 256-token file instead of the 512-token one, and facts are indexed when the app starts too. Amends ADR-055 | A query always fills its token window, so 256 tokens halve the work. Messages and facts are short: closeness matched the 512-token file to four decimals over 276 pairs. Search went from 1054 to 466 ms on the phone. The new model ID gives every fact a new vector, and indexing at start does that at once, instead of after the next learning run |
+| 063 | 2026-09-27 | The sphere rests when idle. Its endless animations (the inner light's turn, the speaking pulse, the listening ripples) run only in their state and only while the sphere is on screen | On the Pixel 10 Pro, the idle breath and the other loops ran all the time: the screen redrew at 120 Hz, taking 43% of a CPU core with 20 ms frames. They kept running after a tab switch, because the Talk page stays composed off-screen. With them frozen, idle frames went from about 300 in 5 s to 0 on every tab. DESIGN.md already asked that every sphere animation follow a real event |
+| 064 | 2026-09-27 | Memory learns only when the phone is idle and charging, or on "Learn now". Amends ADR-037 | Learning loads E4B and took about 2.5 CPU cores the moment the user left the app, and several GB of memory. The reference phone had 2.2 GB free, so it slowed whatever app the user opened next. Facts now arrive later, such as overnight |
 
 ### Component status
 
@@ -1203,6 +1205,10 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 | Hardening, release readiness | 5 | Planned |
 
 ### Changelog
+
+- **1.22.0** (2026-09-27): the lag on the reference phone (ADR-063, ADR-064).
+  - The sphere rests when idle, and its animations run only in their state and only on screen. An idle Anu now draws no frames: on the emulator, 0 in 5 s on every tab where there were about 300.
+  - Memory learns only when the phone is idle and charging, or on "Learn now". Leaving Anu no longer starts E4B while you use another app.
 
 - **1.21.0** (2026-09-27): search by meaning uses EmbeddingGemma's 256-token file (ADR-062).
   - It's 2.3–2.4× faster, with the same closeness to four decimals: 466 ms a search on the reference phone, and 232 ms in the app on the emulator.

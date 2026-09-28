@@ -5,12 +5,11 @@ import android.os.Build
 import android.provider.Settings
 import androidx.annotation.RequiresApi
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.InfiniteRepeatableSpec
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
@@ -19,7 +18,11 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -32,6 +35,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.layout.onVisibilityChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -57,8 +61,9 @@ fun rememberReducedMotion(): Boolean {
 
 /**
  * Anu's presence (DESIGN.md): a pearl in light mode and obsidian glass in dark. No face, no mascot.
- * - It breathes when idle, follows the voice [level] while listening, turns its inner light while
- *   thinking, and pulses while speaking.
+ * - It rests when idle, follows the voice [level] while listening, turns its inner light while thinking,
+ *   and pulses while speaking. Each endless animation runs only in its state and only while the sphere is
+ *   on screen, so an idle screen draws no frames ([sphereLoops], ADR-063).
  * - Each time [awayPulse] changes, one orange arc sweeps around the rim: something just left the phone.
  * - Each time [errorPulse] changes, it greys briefly: a turn failed, and the message says why.
  * - [shadow] draws the contact shadow below it, for the large sizes.
@@ -83,11 +88,11 @@ fun Sphere(
     val voice = animateFloatAsState(if (state == SphereState.LISTENING) level else 0f, spring(dampingRatio = 1f, stiffness = 300f), label = "voice")
     val listening = animateFloatAsState(if (state == SphereState.LISTENING) 1f else 0f, tween(300), label = "listening")
     val thinking = animateFloatAsState(if (state == SphereState.THINKING) 1f else 0f, tween(300), label = "thinking")
-    val time = rememberInfiniteTransition(label = "sphere")
-    val breath = time.animateFloat(0f, 1f, infiniteRepeatable(tween(2_400), RepeatMode.Reverse), label = "breath")
-    val turn = time.animateFloat(0f, 360f, infiniteRepeatable(tween(2_400, easing = LinearEasing)), label = "turn")
-    val pulse = time.animateFloat(0f, 1f, infiniteRepeatable(tween(460), RepeatMode.Reverse), label = "pulse")
-    val wave = time.animateFloat(0f, 2f * PI.toFloat(), infiniteRepeatable(tween(7_000, easing = LinearEasing)), label = "wave")
+    var onScreen by remember { mutableStateOf(false) }
+    val loops = sphereLoops(state, onScreen, still)
+    val turn = loop(SphereLoop.TURN in loops, 360f, infiniteRepeatable(tween(2_400, easing = LinearEasing)))
+    val pulse = loop(SphereLoop.PULSE in loops, 1f, infiniteRepeatable(tween(460), RepeatMode.Reverse))
+    val wave = loop(SphereLoop.WAVE in loops, 2f * PI.toFloat(), infiniteRepeatable(tween(7_000, easing = LinearEasing)))
     val arc = remember { Animatable(1f) }
     LaunchedEffect(awayPulse) {
         if (awayPulse != 0) {
@@ -112,6 +117,7 @@ fun Sphere(
     }
     val base = modifier
         .size(size, if (shadow) size * 1.16f else size)
+        .onVisibilityChanged(minFractionVisible = 0.1f) { onScreen = it }
         .semantics {
             contentDescription = "Anu"
             stateDescription = label
@@ -123,7 +129,7 @@ fun Sphere(
         val r = d / 2f * 0.9f
         val c = Offset(d / 2f, d / 2f)
         val scale = if (still) 1f else when (state) {
-            SphereState.IDLE -> 1f + 0.015f * breath.value
+            SphereState.IDLE -> 1f
             SphereState.LISTENING -> 1f + 0.045f * voice.value
             SphereState.THINKING -> 1f
             SphereState.SPEAKING -> 1f + 0.025f * pulse.value
@@ -144,6 +150,36 @@ fun Sphere(
         }
         if (arc.value < 1f) drawAwayArc(c, r * scale, colors.away, arc.value)
     }
+}
+
+/** The sphere's endless animations: the inner light's turn, the speaking pulse and the listening ripples. */
+internal enum class SphereLoop { TURN, PULSE, WAVE }
+
+/**
+ * The endless animations to run (ADR-063). None while idle, when motion is reduced, or when the sphere isn't
+ * on screen, such as on a page the pager keeps composed after a tab switch. On the Pixel 10 Pro, running them
+ * all the time redrew the screen at 120 Hz and took 43% of a CPU core.
+ */
+internal fun sphereLoops(state: SphereState, onScreen: Boolean, still: Boolean): Set<SphereLoop> =
+    if (still || !onScreen) {
+        emptySet()
+    } else {
+        when (state) {
+            SphereState.IDLE -> emptySet()
+            SphereState.LISTENING -> setOf(SphereLoop.WAVE)
+            SphereState.THINKING -> setOf(SphereLoop.TURN)
+            SphereState.SPEAKING -> setOf(SphereLoop.PULSE)
+        }
+    }
+
+/** One endless animation from 0 to [target] while [running]. Otherwise it rests at 0 and asks for no frames. */
+@Composable
+private fun loop(running: Boolean, target: Float, spec: InfiniteRepeatableSpec<Float>): State<Float> {
+    val value = remember { Animatable(0f) }
+    LaunchedEffect(running) {
+        if (running) value.animateTo(target, spec) else value.snapTo(0f)
+    }
+    return value.asState()
 }
 
 /**
