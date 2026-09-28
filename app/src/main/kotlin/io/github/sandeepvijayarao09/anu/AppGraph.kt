@@ -55,6 +55,7 @@ import io.github.sandeepvijayarao09.anu.core.memory.ForgetMemoryTool
 import io.github.sandeepvijayarao09.anu.core.memory.MemoryPipeline
 import io.github.sandeepvijayarao09.anu.core.memory.RememberTool
 import io.github.sandeepvijayarao09.anu.core.memory.SearchMemoryTool
+import io.github.sandeepvijayarao09.anu.core.memory.extractionBrain
 import io.github.sandeepvijayarao09.anu.core.data.RoomTranscriptStore
 import io.github.sandeepvijayarao09.anu.core.data.RoomVaultAudit
 import io.github.sandeepvijayarao09.anu.core.model.BrainId
@@ -231,7 +232,7 @@ class AppGraph(private val context: Context) {
     val memory by lazy {
         MemoryPipeline(
             RoomMemoryStore(db),
-            FactExtractor({ onDevice.brainFor(BrainId.BASE) ?: onDevice.brainFor(BrainId.PRO) }),
+            FactExtractor({ extractionBrain(onDevice::brainFor) }),
             embedder = embedder,
         )
     }

@@ -101,6 +101,15 @@ class MemoryPipelineTest {
     }
 
     @Test
+    fun `facts are extracted by Pro when it's installed, else by Base (ADR-060)`() {
+        val base = ScriptedBrain(BrainId.BASE)
+        val pro = ScriptedBrain(BrainId.PRO)
+        assertEquals(BrainId.PRO, extractionBrain { mapOf(BrainId.BASE to base, BrainId.PRO to pro)[it] }?.id)
+        assertEquals(BrainId.BASE, extractionBrain { mapOf(BrainId.BASE to base)[it] }?.id)
+        assertNull(extractionBrain { null })
+    }
+
+    @Test
     fun `capture keeps messages about someone, never secrets, and cuts card numbers`() = runTest {
         assertNull(memory.captureChat("Book lunch with Maya tomorrow", "k"))
         assertNull(memory.captureChat("yes please", "k"))

@@ -2,6 +2,7 @@ package io.github.sandeepvijayarao09.anu.core.memory
 
 import io.github.sandeepvijayarao09.anu.core.model.Brain
 import io.github.sandeepvijayarao09.anu.core.model.BrainEvent
+import io.github.sandeepvijayarao09.anu.core.model.BrainId
 import io.github.sandeepvijayarao09.anu.core.model.BrainLocation
 import io.github.sandeepvijayarao09.anu.core.model.BrainRequest
 import io.github.sandeepvijayarao09.anu.core.model.ChatMessage
@@ -30,6 +31,13 @@ data class ExtractedFact(
 
 @Serializable
 data class Extraction(val facts: List<ExtractedFact>)
+
+/**
+ * The on-device brain that extracts facts: Pro when it's installed, else Base (ADR-060). Learning runs after
+ * the user leaves the app, so accuracy counts more than speed. On the reference phone, E2B kept nothing from
+ * "I'm vegan", which E4B keeps.
+ */
+fun extractionBrain(brainFor: (BrainId) -> Brain?): Brain? = brainFor(BrainId.PRO) ?: brainFor(BrainId.BASE)
 
 /**
  * Step 2 of the pipeline (§8.2): finds lasting facts in one message the user wrote.

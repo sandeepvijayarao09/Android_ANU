@@ -1,6 +1,6 @@
 # Anu for Android: Architecture
 
-Version 1.18.2 · Draft · 2026-09-27
+Version 1.19.0 · Draft · 2026-09-27
 Status: proposed. OD-1 to OD-4 were resolved on 2026-09-25 (§16).
 Product intent lives in [VISION.md](VISION.md).
 
@@ -258,8 +258,8 @@ Application ID: `io.github.sandeepvijayarao09.anu`. It can change until the firs
 | Tier | Model | Runtime | Where | Used for |
 |---|---|---|---|---|
 | Direct | none | Kotlin handlers | device | Simple intents with a deterministic answer ("when's my next meeting?") |
-| Base | Gemma 4 E2B-it (`.litertlm`) | LiteRT-LM | device | Classification, extraction, short replies, rewrites, single tool calls |
-| Pro | Gemma 4 E4B-it (`.litertlm`, ~3.7 GB file) | LiteRT-LM | device | Multi-step tool use, long-form writing, scheduling reasoning, profile synthesis |
+| Base | Gemma 4 E2B-it (`.litertlm`) | LiteRT-LM | device | Classification, short replies, rewrites, single tool calls; memory extraction when Pro isn't installed |
+| Pro | Gemma 4 E4B-it (`.litertlm`, ~3.7 GB file) | LiteRT-LM | device | Multi-step tool use, long-form writing, scheduling reasoning, profile synthesis, memory extraction (ADR-060) |
 | Cloud | Gemini, Flash or Pro (model IDs come from config, not code) | Gemini API; the key is a vault item bound to `generativelanguage.googleapis.com` | cloud | Work beyond on-device quality or context limits, with consent |
 | Embeddings | EmbeddingGemma 300M (ADR-055) | AI Edge RAG library | device | Search by meaning in memory; later entity resolution and router features |
 
@@ -559,7 +559,7 @@ flowchart LR
 ```
 
 1. **Capture.** Every change becomes an event, and this is cheap. The sources are chat turns, connector deltas, tool results, draft-versus-sent differences (a writing-style signal), accepted or rejected suggestions (preferences), and router retries (quality preferences).
-2. **Extract.** The Base model extracts candidate entities and facts, in batches or when the phone is idle. Untrusted content is only extracted from, in a quarantined call with no tools.
+2. **Extract.** The Pro model extracts candidate entities and facts, or Base when Pro isn't installed (ADR-060), in batches or when the phone is idle. Untrusted content is only extracted from, in a quarantined call with no tools.
 3. **Reconcile.**
    - Entities are matched by alias first, then by embedding similarity with a model check.
    - A matching fact updates its confidence and "last confirmed" date.
@@ -599,7 +599,7 @@ flowchart LR
   - confirmations and corrections in the Memory tab.
   Requests such as "Book lunch with Maya" aren't captured, and neither are memory commands, which the memory tools already carry out. On the emulator, learning from a "Remember that…" message again made a duplicate fact. Learning from email, messages and calendar is Planned. It needs a quarantined extraction call and never-learn rules.
 - **Never kept (I1).** Messages about passwords, PINs or verification codes are not captured at all. Card, bank and ID numbers are cut from what is stored. A fact is refused if its relation or value carries one, including in snake_case such as `wifi_password`, which a unit test caught.
-- **Extract.** An on-device model only, never the cloud, with no tools, greedy sampling and a strict JSON schema generated from `ExtractedFact`. It gets one example and today's date. Invalid output gets one repair (P6). A fact is kept only if its quote, or else its value, is really in the message, which catches invented facts. A failed event waits for the next run, because an immediate retry would fail the same way, and is dropped after 3 attempts.
+- **Extract.** An on-device model only, never the cloud: E4B when it's installed, else E2B (ADR-060). No tools, greedy sampling, and a strict JSON schema generated from `ExtractedFact`. It gets one example and today's date. Invalid output gets one repair (P6). A fact is kept only if its quote, or else its value, is really in the message, which catches invented facts. A failed event waits for the next run, because an immediate retry would fail the same way, and is dropped after 3 attempts.
 - **Reconcile.**
   - The same fact again adds a source and raises confidence: 0.6, then +0.15 per mention, up to 0.95.
   - A new value for a one-at-a-time relation (employer, manager, home city, diet…) supersedes the old fact, which is kept in history.
@@ -1129,6 +1129,7 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 | 057 | 2026-09-27 | The user's own statement brings back a fact they deleted or corrected: Memory → Add or "Remember that…" clears its fingerprint and keeps the fact. Learning from chat still never brings it back. Amends ADR-039 | On the emulator, Add said "Anu didn't find anything to remember" for "I'm vegetarian" and "I'm vegan", though E4B extracted both. Their fingerprints, from an earlier correction and deletion, blocked them, and "Remember that…" would have failed. The fingerprint exists to stop Anu relearning from chat what the user took back, not to overrule the user (P5) |
 | 058 | 2026-09-27 | An answer that quotes the newest message's framing (its send time in brackets, or the facts header) is invalid output: it is written again once with greedy sampling, and cut if it still quotes it. The system prompt now says the message may start with facts, then the time, and that neither is repeated | On the emulator, E4B at temperature 1.0 answered with "[Sun 2026-09-27 01:32] Plan a dinner for tonight" quoted back. The framing has to stay in the message for the KV cache (ADR-033, ADR-054), and the echo was too rare to reproduce (0 of 36), so only a check is provable. The old note said the message starts with the time, which stopped being true with ADR-054. Escalating to the cloud over wording would send the chat out for nothing |
 | 059 | 2026-09-27 | Phones use the CPU build of each model until their chip's GPU build passes S1 (`ModelCatalog.GPU_VERIFIED`, empty today). Emulators always use it. Amends ADR-019 and ADR-025 | On the Pixel 10 Pro (Tensor G5), E4B's GPU build loaded but wrote garbage, while the CPU build was correct at 6–7 tokens/s. EmbeddingGemma's GPU option aborted on the same phone. A slow answer beats a garbled one, and an unmeasured GPU can't be trusted |
+| 060 | 2026-09-27 | Memory extraction uses Pro (E4B) when it's installed, and Base (E2B) otherwise | On the reference phone, E2B answered `{"facts":[]}` for "I'm vegan", which E4B keeps. Learning runs after the user leaves the app (ADR-037), so accuracy counts more than E2B's 1.5× speed. Memory → Add waits a little longer when both models are installed |
 
 ### Component status
 
@@ -1170,7 +1171,7 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 | AI Scheduling v1 (chat with calendar and contacts tools) | 2 | Implemented. Verified by hand on the emulator; no eval set yet (§15) |
 | AI Email v1: email skill detection, email tools plus contacts and calendar lookups, drafts and approval-gated sends | 2 | Implemented. Not yet run against a real mailbox (see the Gmail row) |
 | Tool audit and idempotency persistence (schema v2), Activity in Settings | 2 | Implemented. Migration test passes on the emulator |
-| Memory pipeline v1 (`core:memory`): capture, on-device extraction, reconcile, versioned profile, memory block, relevant facts per message (ADR-054) with search by meaning (ADR-055), memory tools, background learning (ADR-036 to ADR-039) | 3 | Implemented. 19 JVM tests, 2 Robolectric tests on the real schema, and a v2→v3 migration device test. Verified by hand on the Anu emulator with E4B: learning after leaving the app, use in chat, corrections, remember and approval-gated forget. No memory eval yet (§15), so not Verified Relevant facts: 7 JVM tests for the picker, plus chat, egress and Gemini tests; on the emulator, a question about "my sister" carried 2 facts and E4B answered from them Search by meaning: 10 JVM tests on a stand-in embedder, a Room test, and the S3 eval with EmbeddingGemma on the Anu emulator. In the app, E4B answered "Get a present for my boss" from the manager fact found by meaning Extraction: a device test on E4B (`MemoryExtractionTest`) passes for four made-up statements. Bringing back a deleted fact (ADR-057): 2 JVM tests and a Room test; on the emulator, "I'm vegetarian" in Add was kept again |
+| Memory pipeline v1 (`core:memory`): capture, on-device extraction, reconcile, versioned profile, memory block, relevant facts per message (ADR-054) with search by meaning (ADR-055), memory tools, background learning (ADR-036 to ADR-039) | 3 | Implemented. 19 JVM tests, 2 Robolectric tests on the real schema, and a v2→v3 migration device test. Verified by hand on the Anu emulator with E4B: learning after leaving the app, use in chat, corrections, remember and approval-gated forget. No memory eval yet (§15), so not Verified Relevant facts: 7 JVM tests for the picker, plus chat, egress and Gemini tests; on the emulator, a question about "my sister" carried 2 facts and E4B answered from them Search by meaning: 10 JVM tests on a stand-in embedder, a Room test, and the S3 eval with EmbeddingGemma on the Anu emulator. In the app, E4B answered "Get a present for my boss" from the manager fact found by meaning Extraction: a device test on E4B (`MemoryExtractionTest`) passes for four made-up statements. Bringing back a deleted fact (ADR-057): 2 JVM tests and a Room test; on the emulator, "I'm vegetarian" in Add was kept again. Extraction prefers E4B (ADR-060): 1 JVM test |
 | Memory Inspector (`feature:memory`): facts grouped by section with search, "You said" or a Confirm pill, a sheet per fact with its dated sources, That's right, Correct, Delete, Forget a message, Learn now, and Add (the user's own words, read by the on-device model and kept as theirs) | 3 | Implemented. 7 JVM tests for how facts read and match search; Add has 2. The redesigned tab was checked on anu_api36 in light and dark: search, a fact's sheet, and the Add sheet |
 | Memory, later: entities and aliases, episodes, nightly consolidation, vector retrieval (S3), never-learn rules, learning from connectors, retention, memory eval | 3 | Planned |
 | AI Writing everywhere (`feature:writing`, `WritingActivity`): six actions and custom instructions, Replace or Copy (ADR-042) | 3 | Implemented. 10 JVM tests. Verified by hand on the Anu emulator through the real text-selection menu in Settings. No writing eval yet (§15) |
@@ -1186,6 +1187,8 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 | Hardening, release readiness | 5 | Planned |
 
 ### Changelog
+
+- **1.19.0** (2026-09-27): memory extraction uses E4B when it's installed, and E2B otherwise (ADR-060). On the reference phone, E2B kept nothing from "I'm vegan".
 
 - **1.18.2** (2026-09-27): S1 measured E2B on the reference phone. Its CPU build is about 1.5× faster than E4B's but extracts less ("I'm vegan" came back empty). Its Tensor G5 NPU build can't run with LiteRT-LM 0.17.1 ("Not recognized backend: 5").
 
