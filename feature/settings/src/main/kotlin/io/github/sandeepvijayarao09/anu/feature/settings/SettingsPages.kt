@@ -282,6 +282,10 @@ private fun AddStoreSheet(onDismiss: () -> Unit, onAdd: (String) -> Unit) {
 @Composable
 internal fun ModelsPage(viewModel: SettingsViewModel, sentToday: Int, onOpenPrivacy: () -> Unit, onBack: () -> Unit) {
     val rows by viewModel.modelRows.collectAsStateWithLifecycle()
+    LifecycleResumeEffect(Unit) {
+        viewModel.refreshModels()
+        onPauseOrDispose {}
+    }
     // Downloads show progress in a notification; they still run if the user declines this.
     val notifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
     AnuPage("Models", sentToday, onOpenPrivacy, back = BACK, onBack = onBack, subtitle = "Gemma runs on this phone, so its answers never leave it.") {
@@ -301,7 +305,10 @@ internal fun ModelsPage(viewModel: SettingsViewModel, sentToday: Int, onOpenPriv
                         )
                     }
                 }
-                GroupFooter("Downloads use Wi-Fi only. Base is faster; Pro handles harder requests.")
+                GroupFooter(
+                    "Downloads use Wi-Fi only. Base is faster; Pro handles harder requests. The first time a model runs, " +
+                        "it keeps a copy of its weights prepared for this phone, so it needs more space than its download.",
+                )
             }
         }
         item(key = "search") { SearchByMeaningGroup(viewModel) }
@@ -345,7 +352,7 @@ private fun ModelRowView(row: ModelRow, onDownload: () -> Unit, onDelete: () -> 
     val colors = AnuTheme.colors
     val name = modelName(row.info.id)
     val size = gigabytes(row.info.sizeBytes)
-    val about = "${modelTier(row.info.id)} · $size · ${row.info.variant.uppercase()}"
+    val about = "${modelTier(row.info.id)} · ${row.info.variant.uppercase()} · ${modelSpace(row)}"
     var confirmDelete by remember { mutableStateOf(false) }
     when (val state = row.state) {
         ModelState.NotInstalled -> GroupRow(name, subtitle = about, trailing = { AnuTextButton("Download", onClick = onDownload) })
@@ -363,13 +370,13 @@ private fun ModelRowView(row: ModelRow, onDownload: () -> Unit, onDelete: () -> 
             )
         }
         // A model is gigabytes to download again, so deleting one is never a single tap.
-        ModelState.Ready -> GroupRow(name, subtitle = "$about · Downloaded", trailing = { AnuTextButton("Delete", onClick = { confirmDelete = true }, color = colors.errorText) })
+        ModelState.Ready -> GroupRow(name, subtitle = about, trailing = { AnuTextButton("Delete", onClick = { confirmDelete = true }, color = colors.errorText) })
         is ModelState.Failed -> GroupRow(name, subtitle = state.reason, subtitleColor = colors.errorText, trailing = { AnuTextButton("Retry", onClick = onDownload) })
     }
     if (confirmDelete) {
         AnuDialog(
             title = "Delete $name?",
-            text = "This frees $size. Downloading it again takes a while on Wi-Fi.",
+            text = "This frees ${gigabytes(row.spaceUsed)}. Downloading it again takes a while on Wi-Fi.",
             confirm = "Delete",
             onConfirm = { confirmDelete = false; onDelete() },
             dismiss = "Keep",

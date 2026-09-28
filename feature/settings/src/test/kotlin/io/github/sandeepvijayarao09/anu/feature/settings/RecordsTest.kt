@@ -98,6 +98,14 @@ class RecordsTest {
     }
 
     @Test
+    fun `a model's space counts the weight cache it writes when it first runs`() {
+        val e4b = ModelInfo(BrainId.PRO, "gemma-4-E4B-it.litertlm", 3_659_530_240, "CPU", cacheBytes = 2_210_334_416)
+        assertEquals("needs 5.9 GB", modelSpace(ModelRow(e4b, ModelState.NotInstalled), Locale.US))
+        assertEquals("before its first run, just the file", "3.7 GB used", modelSpace(ModelRow(e4b, ModelState.Ready, spaceUsed = 3_659_530_240), Locale.US))
+        assertEquals("5.9 GB used", modelSpace(ModelRow(e4b, ModelState.Ready, spaceUsed = 5_869_864_656), Locale.US))
+    }
+
+    @Test
     fun `the models row shows a download first, then what's on the phone`() {
         fun row(id: BrainId, state: ModelState) = ModelRow(ModelInfo(id, "$id.litertlm", 1_000_000_000, "cpu"), state)
         assertEquals("None", modelsSummary(listOf(row(BrainId.BASE, ModelState.NotInstalled), row(BrainId.PRO, ModelState.NotInstalled))))

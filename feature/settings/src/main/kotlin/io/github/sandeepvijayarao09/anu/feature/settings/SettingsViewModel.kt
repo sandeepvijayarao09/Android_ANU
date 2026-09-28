@@ -9,6 +9,7 @@ import io.github.sandeepvijayarao09.anu.core.model.BrainId
 import io.github.sandeepvijayarao09.anu.core.model.ModelInfo
 import io.github.sandeepvijayarao09.anu.core.model.ModelState
 import io.github.sandeepvijayarao09.anu.core.model.OnDeviceModels
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -17,6 +18,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.time.Instant
@@ -30,7 +32,8 @@ interface CloudKeySettings {
     suspend fun remove()
 }
 
-data class ModelRow(val info: ModelInfo, val state: ModelState)
+/** A model on the Models page, with the space its files take now (ADR-061). */
+data class ModelRow(val info: ModelInfo, val state: ModelState, val spaceUsed: Long = 0)
 
 /** An account connected through the provider's own consent screen, such as Gmail (§9). */
 interface AccountConnection {
@@ -240,9 +243,14 @@ class SettingsViewModel(
     @OptIn(ExperimentalCoroutinesApi::class)
     val modelRows: StateFlow<List<ModelRow>> = refresh.flatMapLatest {
         combine(models.state(BrainId.BASE), models.state(BrainId.PRO)) { base, pro ->
-            listOf(ModelRow(models.info(BrainId.BASE), base), ModelRow(models.info(BrainId.PRO), pro))
+            listOf(BrainId.BASE to base, BrainId.PRO to pro).map { (id, state) -> ModelRow(models.info(id), state, models.spaceUsed(id)) }
         }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    }.flowOn(Dispatchers.IO).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** Re-reads the models, whose space grows when one first runs and writes its weight cache (ADR-061). */
+    fun refreshModels() {
+        refresh.value++
+    }
 
     val hasCloudKey: StateFlow<Boolean> = cloudKey.hasKey
     val toolActions: StateFlow<List<ToolAuditEntry>> =

@@ -49,9 +49,11 @@ class ModelManager(
         return File(modelsDir, artifact.fileName).takeIf { it.length() == artifact.sizeBytes }
     }
 
-    override fun info(id: BrainId): ModelInfo = artifactFor(id).let { ModelInfo(id, it.fileName, it.sizeBytes, it.variant.name) }
+    override fun info(id: BrainId): ModelInfo = artifactFor(id).let { ModelInfo(id, it.fileName, it.sizeBytes, it.variant.name, it.cacheBytes) }
 
     override fun isInstalled(id: BrainId): Boolean = installedFile(id) != null
+
+    override fun spaceUsed(id: BrainId): Long = ModelFiles.spaceUsed(modelsDir, weightCacheDir, artifactFor(id).fileName)
 
     override fun state(id: BrainId): Flow<ModelState> =
         workManager.getWorkInfosForUniqueWorkFlow(workName(artifactFor(id))).map { infos ->
@@ -77,8 +79,7 @@ class ModelManager(
     override fun delete(id: BrainId) {
         val artifact = artifactFor(id)
         workManager.cancelUniqueWork(workName(artifact))
-        File(modelsDir, artifact.fileName).delete()
-        File(modelsDir, artifact.fileName + ".part").delete()
+        ModelFiles.delete(modelsDir, weightCacheDir, artifact.fileName)
     }
 
     /** Engine settings for an installed model, or null if it isn't installed yet. */
@@ -117,6 +118,23 @@ class ModelManager(
             Build.HARDWARE == "ranchu" || Build.HARDWARE == "goldfish" || Build.PRODUCT.startsWith("sdk_gphone")
 
         fun modelsDir(context: Context) = File(context.noBackupFilesDir, "models")
+    }
+}
+
+/** A model's files on disk: the model, a partial download, and the weight caches the runtime wrote for it (ADR-061). */
+internal object ModelFiles {
+    /** The caches written for [fileName], such as `gemma-4-E4B-it.litertlm_1790527891_3659530240.xnnpack_cache`. */
+    fun caches(cacheDir: File, fileName: String): List<File> =
+        cacheDir.listFiles { file -> file.name.startsWith("${fileName}_") }?.toList().orEmpty()
+
+    fun spaceUsed(modelsDir: File, cacheDir: File, fileName: String): Long =
+        File(modelsDir, fileName).length() + File(modelsDir, "$fileName.part").length() + caches(cacheDir, fileName).sumOf { it.length() }
+
+    /** Deletes the model with its cache, so deleting frees all the space it took. */
+    fun delete(modelsDir: File, cacheDir: File, fileName: String) {
+        File(modelsDir, fileName).delete()
+        File(modelsDir, "$fileName.part").delete()
+        caches(cacheDir, fileName).forEach(File::delete)
     }
 }
 

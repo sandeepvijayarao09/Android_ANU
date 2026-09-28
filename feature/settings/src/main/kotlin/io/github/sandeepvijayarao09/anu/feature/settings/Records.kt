@@ -98,6 +98,15 @@ internal fun modelTier(id: BrainId): String = if (id == BrainId.BASE) "Base" els
 
 internal fun gigabytes(bytes: Long, locale: Locale = Locale.getDefault()): String = String.format(locale, "%.1f GB", bytes / 1e9)
 
+/**
+ * The space a model takes (ADR-061): what it needs before it's downloaded, and what it uses once it is. Both
+ * count the weight cache it writes the first time it runs, so an installed model grows once.
+ */
+internal fun modelSpace(row: ModelRow, locale: Locale = Locale.getDefault()): String = when (row.state) {
+    ModelState.Ready -> "${gigabytes(row.spaceUsed, locale)} used"
+    else -> "needs ${gigabytes(row.info.spaceNeeded, locale)}"
+}
+
 /** The Models row's value: a download in progress, else which models are on the phone. */
 internal fun modelsSummary(rows: List<ModelRow>): String {
     rows.firstNotNullOfOrNull { it.state as? ModelState.Downloading }?.let { download ->

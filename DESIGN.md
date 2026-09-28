@@ -324,6 +324,7 @@ It opens from the power button, the corner swipe or "Hey Anu".
 - **Connection rows** show a privacy dot and value: "On device" for Calendar, Contacts and Messages; an `away` dot for Gmail, and with a count for Services and Stores, which talk to the outside. A dot can't be heard, so those rows tell TalkBack "reached over the internet".
 - **Footers:** a group can end with a 13sp `text-muted` footnote saying what the group does with your data. Explanations go there, not in every row.
 - **Action rows** such as "Add a server" have an `accent` title with a plus icon.
+- **Model rows** (Settings → Models) give the tier, the build and the real space: "Pro · CPU · needs 5.9 GB" before download, "Pro · CPU · 5.9 GB used" once installed. Both count the weight cache a model keeps after its first run; the footer says why a model needs more than its download.
 - **Pages or sheets:** a list opens as a page (Services, Stores, Models, Activity, Vault activity); a single item with several actions opens as a sheet (a server, a store, the Gemini key), with its details in a `background` panel and a destructive action as a secondary button with `error-text`.
 
 ### Memory
@@ -387,3 +388,4 @@ Three tabs with 24dp line icons at stroke 1.7 and 11sp labels. The selected tab 
 | 2026-09-26 | Edit on the approval sheet comes back checked before anything runs | The user always approves exactly what will happen; saving a change is never approval |
 | 2026-09-26 | The sphere's ripples move its surface, never its outline; Error greys it after a failed turn | A moving outline would turn the object into a character. Only a turn that really failed greys it, never a decline |
 | 2026-09-26 | The assistant card is its own window with a hairline edge and no shadow | The system blur covers a window's background shape, so only a card-sized window frosts just the card. A shadow under the translucent card showed through and misplaced it on the emulator |
+| 2026-09-27 | Model rows show the space a model really takes, with its weight cache | "3.7 GB" hid E4B's 2.2 GB cache, and Delete said it freed less than it did. What a download costs and what Delete frees should be exact |

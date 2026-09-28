@@ -1,6 +1,6 @@
 # Anu for Android: Architecture
 
-Version 1.19.0 · Draft · 2026-09-27
+Version 1.20.0 · Draft · 2026-09-27
 Status: proposed. OD-1 to OD-4 were resolved on 2026-09-25 (§16).
 Product intent lives in [VISION.md](VISION.md).
 
@@ -320,6 +320,7 @@ Application ID: `io.github.sandeepvijayarao09.anu`. It can change until the firs
 
     There is no NPU build for Tensor G3 or G4. A Pixel 8 Pro or 9 Pro therefore runs on CPU or GPU, and `GOOGLE_TENSOR` applies only to Pixel 10 and later with E2B.
   - **Weight cache (ADR-020).** `EngineConfig.cacheDir` must point to app-private storage (`noBackupFilesDir/litertlm-cache`). Without it, the CPU backend tries to write its XNNPack weight cache next to the model file and silently falls back to no cache. That was observed when a model was loaded from `/data/local/tmp`, where Android's security policy denies the write. Budget free disk space for the cache on top of the model file: on the Pixel 10 Pro, E4B's CPU cache is 2.21 GB, so the CPU build takes about 5.9 GB in all.
+  - **Real space (ADR-061).** The catalog records each CPU build's measured cache: E4B 2.21 GB, E2B 0.79 GB, byte for byte the same on the phone and the emulator. The Models page shows what a model needs before it's downloaded, and what it uses once it is, read from disk. Deleting a model deletes its cache too, so Delete frees what it says.
 - **Residency policy.** These are hypotheses; spike S1 sets the real thresholds.
   - **Implemented now** (`OnDeviceBrains`): at most one on-device model is loaded. A tier switch waits for the running generation, closes the old engine and loads the new one. Everything unloads on `TRIM_MEMORY_BACKGROUND`.
   - Reference device: Pixel 8 Pro or newer, with 12–16 GB RAM (ADR-016).
@@ -903,9 +904,10 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
   - **E2B, CPU build** (`gemma-4-E2B-it.litertlm`, 2.59 GB):
     - Faster than E4B. A 26-token prompt gets its first token after 1.5 s, then 9.5 tokens/s. An 814-token prompt is read at 111 tokens/s, with the first token after 7.4 s, then 8.9 tokens/s.
     - The contract tests pass: streaming, tools, structured output and cancel.
+    - Its CPU weight cache is 788,412,736 bytes (0.79 GB, 30% of the file; measured on the emulator). E4B's is 60% of its file, so one ratio doesn't fit both.
     - But it extracts less. With greedy decoding it kept "I'm vegetarian" but answered `{"facts":[]}` for "I'm vegan", which E4B keeps. Memory's extractor prefers E2B when it's installed.
   - **E2B, Tensor G5 NPU build** (`gemma-4-E2B-it_Google_Tensor_G5.litertlm`, 3.11 GB): it doesn't run. LiteRT-LM 0.17.1, the latest release, fails to create the engine: "INVALID_ARGUMENT: Not recognized backend: 5" (`Backend.GOOGLE_TENSOR`). Its AAR carries no NPU dispatch library, and Google Maven publishes none for Tensor. The phone itself offers `libedgetpu_litert.so` to apps, so a later release may work.
-  - **Disk:** the CPU backend's weight cache (ADR-020) is 2.21 GB for E4B, next to the 3.66 GB model, so the CPU build needs about 5.9 GB free. The Models page shows only the file size.
+  - **Disk:** the CPU backend's weight cache (ADR-020) is 2.21 GB for E4B, next to the 3.66 GB model, so the CPU build needs about 5.9 GB free. The Models page now shows that (ADR-061).
   - **Device tests on the phone:** all 15 pass (core:data, core:vault, brain:embedding, brain:litertlm on the CPU). The vault's screen-lock test skips itself, because the phone has one. The calendar, contacts and messages tests would write into the owner's real data, so they run only on the emulator, where all 21 pass.
 
 - **S3, search by meaning, 2026-09-26.** Anu emulator (arm64 CPU), EmbeddingGemma 300M (512 tokens, mixed precision), vectors cut to 256 values.
@@ -1130,6 +1132,7 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 | 058 | 2026-09-27 | An answer that quotes the newest message's framing (its send time in brackets, or the facts header) is invalid output: it is written again once with greedy sampling, and cut if it still quotes it. The system prompt now says the message may start with facts, then the time, and that neither is repeated | On the emulator, E4B at temperature 1.0 answered with "[Sun 2026-09-27 01:32] Plan a dinner for tonight" quoted back. The framing has to stay in the message for the KV cache (ADR-033, ADR-054), and the echo was too rare to reproduce (0 of 36), so only a check is provable. The old note said the message starts with the time, which stopped being true with ADR-054. Escalating to the cloud over wording would send the chat out for nothing |
 | 059 | 2026-09-27 | Phones use the CPU build of each model until their chip's GPU build passes S1 (`ModelCatalog.GPU_VERIFIED`, empty today). Emulators always use it. Amends ADR-019 and ADR-025 | On the Pixel 10 Pro (Tensor G5), E4B's GPU build loaded but wrote garbage, while the CPU build was correct at 6–7 tokens/s. EmbeddingGemma's GPU option aborted on the same phone. A slow answer beats a garbled one, and an unmeasured GPU can't be trusted |
 | 060 | 2026-09-27 | Memory extraction uses Pro (E4B) when it's installed, and Base (E2B) otherwise | On the reference phone, E2B answered `{"facts":[]}` for "I'm vegan", which E4B keeps. Learning runs after the user leaves the app (ADR-037), so accuracy counts more than E2B's 1.5× speed. Memory → Add waits a little longer when both models are installed |
+| 061 | 2026-09-27 | The Models page shows the space a model really takes: "needs 5.9 GB" before download and "5.9 GB used" once installed, counting the weight cache it writes on its first run. Deleting a model deletes its cache | The page said "3.7 GB" for E4B, but its cache adds 2.21 GB, measured on the phone. Deleting left the cache behind, so "This frees 3.7 GB" was wrong twice. The cache sizes are measured, not estimated: E2B's is 30% of its file and E4B's 60% |
 
 ### Component status
 
@@ -1143,7 +1146,7 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 | Spikes S4–S7 | 0 | Planned |
 | `core:model`: brain contracts, `JsonSchemas`, `ToolSpec` | 1 | Implemented. JVM unit tests pass; the tool-call path is not yet verified on a real model |
 | `brain:litertlm`: `LiteRtLmBrain`, `EngineHolder` | 1 | Implemented. Real-model tests pass on the Anu emulator and the reference phone (E4B, CPU) |
-| ModelManager: pinned catalog, resumable verified download worker, CPU until a chip's GPU is verified (ADR-059) | 1 | Implemented, with 8 JVM tests (resume, restart, corrupted file deleted, catalog, variant choice). On the reference phone, the worker downloaded and verified the 2.97 GB E4B GPU build in about 1.5 minutes |
+| ModelManager: pinned catalog, resumable verified download worker, CPU until a chip's GPU is verified (ADR-059) | 1 | Implemented, with 9 JVM tests (resume, restart, corrupted file deleted, catalog, variant choice, space and cache cleanup). On the reference phone, the worker downloaded and verified the 2.97 GB E4B GPU build in about 1.5 minutes |
 | Residency: one model at a time (`OnDeviceBrains`) | 1 | Implemented. Not device-tested; thresholds come from S1 |
 | `core:security`: PII detection, redaction, `EgressGate`, ledger interface | 1 | Implemented, with 9 unit tests. The ledger is persisted by `core:data` |
 | `brain:gemini` | 1 | Implemented, with 6 unit tests against a fake server. Not verified against the live API (S8) |
@@ -1161,7 +1164,7 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 | `ChatSession` (transcript as the truth, consent resend, take back last, stable prompt, skill replay, memory block, turns offered to memory) in `core:agent` | 1 | Implemented, with 12 unit tests |
 | Conversation window (`ContextWindow`, `Tokens`): whole exchanges, chunked trimming, the long-chat note (ADR-040) | 3 | Implemented, with 8 unit tests plus chat and screen tests. Verified by hand on the Anu emulator: trimming at overflow, a steady start with cache reuse, and memory for what fell out |
 | Token calibration (`TokenCalibration`, `TokenSample`): runtime counts against raw estimates, separate prose and JSON rates, saved across restarts (ADR-041) | 3 | Implemented, with 4 unit tests plus agent and chat tests. Measured on the Anu emulator with E4B; the reference phone's numbers are still to come |
-| Settings UI (`feature:settings`): voice (the assistant, "Hey Anu"), connections with privacy dots (calendar and contacts, messaging apps, SMS in `personal`, Gmail, services, stores), models (with delete confirmation), the Gemini key into the vault, Activity, Vault activity, and the Privacy report (ADR-050) | 1 | Implemented. 9 JVM tests for the records (periods, seven-day counts, wording). Every page and sheet checked on anu_api36 in light and dark, including Try again against the mock MCP server |
+| Settings UI (`feature:settings`): voice (the assistant, "Hey Anu"), connections with privacy dots (calendar and contacts, messaging apps, SMS in `personal`, Gmail, services, stores), models (with delete confirmation and the real space each takes, ADR-061), the Gemini key into the vault, Activity, Vault activity, and the Privacy report (ADR-050) | 1 | Implemented. 10 JVM tests for the records (periods, seven-day counts, wording, model space). Every page and sheet checked on anu_api36 in light and dark, including Try again against the mock MCP server |
 | App wiring (`AppGraph`, device state, no-backup rules) | 1 | Implemented; lint clean (two warnings: newer Gradle available, no app icon yet) |
 | Agent loop, Tool Broker, approvals, taint, claim check, framing check (`core:agent`) | 2 | Implemented. JVM tests (19 for the broker, 6 of them for Edit; 2 agent tests and a model test for the framing check, ADR-058), and works end to end on the Anu emulator with E4B: lookups, free slots, an approval-gated invite, and an MCP note fixed with Edit, where the mock server received exactly the edited text |
 | Connectors: calendar, contacts | 2 | Implemented. JVM tests, plus provider tests on the Anu emulator (real `CalendarContract` and `ContactsContract`) |
@@ -1187,6 +1190,11 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 | Hardening, release readiness | 5 | Planned |
 
 ### Changelog
+
+- **1.20.0** (2026-09-27): the Models page shows the real space (ADR-061).
+  - A model shows what it needs before it's downloaded and what it uses once it is, with its weight cache: E2B needs 3.4 GB, and E4B uses 5.9 GB.
+  - Deleting a model deletes its cache too, and the dialog says what that frees.
+  - E2B's CPU cache measured: 0.79 GB.
 
 - **1.19.0** (2026-09-27): memory extraction uses E4B when it's installed, and E2B otherwise (ADR-060). On the reference phone, E2B kept nothing from "I'm vegan".
 

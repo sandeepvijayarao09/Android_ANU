@@ -95,6 +95,20 @@ class ModelDownloadTest {
     }
 
     @Test
+    fun `a model's space counts its weight cache, and deleting the model deletes the cache (ADR-061)`() {
+        val models = folder.newFolder("models")
+        val caches = folder.newFolder("litertlm-cache")
+        models.resolve("m.litertlm").writeBytes(ByteArray(1_000))
+        caches.resolve("m.litertlm_1790527891_1000.xnnpack_cache").writeBytes(ByteArray(600))
+        caches.resolve("m-gpu.litertlm_1790527891_900.bin").writeBytes(ByteArray(50))
+        assertEquals("another build's cache isn't counted", 1_600, ModelFiles.spaceUsed(models, caches, "m.litertlm"))
+        ModelFiles.delete(models, caches, "m.litertlm")
+        assertEquals(0, ModelFiles.spaceUsed(models, caches, "m.litertlm"))
+        assertTrue(caches.resolve("m-gpu.litertlm_1790527891_900.bin").exists())
+        assertEquals("measured in S1", 2_210_334_416, ModelCatalog.choose(BrainId.PRO, "Tensor G5").cacheBytes)
+    }
+
+    @Test
     fun `phones use the CPU build until their chip's GPU is verified (ADR-059)`() {
         assertEquals("E4B's GPU build wrote garbage on Tensor G5", ModelVariant.CPU, ModelCatalog.preferredVariant("Tensor G5", emulator = false))
         assertEquals(ModelVariant.GPU, ModelCatalog.preferredVariant("Tensor G9", emulator = false, verified = setOf("Tensor G9")))
