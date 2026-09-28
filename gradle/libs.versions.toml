@@ -9,6 +9,7 @@ lifecycle = "2.11.0"
 coreKtx = "1.19.1"
 # Pinned in Phase 0 (ARCHITECTURE §4.3, §5). Bump only with a changelog entry.
 litertlm = "0.17.1"
+mlkitGenaiPrompt = "1.0.0-beta4"
 localagentsRag = "0.3.0"
 protobufJavalite = "4.36.2"
 junit = "4.13.2"
@@ -41,6 +42,7 @@ androidx-compose-material3 = { module = "androidx.compose.material3:material3" }
 androidx-compose-ui-tooling-preview = { module = "androidx.compose.ui:ui-tooling-preview" }
 androidx-compose-ui-tooling = { module = "androidx.compose.ui:ui-tooling" }
 litertlm-android = { module = "com.google.ai.edge.litertlm:litertlm-android", version.ref = "litertlm" }
+mlkit-genai-prompt = { module = "com.google.mlkit:genai-prompt", version.ref = "mlkitGenaiPrompt" }
 localagents-rag = { module = "com.google.ai.edge.localagents:localagents-rag", version.ref = "localagentsRag" }
 protobuf-javalite = { module = "com.google.protobuf:protobuf-javalite", version.ref = "protobufJavalite" }
 junit = { module = "junit:junit", version.ref = "junit" }

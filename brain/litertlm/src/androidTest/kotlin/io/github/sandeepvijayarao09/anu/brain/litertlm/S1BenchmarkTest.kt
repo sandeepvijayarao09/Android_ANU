@@ -15,6 +15,7 @@ import com.google.ai.edge.litertlm.SamplerConfig
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.io.File
 
 /** S1: load time, time to first token, prefill and decode speed, from LiteRT-LM's own benchmark counters. */
 @OptIn(ExperimentalApi::class)
@@ -59,7 +60,18 @@ class S1BenchmarkTest {
         if ("default" in answers && "off" in answers) S1.report("default_matches_off", answers["default"] == answers["off"])
         if ("on" in answers && "off" in answers) S1.report("on_matches_off", answers["on"] == answers["off"])
         answers.forEach { (label, texts) -> texts.forEachIndexed { i, text -> S1.report("${label}_answer_$i", text.take(160).replace('\n', ' ')) } }
+        reportCacheAndPeakMemory()
         assertTrue("every run answered", answers.values.flatten().all(String::isNotBlank))
+    }
+
+    /**
+     * What the backend keeps on disk for this model (ADR-061 counts it on the Models page), and the process's peak
+     * resident memory. GPU memory the driver maps may not count in it.
+     */
+    private fun reportCacheAndPeakMemory() {
+        val name = File(S1.modelPath).name
+        File(S1.cacheDir()).listFiles().orEmpty().filter { it.name.startsWith(name) }.forEach { S1.report("cache_file", "${it.name.removePrefix(name)} ${it.length()}") }
+        File("/proc/self/status").readLines().firstOrNull { it.startsWith("VmHWM:") }?.let { S1.report("peak_rss", it.substringAfter(':').trim()) }
     }
 
     /** Loads the model with [speculative] as the runtime flag (null leaves its default), and runs both prompts. */

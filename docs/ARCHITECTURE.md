@@ -1,6 +1,6 @@
 # Anu for Android: Architecture
 
-Version 1.23.0 · Draft · 2026-09-28
+Version 1.24.0 · Draft · 2026-09-28
 Status: proposed. OD-1 to OD-4 were resolved on 2026-09-25 (§16).
 Product intent lives in [VISION.md](VISION.md).
 
@@ -201,6 +201,7 @@ sequenceDiagram
 | `brain:litertlm` | Gemma E2B/E4B adapter; ModelManager (download, verify, load, residency) | yes |
 | `brain:gemini` | Gemini REST/SSE adapter; every request passes the egress gate | **no** (OkHttp) |
 | `brain:embedding` | Search by meaning (ADR-055): EmbeddingGemma through Google's AI Edge RAG library (`GemmaEmbeddingModel`), behind the `Embedder` contract in `core:model`. Only the library's Gemma embedder is used and packaged | yes |
+| `brain:nano` | Spike S10: Gemini Nano through AICore, with ML Kit's GenAI Prompt API. Only its device test exists, and the library is a test dependency, so nothing reaches the app | yes |
 | `connector:calendar` | CalendarContract tools and observer | yes |
 | `connector:contacts` | ContactsContract resolver | yes |
 | `connector:gmail` | Gmail API tools and incremental sync | yes |
@@ -240,6 +241,7 @@ sequenceDiagram
 | Async | Coroutines and Flow, structured concurrency | Cancellation must reach native generation (I7) |
 | Serialization | kotlinx.serialization | Tool JSON Schemas are generated from serializers |
 | On-device LLM | LiteRT-LM Android, `com.google.ai.edge.litertlm:litertlm-android` | 0.17.1 is the latest on Google Maven as of 2026-09-25; version pinned in Phase 0 |
+| Gemini Nano (spike S10 only) | ML Kit GenAI Prompt API, `com.google.mlkit:genai-prompt` 1.0.0-beta4, as a test dependency of `brain:nano` | It brings Google's usage-log transport (`transport-backend-cct`), which would send from inside Anu around the egress pipeline (I3). It stays out of the app until S10 shows what it sends |
 | Embeddings | EmbeddingGemma 300M (mixed precision, 256 tokens, CPU; ADR-062) through the AI Edge RAG library 0.3.0's `GemmaEmbeddingModel` (ADR-055, S3) | Its native code is arm64 only (23.7 MB). The library's MediaPipe LLM runtime, second OkHttp and copy of `org.json` are excluded, and so are its three other native libraries |
 | Cloud LLM | `personal`: Gemini API with the owner's key from the vault, sent in the `x-goog-api-key` header, never the URL. `play`: Firebase AI Logic, evaluated in Phase 5 | ADR-013 |
 | Build flavors | `personal` and `play` | ADR-012 |
@@ -906,8 +908,14 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 | S7 | Room + SQLCipher performance at the expected data volume, including vectors |
 | S8 | Gemini API with the owner's key: `parametersJsonSchema` and `responseJsonSchema` accepted, thought-signature round trip, the `-latest` aliases, and the SSE framing |
 | S9 | Voice on the reference phone: the on-device recognizer's language pack, recognition quality, "Hey Anu" false wakes and misses, and battery per hour of listening |
-| S10 | Gemini Nano through AICore (ML Kit's GenAI Prompt API, `com.google.mlkit:genai-prompt`), a model the system manages, so nothing to download. Approved as a spike on 2026-09-28 (ADR-065); a new runtime needs its results before any decision. On the reference phone: whether it's available (`checkStatus`); how long warm-up and a writing task take against E2B and E4B; how good its rewrites and summaries are on the writing eval; whether anything leaves the phone while it runs (I3); and whether it runs in the background, for memory. Its API takes one prompt, with no chat template and no tool calls, so it could serve only single-turn work such as AI Writing (I8) |
-| S11 | Photo input with Gemma 4 through LiteRT-LM (`Content.ImageBytes`, `EngineConfig.visionBackend`). Approved as a spike on 2026-09-28 (ADR-065), after the GPU check: vision on the GPU (the Gallery's setup) against the CPU, the memory and time a photo adds, `Capabilities.maxVisionTokenBudget`, and answers on made-up photos. A photo stays on the phone: it's never sent to Gemini and never learned by memory |
+| S10 | Gemini Nano through AICore (ML Kit's GenAI Prompt API, `com.google.mlkit:genai-prompt`), a model the system manages, so nothing to download. Approved as a spike on 2026-09-28 (ADR-065); a new runtime needs its results before any decision. On the reference phone: whether it's available (`checkStatus`); how long warm-up and a writing task take against E2B and E4B; how good its rewrites and summaries are on the writing eval; whether anything leaves the phone while it runs (I3); and whether it runs in the background, for memory. Its API takes one prompt, with no chat template and no tool calls, so it could serve only single-turn work such as AI Writing (I8).
+  - The harness is `S10NanoTest` in `brain:nano`. It never starts a model download, and it reports the bytes Anu's process sends and the upload jobs the library schedules.
+  - Beta4 offers a system instruction, structured output, thinking and token counts. But a request is a list of parts without roles, so a chat would have to be written into one prompt, as the Gallery does ("user: … model: …"), which I8 forbids.
+  - The Gallery warns that AICore serves only packages it allowlists, so availability to Anu is the first question.
+  - On anu_api36 it reports no AICore and skips. The phone run waits for the owner's go |
+| S11 | Photo input with Gemma 4 through LiteRT-LM (`Content.ImageBytes`, `EngineConfig.visionBackend`). Approved as a spike on 2026-09-28 (ADR-065), after the GPU check: vision on the GPU (the Gallery's setup) against the CPU, the memory and time a photo adds, `Capabilities.maxVisionTokenBudget`, and answers on made-up photos. A photo stays on the phone: it's never sent to Gemini and never learned by memory.
+  - The harness is `S11PhotoTest` in `brain:litertlm`: it draws a made-up picture, a sign reading "LUNCH 12:30" beside a red circle, and asks about it.
+  - **First result, anu_api36 with vision on the CPU (2026-09-28):** the picture took 289 tokens (an image's budget is 280), the first token came after 4.6 s, and E4B answered "The sign in the picture says "LUNCH 12:30". Next to the text, there is a red circle." Peak memory 5.65 GB. So photos don't need the GPU |
 
 **Reference app compared: Google AI Edge Gallery 1.0.19 (2026-09-28, ADR-065).** Google's own app for the same runtime and models, read from its source and its model list. Where it's measured better, Anu follows it; where it trades safety for convenience, Anu's invariants win.
 
@@ -1236,7 +1244,7 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 | Spike S2 (model delivery) | 0 | Partly done: ungated, and per-backend files found |
 | Spike S3 (on-device embeddings) | 0 | Verified on the Anu emulator and the reference phone (Pixel 10 Pro). Its eval (`S3EmbeddingTest`) passes on both: 11 of 12 facts found, 3 wrong in 11 messages, and no small talk with facts. A search takes about 0.19–0.23 s on the emulator and 0.47 s on the phone, on one CPU thread, with the 256-token file (ADR-062) |
 | Spikes S4–S7 | 0 | Planned |
-| Spikes S10 (Gemini Nano through AICore) and S11 (photo input) | 0 | Planned, approved by the owner on 2026-09-28. S11 follows the GPU check |
+| Spikes S10 (Gemini Nano through AICore) and S11 (photo input) | 0 | In progress, approved by the owner on 2026-09-28. S10's harness is built; on anu_api36 it reports no AICore and skips, and the phone run waits for the owner's go. S11 works on anu_api36 with vision on the CPU: E4B read a made-up sign correctly, with the first token after 4.6 s |
 | `core:model`: brain contracts, `JsonSchemas`, `ToolSpec` | 1 | Implemented. JVM unit tests pass; the tool-call path is not yet verified on a real model |
 | `brain:litertlm`: `LiteRtLmBrain`, `EngineHolder` | 1 | Implemented. Real-model tests pass on the Anu emulator and the reference phone (E4B, CPU). Runtime options per engine and the debug speed log (ADR-068), with 2 JVM tests for the log line |
 | ModelManager: pinned catalog, resumable verified download worker, CPU until a chip's GPU is verified (ADR-059), memory guidance (ADR-066), a download's speed | 1 | Implemented, with 12 JVM tests (resume, restart, corrupted file deleted, catalog, variant choice, space and cache cleanup, the phone's memory). On the reference phone, the worker downloaded and verified the 2.97 GB E4B GPU build in about 1.5 minutes. The time left hasn't been seen in a real download yet |
@@ -1284,6 +1292,11 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 | Hardening, release readiness | 5 | Planned |
 
 ### Changelog
+
+- **1.24.0** (2026-09-28): spikes S10 and S11 started.
+  - S10's harness for Gemini Nano through AICore is a new module, `brain:nano`, with ML Kit's library as a test dependency only, because it brings Google's usage-log transport. It skips on the emulator, which has no AICore.
+  - S11: E4B answers about a photo on the emulator's CPU, reading a made-up sign correctly, with the first token after 4.6 s.
+  - S1's benchmark also reports the backend's cache on disk and the peak memory.
 
 - **1.23.0** (2026-09-28): Google's AI Edge Gallery compared with Anu (ADR-065 to ADR-069).
   - A table in §16 compares 20 areas and says which way Anu goes in each.

@@ -61,7 +61,10 @@ export JAVA_HOME=/opt/homebrew/opt/openjdk@21
   - `...modelPath=/data/local/tmp/anu/models/<file>.litertlm`
   - `...speculative=on` (or `off`) for the brain and extraction tests' engines; unset keeps the runtime's default (ADR-069).
   - `S1BenchmarkTest#measuresSpeculativeDecoding` compares the runtime's default, off and on; `...modes=on+off` picks the runs and their order.
-- Run one test method per command: a `class=` list with a comma ran only its first test.
+- Run one test method per command: Gradle joins runner arguments with commas, so a comma inside `class=` splits it.
+- **Photos (spike S11):** `ANDROID_SERIAL=emulator-5554 ./gradlew :brain:litertlm:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=io.github.sandeepvijayarao09.anu.brain.litertlm.S11PhotoTest -Pandroid.testInstrumentationRunnerArguments.visionBackend=CPU`. The emulator needs `visionBackend=CPU`; the default is the GPU.
+- **Gemini Nano (spike S10):** `ANDROID_SERIAL=<serial> ./gradlew :brain:nano:connectedDebugAndroidTest`, then `adb logcat -d -s AnuS10`. It never starts a model download. On the emulator it reports no AICore and skips. Ask before running it on the phone.
+- If Gradle says "0 of which were compatible" for a device that's plainly connected, run it again: on a busy Mac, it times out reading the device.
 - AGP saves the device's whole logcat for each test under `build/outputs/androidTest-results/`. On the phone that includes other apps' logs, so read only the `AnuS1` or `AnuS3` lines from it.
 - These tests skip themselves when the model is missing.
 - The encryption-at-rest check needs no model: `./gradlew :core:data:connectedDebugAndroidTest`.
