@@ -2,10 +2,14 @@ package io.github.sandeepvijayarao09.anu.core.data
 
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
+import io.github.sandeepvijayarao09.anu.core.agent.ActionRecord
+import io.github.sandeepvijayarao09.anu.core.agent.AnswerDetails
 import io.github.sandeepvijayarao09.anu.core.model.ChatMessage
 import io.github.sandeepvijayarao09.anu.core.model.DataClass
 import io.github.sandeepvijayarao09.anu.core.model.ToolCall
 import io.github.sandeepvijayarao09.anu.core.model.ToolResult
+import io.github.sandeepvijayarao09.anu.core.model.UntrustedContent
+import io.github.sandeepvijayarao09.anu.core.router.Tier
 import io.github.sandeepvijayarao09.anu.core.security.LedgerEntry
 import io.github.sandeepvijayarao09.anu.core.security.PiiKind
 import io.github.sandeepvijayarao09.anu.core.security.SecretRef
@@ -66,6 +70,80 @@ class RoomStoresTest {
         val store = RoomTranscriptStore(db.transcripts(), "main")
         store.append(transcript)
         assertEquals(transcript, store.load())
+    }
+
+    @Test
+    fun `what a tool result holds from others round-trips, and older rows say it wasn't recorded`() = runBlocking {
+        val store = RoomTranscriptStore(db.transcripts(), "main")
+        val results = ChatMessage.Tool(
+            listOf(
+                ToolResult("email_search", buildJsonObject { put("items", "Lunch?") }, UntrustedContent.EMAIL),
+                ToolResult("calendar_create_event", buildJsonObject { put("id", "e1") }),
+            ),
+        )
+        store.append(listOf(ChatMessage.User("Lunch?"), results))
+        assertEquals(results, store.load().last())
+
+        // A row written before the field existed.
+        db.transcripts().insert(
+            listOf(MessageEntity("old", 0, "tool", "", null, "[{\"toolName\":\"email_search\",\"result\":{\"items\":\"Hi\"}}]", 0)),
+        )
+        val old = (RoomTranscriptStore(db.transcripts(), "old").load().single() as ChatMessage.Tool).results.single()
+        assertEquals(null, old.untrusted)
+        assertFalse(old.untrustedKnown)
+    }
+
+    @Test
+    fun `answers' details round-trip, and truncating removes them from a turn on`() = runBlocking {
+        val store = RoomAnswerStore(db.answers(), "main")
+        val first = AnswerDetails(
+            tier = Tier.PRO, backend = "GPU", escalatedFrom = Tier.BASE, factIds = listOf(7L, 9L), summaryShown = true,
+            actions = listOf(ActionRecord("mcp_notes_search", "Search notes", ActionRecord.Status.DONE, wrote = false, destination = "notes.example.com")),
+            firstWordMs = 1_200, totalMs = 4_000, read = 271, readMs = 900, written = 20, writeMs = 2_800, counted = true, atMillis = 5,
+        )
+        val second = AnswerDetails(tier = Tier.BASE, firstWordMs = 700, totalMs = 1_500, atMillis = 6, guard = io.github.sandeepvijayarao09.anu.core.router.Guard.HEAT, cut = true)
+        store.save(0, first)
+        store.save(2, second)
+        assertEquals(mapOf(0 to first, 2 to second), store.load())
+        assertEquals("another conversation is apart", emptyMap<Int, AnswerDetails>(), RoomAnswerStore(db.answers(), "other").load())
+
+        store.truncate(2)
+        assertEquals(mapOf(0 to first), store.load())
+        store.save(0, second)
+        assertEquals("a retry replaces the answer's details", mapOf(0 to second), store.load())
+    }
+
+    @Test
+    fun `real use is the middle of the last answers for one model and build, and empty without any`() = runBlocking {
+        val store = RoomAnswerStore(db.answers(), "main")
+        assertEquals(null, db.answers().realUse(Tier.PRO, "CPU"))
+        // Three Pro answers on the CPU, one on the GPU and one from Base: only the first three count.
+        store.save(0, AnswerDetails(Tier.PRO, backend = "CPU", firstWordMs = 1_000, read = 100, readMs = 1_000, written = 60, writeMs = 10_000, counted = true, atMillis = 1))
+        store.save(2, AnswerDetails(Tier.PRO, backend = "CPU", firstWordMs = 9_000, read = 900, readMs = 9_000, written = 70, writeMs = 10_000, counted = true, atMillis = 2))
+        store.save(4, AnswerDetails(Tier.PRO, backend = "CPU", firstWordMs = 2_000, read = 400, readMs = 2_000, written = 50, writeMs = 10_000, counted = false, atMillis = 3))
+        store.save(6, AnswerDetails(Tier.PRO, backend = "GPU", firstWordMs = 300, read = 300, readMs = 100, written = 200, writeMs = 10_000, atMillis = 4))
+        store.save(8, AnswerDetails(Tier.BASE, backend = "CPU", firstWordMs = 500, atMillis = 5))
+        val cpu = db.answers().realUse(Tier.PRO, "CPU")!!
+        assertEquals(3, cpu.answers)
+        assertEquals(2_000L, cpu.firstWordMs)
+        assertEquals(100.0, cpu.readPerSecond!!, 0.001)
+        assertEquals(6.0, cpu.writePerSecond!!, 0.001)
+        assertEquals("one estimated answer makes it an estimate", false, cpu.counted)
+        assertEquals(1, db.answers().realUse(Tier.PRO, "GPU")!!.answers)
+        assertEquals("the newest two only", 2, db.answers().realUse(Tier.PRO, "CPU", limit = 2)!!.answers)
+    }
+
+    @Test
+    fun `photos are kept by id and messages keep their ids, and a deleted one is gone`() = runBlocking {
+        val photos = RoomPhotoStore(db.photos())
+        val id = photos.save(byteArrayOf(9, 8, 7))
+        assertEquals(listOf<Byte>(9, 8, 7), photos.load(listOf(id)).getValue(id).toList())
+        val store = RoomTranscriptStore(db.transcripts(), "main")
+        val asked = ChatMessage.User("What does this say?", listOf(io.github.sandeepvijayarao09.anu.core.model.Photo(id)))
+        store.append(listOf(asked, ChatMessage.Model("It says LUNCH 12:30.")))
+        assertEquals(listOf(id), (store.load().first() as ChatMessage.User).photos.map { it.id })
+        photos.delete(listOf(id))
+        assertEquals(emptyMap<Long, ByteArray>(), photos.load(listOf(id)))
     }
 
     @Test

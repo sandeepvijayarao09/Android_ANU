@@ -33,6 +33,8 @@ Most assistants either know nothing about you or send everything about you to a 
 - "Reply to Maya, say yes, and suggest Thursday afternoon." Anu reads the thread, checks your calendar against your preferences (it knows you avoid meetings before 10), and drafts the reply in the tone you use with Maya. You approve it, and it sends.
 - "What's my day?" A short brief covers meetings with context, emails that need you, and anything you promised to do.
 - You select text in any app, tap **Anu → More formal**, and the rewrite replaces your selection.
+- You tap **+** and pick a photo of a sign, or share one into Anu from your gallery, and ask what it says. Gemma reads it on the phone; the photo never goes to the cloud.
+- Walking to the car, you tap **+ → Voice note** and say "Call Maya on Thursday morning, and add oat milk to the groceries list." Gemma writes it down on the phone, and Anu proposes the Thursday call as an event for you to approve and lists the oat milk. The recording itself is never kept.
 - A group chat has 40 unread messages. Anu summarizes it from the notification and suggests a reply. It sends only when you tap to approve.
 - You say "Remember I'm vegetarian," or Anu notices a pattern on its own. Either way it lands in your profile with its source, and you can edit it in the Memory screen.
 - "Save my Meta Muse API key." It goes into the vault, locked behind your fingerprint. Anu can later use it to call Meta's service, but no AI model ever sees the key itself.
@@ -42,6 +44,7 @@ Most assistants either know nothing about you or send everything about you to a 
 - Sends, invites, deletes or shares without your explicit approval.
 - Shows a password, key or token to any AI model, or writes one into a log or into memory.
 - Uploads your profile or memory. The cloud receives only the minimum needed for one request, and only when you allow it.
+- Sends a photo you attach off the phone, even with your consent. The same goes for a voice note, and for the words written down from it.
 - Learns from anything you've excluded, such as a contact, a mail label or a topic.
 - Claims to be able to do something before it has been tested.
 - Pays for anything, or handles your card or payment details.
@@ -58,12 +61,16 @@ Most assistants either know nothing about you or send everything about you to a 
   - Gmail;
   - messaging apps such as WhatsApp, Google Messages, Telegram and Slack, through their notifications;
   - full SMS history, in the personal build only.
+- Phone controls: "set a timer for ten minutes", an alarm, the flashlight, Do Not Disturb or a Settings page, done at once with no model when that's all you ask, and through the model when it's part of something longer.
+- Photos: ask about a photo you pick or share into Anu. Gemma reads it on the phone, and it's kept with its message in Anu's encrypted store.
+- Voice notes: record one of up to 5 minutes, or share a recording into Anu. Gemma writes it down on the phone, and Anu proposes the events and other things it asks for, each approved. Only its words are kept; a shared recording is only summarized unless you ask for more, and memory never learns from it.
 - Voice: a Talk page with an orb that reacts to your voice, Anu as the phone's assistant over any app, and opt-in "Hey Anu" while the screen is on. Speech is recognized on the phone.
 - More connectors:
   - services you add as MCP servers, such as notes or tasks;
   - stores that support the Universal Commerce Protocol (UCP): search, and checkouts you approve.
 - A living memory and user profile, with a screen to inspect, edit and add to it.
 - AI features: writing, email, scheduling, messages, shopping, and a daily brief.
+- A prompt lab in Settings, for trying prompts and sampling on the models on the phone, with nothing from your data.
 - A vault for the keys and logins Anu uses for you, such as your Gemini key, a Meta Muse API key or email app passwords. It is not a password manager for other apps.
 
 **Not in v1:**

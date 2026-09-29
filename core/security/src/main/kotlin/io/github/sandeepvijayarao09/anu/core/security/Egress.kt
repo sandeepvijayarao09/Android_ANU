@@ -45,6 +45,11 @@ class EgressGate(private val ledger: PrivacyLedger, private val clock: () -> Ins
 
     suspend fun prepare(request: BrainRequest, destination: String): Prepared {
         require(DataClass.SECRET !in request.dataClasses) { "Secrets never leave the vault (I1)" }
+        // Photos never leave the phone (MEDIA-1). Redaction rebuilds messages from their text, so it would drop a
+        // photo silently; the gate refuses first, before any ledger entry or request (A3).
+        require(request.transcript.none { it is ChatMessage.User && it.photos.isNotEmpty() }) { "Photos never leave the phone (MEDIA-1)" }
+        // A voice note's words are a recording's, so they stay too (MEDIA-1, ADR-078); redaction would drop them silently.
+        require(request.transcript.none { it is ChatMessage.User && it.voiceNote != null }) { "Voice notes never leave the phone (MEDIA-1)" }
         val session = RedactionSession()
         val redacted = request.copy(
             system = request.system?.let(session::redact),

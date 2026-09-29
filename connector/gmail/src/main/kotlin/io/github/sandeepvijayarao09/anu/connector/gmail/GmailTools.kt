@@ -6,6 +6,7 @@ import io.github.sandeepvijayarao09.anu.core.agent.Tool
 import io.github.sandeepvijayarao09.anu.core.agent.ToolContext
 import io.github.sandeepvijayarao09.anu.core.model.DataClass
 import io.github.sandeepvijayarao09.anu.core.model.Description
+import io.github.sandeepvijayarao09.anu.core.model.UntrustedContent
 import kotlinx.serialization.Serializable
 
 private val THREAD_ID = Regex("[A-Za-z0-9]{6,64}")
@@ -44,7 +45,7 @@ class SearchEmailTool(private val gmail: GmailClient) : Tool<SearchInput, Search
     override val input = SearchInput.serializer()
     override val output = SearchOutput.serializer()
     override val dataClasses = setOf(DataClass.PERSONAL)
-    override val returnsUntrustedContent = true
+    override val untrustedContent = UntrustedContent.EMAIL
 
     override fun risk(input: SearchInput) = RiskTier.READ
     override fun describe(input: SearchInput) = "Search your email for \"${input.query}\""
@@ -73,7 +74,7 @@ class GetThreadTool(private val gmail: GmailClient) : Tool<ThreadInput, ThreadOu
     override val input = ThreadInput.serializer()
     override val output = ThreadOutput.serializer()
     override val dataClasses = setOf(DataClass.PERSONAL)
-    override val returnsUntrustedContent = true
+    override val untrustedContent = UntrustedContent.EMAIL
 
     override fun risk(input: ThreadInput) = RiskTier.READ
     override fun describe(input: ThreadInput) = "Read an email conversation"
@@ -137,7 +138,7 @@ class CreateDraftTool(private val gmail: GmailClient) : Tool<EmailInput, DraftOu
     override val input = EmailInput.serializer()
     override val output = DraftOutput.serializer()
     override val dataClasses = setOf(DataClass.PERSONAL)
-    override val returnsUntrustedContent = false
+    override val untrustedContent: UntrustedContent? = null
 
     override fun risk(input: EmailInput) = RiskTier.WRITE_PRIVATE
     override fun describe(input: EmailInput) = summary("Save a draft", input)
@@ -156,7 +157,7 @@ class SendEmailTool(private val gmail: GmailClient) : Tool<EmailInput, SentOutpu
     override val input = EmailInput.serializer()
     override val output = SentOutput.serializer()
     override val dataClasses = setOf(DataClass.PERSONAL)
-    override val returnsUntrustedContent = false
+    override val untrustedContent: UntrustedContent? = null
 
     override fun risk(input: EmailInput) = RiskTier.WRITE_EXTERNAL
     override fun describe(input: EmailInput) = summary("Send an email", input)

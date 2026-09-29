@@ -28,3 +28,29 @@ class InMemoryTranscriptStore(initial: List<ChatMessage> = emptyList()) : Transc
         while (messages.size > size) messages.removeAt(messages.lastIndex)
     }
 }
+
+/**
+ * Where attached photos are kept (G2, ADR-075): on the phone, in Anu's encrypted store, as long as the message that
+ * carries them. The transcript refers to them by id.
+ */
+interface PhotoStore {
+    suspend fun save(bytes: ByteArray): Long
+
+    /** The photos among [ids] that are still kept. */
+    suspend fun load(ids: Collection<Long>): Map<Long, ByteArray>
+
+    suspend fun delete(ids: Collection<Long>)
+}
+
+class InMemoryPhotoStore : PhotoStore {
+    private val photos = mutableMapOf<Long, ByteArray>()
+    private var next = 1L
+
+    override suspend fun save(bytes: ByteArray): Long = next++.also { photos[it] = bytes }
+
+    override suspend fun load(ids: Collection<Long>): Map<Long, ByteArray> = ids.mapNotNull { id -> photos[id]?.let { id to it } }.toMap()
+
+    override suspend fun delete(ids: Collection<Long>) {
+        ids.forEach(photos::remove)
+    }
+}

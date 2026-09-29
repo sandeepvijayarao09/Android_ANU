@@ -5,6 +5,7 @@ import io.github.sandeepvijayarao09.anu.core.agent.Tool
 import io.github.sandeepvijayarao09.anu.core.agent.ToolContext
 import io.github.sandeepvijayarao09.anu.core.model.DataClass
 import io.github.sandeepvijayarao09.anu.core.model.Description
+import io.github.sandeepvijayarao09.anu.core.model.UntrustedContent
 import kotlinx.serialization.Serializable
 import java.util.concurrent.ConcurrentHashMap
 
@@ -36,7 +37,7 @@ class RememberTool(private val memory: MemoryPipeline) : Tool<RememberInput, Rem
     override val input = RememberInput.serializer()
     override val output = RememberOutput.serializer()
     override val dataClasses = setOf(DataClass.PERSONAL)
-    override val returnsUntrustedContent = false
+    override val untrustedContent: UntrustedContent? = null
 
     override fun risk(input: RememberInput) = RiskTier.WRITE_PRIVATE
 
@@ -84,7 +85,7 @@ class SearchMemoryTool(private val memory: MemoryPipeline) : Tool<SearchMemoryIn
     override val input = SearchMemoryInput.serializer()
     override val output = SearchMemoryOutput.serializer()
     override val dataClasses = setOf(DataClass.PERSONAL, DataClass.SENSITIVE)
-    override val returnsUntrustedContent = false
+    override val untrustedContent: UntrustedContent? = null
 
     override fun risk(input: SearchMemoryInput) = RiskTier.READ
 
@@ -122,7 +123,7 @@ class ForgetMemoryTool(private val memory: MemoryPipeline) : Tool<ForgetInput, F
     override val input = ForgetInput.serializer()
     override val output = ForgetOutput.serializer()
     override val dataClasses = setOf(DataClass.PERSONAL)
-    override val returnsUntrustedContent = false
+    override val untrustedContent: UntrustedContent? = null
 
     /** What each input resolved to when the user was asked, so exactly that is deleted. */
     private val approved = ConcurrentHashMap<ForgetInput, List<Fact>>()

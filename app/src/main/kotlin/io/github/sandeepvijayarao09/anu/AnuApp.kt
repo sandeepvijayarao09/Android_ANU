@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import io.github.sandeepvijayarao09.anu.core.router.Guard
 
 class AnuApp : Application() {
     lateinit var graph: AppGraph
@@ -26,7 +27,8 @@ class AnuApp : Application() {
         // (ADR-062). The model loads only if a fact is missing its vector.
         graph.scope.launch {
             graph.memory.start()
-            runCatching { graph.memory.index() }
+            // Indexing loads the search model; while the phone is warm it waits for the next learning run (ADR-072).
+            if (graph.device.current().guard != Guard.HEAT) runCatching { graph.memory.index() }
         }
         // The services and stores saved in Settings, kept in step with the database (ADR-046, ADR-047).
         graph.scope.launch { graph.mcp.sync() }

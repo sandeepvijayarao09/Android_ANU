@@ -80,11 +80,13 @@ class Cascade(private val router: Router, private val brains: BrainProvider) {
             if (decision.consent == Consent.ASK) return@flow emit(CascadeEvent.ConsentNeeded(decision))
             emit(CascadeEvent.Routed(decision))
 
+            // A guarded phone shortens answers (ADR-072): writing takes the smaller of its own limit and the guard's.
+            val limited = decision.maxOutputTokens?.let { guard -> request.copy(maxOutputTokens = minOf(request.maxOutputTokens ?: guard, guard)) } ?: request
             val problem = when (val brain = brains.brainFor(decision.tier)) {
                 null -> "no brain is wired for ${decision.tier}"
-                else -> attempt(brain, decision.tier, request, validator)?.let { first ->
+                else -> attempt(brain, decision.tier, limited, validator)?.let { first ->
                     if (first.retryable) {
-                        attempt(brain, decision.tier, request.copy(sampling = Sampling.Precise), validator)?.reason
+                        attempt(brain, decision.tier, limited.copy(sampling = Sampling.Precise), validator)?.reason
                     } else {
                         first.reason
                     }

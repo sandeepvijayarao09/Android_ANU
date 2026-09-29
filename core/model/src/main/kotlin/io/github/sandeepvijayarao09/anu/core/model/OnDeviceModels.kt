@@ -49,6 +49,9 @@ interface OnDeviceModels {
 
     /** The phone's memory as sold, in whole GB, to compare with [ModelInfo.minMemoryGb]. 0 when unknown. */
     val deviceMemoryGb: Int get() = 0
+
+    /** Whether the model has run here before, so its weights are already prepared for this phone (ADR-061). */
+    fun prepared(id: BrainId): Boolean = true
 }
 
 /**

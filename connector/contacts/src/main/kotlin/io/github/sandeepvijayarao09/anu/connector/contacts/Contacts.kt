@@ -8,6 +8,7 @@ import io.github.sandeepvijayarao09.anu.core.agent.Tool
 import io.github.sandeepvijayarao09.anu.core.agent.ToolContext
 import io.github.sandeepvijayarao09.anu.core.model.DataClass
 import io.github.sandeepvijayarao09.anu.core.model.Description
+import io.github.sandeepvijayarao09.anu.core.model.UntrustedContent
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -43,7 +44,7 @@ class FindContactTool(private val contacts: ContactSource) : Tool<FindContactInp
     override val input = FindContactInput.serializer()
     override val output = ContactsOutput.serializer()
     override val dataClasses = setOf(DataClass.PERSONAL)
-    override val returnsUntrustedContent = false
+    override val untrustedContent: UntrustedContent? = null
 
     override fun risk(input: FindContactInput) = RiskTier.READ
     override fun describe(input: FindContactInput) = "Look up \"${input.name}\" in your contacts"

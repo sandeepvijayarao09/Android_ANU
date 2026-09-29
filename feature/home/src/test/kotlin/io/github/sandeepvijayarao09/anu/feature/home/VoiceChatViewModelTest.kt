@@ -109,7 +109,7 @@ class VoiceChatViewModelTest {
     fun `a quiet microphone says so, and nothing is sent`() {
         ears.events = listOf(SpeechEvent.Listening, SpeechEvent.Error("Didn't catch that.", heardNothing = true))
         chat.toggleListening()
-        assertEquals("Didn't catch that.", state.voiceNote)
+        assertEquals("Didn't catch that.", state.voiceProblem)
         assertTrue(state.bubbles.isEmpty())
         assertEquals(VoicePhase.IDLE, state.voice)
     }
@@ -120,7 +120,7 @@ class VoiceChatViewModelTest {
         chat.toggleListening()
         assertEquals(0, ears.listens)
         assertFalse(state.voiceAvailable)
-        assertEquals("This phone has no on-device speech recognition.", state.voiceNote)
+        assertEquals("This phone has no on-device speech recognition.", state.voiceProblem)
     }
 
     @Test

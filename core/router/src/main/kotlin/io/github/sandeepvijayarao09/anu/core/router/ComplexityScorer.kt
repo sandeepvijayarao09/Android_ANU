@@ -26,7 +26,7 @@ data class Scored(val target: Tier, val score: Int, val reasons: List<String>)
  * reason, so each decision can be explained. A learned classifier replaces these weights in v2, and
  * is evaluated on a held-out set it was not tuned on (ADR-010).
  */
-class ComplexityScorer(private val budgets: TierBudgets = TierBudgets()) {
+class ComplexityScorer(val budgets: TierBudgets = TierBudgets()) {
 
     fun score(request: RouteRequest): Scored {
         val text = request.text.lowercase()
@@ -38,7 +38,7 @@ class ComplexityScorer(private val budgets: TierBudgets = TierBudgets()) {
             reasons += if (points >= 0) "$why +$points" else "$why $points"
         }
 
-        SKILL_WEIGHT.getValue(request.skill).takeIf { it > 0 }?.let { add(it, "skill ${request.skill}") }
+        weight(request.skill).takeIf { it > 0 }?.let { add(it, "skill ${request.skill}") }
         val actions = ACTIONS.count { it.containsMatchIn(text) }
         if (actions >= 2) add(2, "$actions actions")
         if (CHAIN.containsMatchIn(text)) add(1, "chained steps")
@@ -62,17 +62,15 @@ class ComplexityScorer(private val budgets: TierBudgets = TierBudgets()) {
         return Scored(target, score, reasons)
     }
 
+    /** A `when`, so a new skill can't be left without a weight. */
+    private fun weight(skill: Skill): Int = when (skill) {
+        Skill.CHAT, Skill.MEMORY, Skill.MESSAGES, Skill.PHONE -> 0
+        Skill.WRITING, Skill.EMAIL, Skill.SHOPPING -> 1
+        // A voice note usually holds several things to do, each with a date to work out (ADR-078).
+        Skill.BRIEF, Skill.SCHEDULING, Skill.VOICE_NOTE -> 2
+    }
+
     private companion object {
-        val SKILL_WEIGHT = mapOf(
-            Skill.CHAT to 0,
-            Skill.MEMORY to 0,
-            Skill.MESSAGES to 0,
-            Skill.WRITING to 1,
-            Skill.EMAIL to 1,
-            Skill.BRIEF to 2,
-            Skill.SCHEDULING to 2,
-            Skill.SHOPPING to 1,
-        )
         val ACTIONS = listOf(
             "find", "schedul", "book", "email", "send", "repl", "invit", "summar", "draft", "remind", "compar",
             "move", "cancel",

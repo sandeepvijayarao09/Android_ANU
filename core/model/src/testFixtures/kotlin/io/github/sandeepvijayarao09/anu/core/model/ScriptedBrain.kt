@@ -22,7 +22,13 @@ class ScriptedBrain(
 ) : Brain {
 
     sealed interface Step {
-        data class Reply(val chunks: List<String>, val toolCalls: List<ToolCall> = emptyList()) : Step {
+        /** Streams [thoughts] as reasoning, then [chunks] and [toolCalls], then [usage], or totals made up from the chunks. */
+        data class Reply(
+            val chunks: List<String>,
+            val toolCalls: List<ToolCall> = emptyList(),
+            val usage: BrainEvent.Usage? = null,
+            val thoughts: List<String> = emptyList(),
+        ) : Step {
             constructor(text: String) : this(listOf(text))
         }
 
@@ -43,9 +49,10 @@ class ScriptedBrain(
         requests += request
         when (val step = steps.removeFirstOrNull() ?: error("ScriptedBrain $id has no step for request ${requests.size}")) {
             is Step.Reply -> {
+                step.thoughts.forEach { emit(BrainEvent.TextDelta(it, thought = true)) }
                 step.chunks.forEach { emit(BrainEvent.TextDelta(it)) }
                 step.toolCalls.forEach { emit(BrainEvent.ToolCallRequested(it)) }
-                emit(BrainEvent.Usage(contextTokens = step.chunks.sumOf { it.length }))
+                emit(step.usage ?: BrainEvent.Usage(contextTokens = step.chunks.sumOf { it.length }))
                 emit(BrainEvent.Finished(if (step.toolCalls.isEmpty()) StopReason.COMPLETE else StopReason.TOOL_CALLS))
             }
             is Step.Fail -> throw step.error

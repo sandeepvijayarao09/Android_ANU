@@ -9,6 +9,7 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
+import io.github.sandeepvijayarao09.anu.core.router.Guard
 import java.time.Duration
 
 /**
@@ -42,6 +43,8 @@ object MemoryLearning {
 class MemoryWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result {
         val app = applicationContext as AnuApp
+        // Learning runs E4B: while the phone is warm it waits, and WorkManager tries again later (ADR-072).
+        if (app.graph.device.current().guard == Guard.HEAT) return Result.retry()
         // Stops between messages if the user comes back, so the chat never waits for more than one.
         app.graph.memory.processPending { !app.foreground.value }
         // Facts learned before search by meaning was installed get their vectors here, out of sight (ADR-055).

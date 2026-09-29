@@ -1,5 +1,10 @@
 package io.github.sandeepvijayarao09.anu
 
+import io.github.sandeepvijayarao09.anu.feature.settings.LabViewModel
+import io.github.sandeepvijayarao09.anu.feature.home.VOICE_NOTE_SECONDS
+import io.github.sandeepvijayarao09.anu.core.model.clock
+import io.github.sandeepvijayarao09.anu.core.voice.readSharedRecording
+import io.github.sandeepvijayarao09.anu.core.voice.SharedRecording
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Bundle
@@ -48,15 +53,32 @@ import io.github.sandeepvijayarao09.anu.feature.memory.MemoryScreen
 import io.github.sandeepvijayarao09.anu.feature.memory.MemoryViewModel
 import io.github.sandeepvijayarao09.anu.feature.settings.SettingsScreen
 import io.github.sandeepvijayarao09.anu.feature.settings.SettingsViewModel
+import android.net.Uri
+import android.os.Build
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import androidx.compose.runtime.LaunchedEffect
+import io.github.sandeepvijayarao09.anu.feature.home.readPhoto
+import android.content.Intent
 
 class MainActivity : ComponentActivity() {
+    /** A photo or recording shared into Anu, waiting to be attached in Talk (G2, G3). */
+    private val shared = MutableStateFlow<Shared?>(null)
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        sharedItem(intent)?.let { shared.value = it }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         val graph = (application as AnuApp).graph
+        if (savedInstanceState == null) shared.value = sharedItem(intent)
         setContent {
             AnuTheme {
-                AnuHome(graph)
+                AnuHome(graph, shared)
             }
         }
     }
@@ -70,13 +92,49 @@ private const val SETTINGS = 2
  * The three pages: Talk, Memory and Settings (ADR-043, DESIGN.md). Swipe between them, or use the bar.
  * The Privacy report opens over whichever page the privacy indicator was tapped on.
  */
+/** A photo or a recording shared into Anu (G2, G3). */
+private class Shared(val uri: Uri, val audio: Boolean)
+
+/** The photo or recording in a share into Anu, if that's what [intent] is. */
+private fun sharedItem(intent: Intent?): Shared? {
+    val type = intent?.type ?: return null
+    if (intent.action != Intent.ACTION_SEND || !(type.startsWith("image/") || type.startsWith("audio/"))) return null
+    @Suppress("DEPRECATION")
+    val uri = (if (Build.VERSION.SDK_INT >= 33) intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java) else intent.getParcelableExtra(Intent.EXTRA_STREAM)) ?: return null
+    return Shared(uri, audio = type.startsWith("audio/"))
+}
+
 @Composable
-private fun AnuHome(graph: AppGraph) {
+private fun AnuHome(graph: AppGraph, shared: MutableStateFlow<Shared?>) {
     val context = LocalContext.current
     val pager = rememberPagerState(pageCount = { TABS.size })
     val scope = rememberCoroutineScope()
-    val chat = viewModel { ChatViewModel(graph.chat, graph.device::current, graph.approvals, graph.speechIn, graph.speechOut) }
+    val chat = viewModel {
+        ChatViewModel(
+            graph.chat, graph.device::current, graph.approvals, graph.speechIn, graph.speechOut, facts = graph::factTexts,
+            brainStatus = graph.onDevice.status, warm = graph::warmStart, recorder = graph.recorder, hears = graph.onDevice::available,
+        )
+    }
     val memory = viewModel { MemoryViewModel(graph.memory) }
+    // The prompt lab runs only the models on this phone, with nothing from the chat (G7, ADR-080).
+    val lab = viewModel { LabViewModel(graph.onDevice, graph.onDevice.status) }
+    // A shared photo or recording lands in Talk's composer, ready for a question about it (G2, G3).
+    val sharedItem by shared.collectAsStateWithLifecycle()
+    LaunchedEffect(sharedItem) {
+        val item = sharedItem ?: return@LaunchedEffect
+        shared.value = null
+        if (item.audio) {
+            when (val read = withContext(Dispatchers.IO) { readSharedRecording(context, item.uri, VOICE_NOTE_SECONDS) }) {
+                is SharedRecording.Ready -> chat.attachRecording(read.recording)
+                is SharedRecording.TooLong -> chat.recordingUnusable("This recording is ${clock(read.seconds)} long. Anu can write down up to 5 minutes.")
+                SharedRecording.Unreadable -> chat.recordingUnusable("This recording can't be read.")
+            }
+        } else {
+            val jpeg = withContext(Dispatchers.IO) { readPhoto(context.contentResolver, item.uri) }
+            if (jpeg != null) chat.attach(jpeg) else chat.photoUnreadable()
+        }
+        pager.scrollToPage(0)
+    }
     val settings = viewModel {
         SettingsViewModel(
             graph.models, graph.geminiKey, graph.vaultActivity, graph.toolActivity,
@@ -88,12 +146,17 @@ private fun AnuHome(graph: AppGraph) {
             shopping = graph.stores,
             searchByMeaning = { graph.embedder() != null },
             installer = graph.installer,
+            speeds = graph.speeds,
+            thinkingSetting = graph.thinking,
         )
     }
     var micGranted by remember { mutableStateOf(context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) }
+    // What the user was doing when Anu asked for the microphone: talking, or a voice note. It goes on once allowed.
+    var afterMic by remember { mutableStateOf<(() -> Unit)?>(null) }
     val askMic = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         micGranted = granted
-        if (granted) chat.toggleListening()
+        if (granted) afterMic?.invoke()
+        afterMic = null
     }
     // The privacy indicator (DESIGN.md): what left the phone today, and a pulse each time one more thing does.
     val ledger by graph.ledger.entries.collectAsStateWithLifecycle()
@@ -108,6 +171,11 @@ private fun AnuHome(graph: AppGraph) {
     // The assistant overlay shares this conversation, so show what was said there.
     LifecycleResumeEffect(Unit) {
         chat.reloadIfIdle()
+        onPauseOrDispose {}
+    }
+    // Opening Talk warms its model while the user thinks of a question (EXP-1).
+    LifecycleResumeEffect(pager.currentPage) {
+        if (pager.currentPage == 0) graph.warmStart()
         onPauseOrDispose {}
     }
     Scaffold(
@@ -134,9 +202,16 @@ private fun AnuHome(graph: AppGraph) {
                 userScrollEnabled = !privacyOpen,
             ) { page ->
                 when (page) {
-                    0 -> TalkScreen(chat, micGranted, onRequestMic = { askMic.launch(Manifest.permission.RECORD_AUDIO) }, sentToday = sentToday, onOpenPrivacy = openPrivacy, awayPulse = awayPulse)
+                    0 -> TalkScreen(
+                        chat, micGranted, onRequestMic = { then -> afterMic = then; askMic.launch(Manifest.permission.RECORD_AUDIO) }, sentToday = sentToday, onOpenPrivacy = openPrivacy,
+                        awayPulse = awayPulse,
+                        onOpenMemory = { factId ->
+                            factId?.let(memory::show)
+                            scope.launch { pager.animateScrollToPage(1) }
+                        },
+                    )
                     1 -> MemoryScreen(memory, sentToday, onOpenPrivacy = openPrivacy)
-                    else -> SettingsScreen(settings, sentToday, onOpenPrivacy = openPrivacy, page = settingsPage, onPage = { settingsPage = it })
+                    else -> SettingsScreen(settings, sentToday, onOpenPrivacy = openPrivacy, page = settingsPage, onPage = { settingsPage = it }, lab = lab)
                 }
             }
             AnimatedVisibility(

@@ -10,6 +10,12 @@ import io.github.sandeepvijayarao09.anu.core.model.ChatMessage
 import io.github.sandeepvijayarao09.anu.core.model.BrainId
 import io.github.sandeepvijayarao09.anu.core.model.ScriptedBrain
 import io.github.sandeepvijayarao09.anu.core.model.ScriptedBrain.Step
+import io.github.sandeepvijayarao09.anu.core.model.Recording
+import io.github.sandeepvijayarao09.anu.core.model.Transcriber
+import io.github.sandeepvijayarao09.anu.core.model.UntrustedContent
+import io.github.sandeepvijayarao09.anu.core.model.VoiceNote
+import io.github.sandeepvijayarao09.anu.core.voice.RecordingEvent
+import io.github.sandeepvijayarao09.anu.core.voice.VoiceRecorder
 import io.github.sandeepvijayarao09.anu.core.router.DeviceState
 import io.github.sandeepvijayarao09.anu.core.router.Router
 import io.github.sandeepvijayarao09.anu.core.router.Tier
@@ -70,6 +76,100 @@ class ChatViewModelTest {
         assertFalse(chat.state.value.trimmed)
         repeat(3) { chat.send("More " + "x".repeat(340)) }
         assertTrue(chat.state.value.trimmed)
+    }
+
+    @Test
+    fun `a saved chat comes back with each answer's model, receipts and details, and without text written before tools`() {
+        val history = listOf(
+            ChatMessage.User("Add lunch tomorrow"),
+            ChatMessage.Model("Let me add that.", listOf(ToolCall("calendar_create_event", buildJsonObject { put("title", "Lunch") }))),
+            ChatMessage.Tool(listOf(io.github.sandeepvijayarao09.anu.core.model.ToolResult("calendar_create_event", buildJsonObject { put("id", "e1") }))),
+            ChatMessage.Model("Added lunch."),
+            ChatMessage.User("Thanks"),
+            ChatMessage.Model("Anytime."),
+        )
+        val details = io.github.sandeepvijayarao09.anu.core.agent.AnswerDetails(
+            tier = Tier.PRO,
+            backend = "GPU",
+            actions = listOf(io.github.sandeepvijayarao09.anu.core.agent.ActionRecord("calendar_create_event", "Create \"Lunch\"", io.github.sandeepvijayarao09.anu.core.agent.ActionRecord.Status.DONE, wrote = true)),
+        )
+        val answers = io.github.sandeepvijayarao09.anu.core.agent.InMemoryAnswerStore()
+        kotlinx.coroutines.runBlocking { answers.save(0, details) }
+        val brains = mapOf(Tier.BASE to base)
+        val chat = ChatViewModel(
+            ChatSession(Agent(Router(), BrainProvider { brains[it] }, ToolBroker(emptyList(), ApprovalCenter())), InMemoryTranscriptStore(history), answers = answers),
+            device = { device },
+        )
+        val restored = chat.state.value.bubbles
+        assertEquals(listOf("Add lunch tomorrow", "Added lunch.", "Thanks", "Anytime."), restored.map { it.text })
+        assertEquals(Tier.PRO, restored[1].tier)
+        assertEquals(details, restored[1].details)
+        assertEquals(listOf("Create \"Lunch\""), restored[1].actions.map { it.summary })
+        assertNull("saved before details were kept", restored[3].details)
+    }
+
+    @Test
+    fun `a completed answer carries its details`() {
+        base.enqueue(Step.Reply("Hello!"))
+        viewModel.send("Hi")
+        assertEquals(Tier.BASE, bubbles.last().details?.tier)
+    }
+
+    @Test
+    fun `a wait before the first word names its cause, and clears when the model is ready`() {
+        val status = kotlinx.coroutines.flow.MutableStateFlow<io.github.sandeepvijayarao09.anu.core.model.BrainStatus>(io.github.sandeepvijayarao09.anu.core.model.BrainStatus.Idle)
+        var warmed = 0
+        val brains = mapOf(Tier.BASE to base)
+        val chat = ChatViewModel(
+            ChatSession(Agent(Router(), BrainProvider { brains[it] }, ToolBroker(emptyList(), ApprovalCenter()))),
+            device = { device }, brainStatus = status, warm = { warmed++ }, waitNoteDelayMs = 0,
+        )
+        chat.typingStarted()
+        assertEquals(1, warmed)
+        status.value = io.github.sandeepvijayarao09.anu.core.model.BrainStatus.Loading(io.github.sandeepvijayarao09.anu.core.model.BrainId.PRO)
+        assertTrue("no answer to wait on yet", chat.state.value.bubbles.isEmpty())
+        base.enqueue(Step.Hang(emptyList()))
+        chat.send("Hi")
+        assertEquals("Getting Gemma 4 E4B ready…", chat.state.value.bubbles.last().note)
+        status.value = io.github.sandeepvijayarao09.anu.core.model.BrainStatus.Reading(io.github.sandeepvijayarao09.anu.core.model.BrainId.PRO)
+        assertEquals("Catching up on this chat…", chat.state.value.bubbles.last().note)
+        status.value = io.github.sandeepvijayarao09.anu.core.model.BrainStatus.Idle
+        assertNull(chat.state.value.bubbles.last().note)
+        chat.stop()
+    }
+
+    @Test
+    fun `each wait has its own words`() {
+        assertEquals("Setting up the GPU. First time only, about a minute.", waitCause(io.github.sandeepvijayarao09.anu.core.model.BrainStatus.SettingUpGpu(io.github.sandeepvijayarao09.anu.core.model.BrainId.PRO)))
+        assertEquals("Switching to Gemma 4 E2B…", waitCause(io.github.sandeepvijayarao09.anu.core.model.BrainStatus.Switching(io.github.sandeepvijayarao09.anu.core.model.BrainId.BASE)))
+        assertNull(waitCause(io.github.sandeepvijayarao09.anu.core.model.BrainStatus.Idle))
+    }
+
+    @Test
+    fun `an attached photo goes with the next message, alone or with words, and can be taken back`() {
+        viewModel.attach(byteArrayOf(1, 2, 3))
+        viewModel.removeAttachment()
+        assertNull(viewModel.state.value.attachment)
+
+        viewModel.attach(byteArrayOf(1, 2, 3))
+        base.enqueue(Step.Reply("A red circle."))
+        viewModel.send("")
+        val asked = bubbles.first()
+        assertEquals("", asked.text)
+        assertEquals(listOf<Byte>(1, 2, 3), asked.photos.single().bytes!!.toList())
+        val seen = base.requests.single().transcript.last() as ChatMessage.User
+        assertEquals(listOf<Byte>(1, 2, 3), seen.photos.single().bytes!!.toList())
+        assertNull("the composer is clear again", viewModel.state.value.attachment)
+    }
+
+    @Test
+    fun `reasoning shows as Thinking, then sits apart from the answer`() {
+        base.enqueue(Step.Reply(listOf("12:35"), thoughts = listOf("First the train, ", "then the walk.")))
+        viewModel.send("When does Maya arrive?")
+        val answer = bubbles.last()
+        assertEquals("12:35", answer.text)
+        assertEquals("First the train, then the walk.", answer.thought)
+        assertNull(answer.note)
     }
 
     @Test
@@ -139,6 +239,58 @@ class ChatViewModelTest {
     }
 
     @Test
+    fun `on a warm phone the lighter answer offers the phone and Gemini, and says why`() {
+        device = DeviceState(online = true, availableTiers = setOf(Tier.BASE, Tier.PRO, Tier.CLOUD), guard = io.github.sandeepvijayarao09.anu.core.router.Guard.HEAT)
+        val chat = ChatViewModel(ChatSession(Agent(Router(), BrainProvider { mapOf(Tier.BASE to base, Tier.PRO to pro, Tier.CLOUD to cloud)[it] }, ToolBroker(emptyList(), ApprovalCenter()))), device = { device })
+        base.enqueue(Step.Reply("A lighter plan."))
+        chat.send("Find a time next week for me, Maya and Raj, then email them an invite")
+        val answer = chat.state.value.bubbles.last()
+        assertEquals(Tier.BASE, answer.tier)
+        assertEquals(listOf(RetryChoice.ON_PHONE, RetryChoice.GEMINI), retryChoices(answer, chat.state.value.cloudAllowed))
+        assertEquals("Lighter model while the phone is warm", guardLine(answer))
+    }
+
+    @Test
+    fun `asking Gemini and then keeping it on the phone leaves the answer and its choices`() {
+        device = DeviceState(online = true, availableTiers = setOf(Tier.BASE, Tier.PRO, Tier.CLOUD), guard = io.github.sandeepvijayarao09.anu.core.router.Guard.BATTERY)
+        val chat = ChatViewModel(ChatSession(Agent(Router(), BrainProvider { mapOf(Tier.BASE to base, Tier.PRO to pro, Tier.CLOUD to cloud)[it] }, ToolBroker(emptyList(), ApprovalCenter()))), device = { device })
+        base.enqueue(Step.Reply("A lighter plan."))
+        chat.send("Find a time next week for me, Maya and Raj, then email them an invite")
+        chat.askGemini()
+        assertEquals("Find a time next week for me, Maya and Raj, then email them an invite", chat.state.value.consentFor)
+        chat.declineCloud()
+        assertEquals(listOf("Find a time next week for me, Maya and Raj, then email them an invite", "A lighter plan."), chat.state.value.bubbles.map { it.text })
+        assertTrue(cloud.requests.isEmpty())
+
+        chat.askGemini()
+        cloud.enqueue(Step.Reply("Gemini's plan."))
+        chat.approveCloud(shareFacts = false)
+        assertEquals(listOf("Find a time next week for me, Maya and Raj, then email them an invite", "Gemini's plan."), chat.state.value.bubbles.map { it.text })
+        assertEquals(Tier.CLOUD, chat.state.value.bubbles.last().tier)
+    }
+
+    @Test
+    fun `retrying a turn that was never saved keeps the saved chat before it`() {
+        val brains = mapOf(Tier.BASE to base, Tier.PRO to pro)
+        val session = ChatSession(Agent(Router(), BrainProvider { brains[it] }, ToolBroker(emptyList(), ApprovalCenter())))
+        val chat = ChatViewModel(session, device = { device })
+        base.enqueue(Step.Reply("First answer."))
+        chat.send("First question")
+        base.enqueue(Step.Fail(IllegalStateException("out of memory")))
+        pro.enqueue(Step.Fail(IllegalStateException("out of memory")))
+        chat.send("Second question")
+        assertTrue(chat.state.value.bubbles.last().failed)
+        pro.enqueue(Step.Reply("Second answer."))
+        chat.retryWithPro()
+        val history = kotlinx.coroutines.runBlocking { session.history() }
+        assertEquals(
+            listOf(ChatMessage.User("First question"), ChatMessage.Model("First answer."), ChatMessage.User("Second question"), ChatMessage.Model("Second answer.")),
+            history,
+        )
+        assertEquals(listOf("First question", "First answer.", "Second question", "Second answer."), chat.state.value.bubbles.map { it.text })
+    }
+
+    @Test
     fun `retry with Pro replaces the last answer`() {
         base.enqueue(Step.Reply("short"))
         pro.enqueue(Step.Reply("thorough"))
@@ -193,7 +345,7 @@ class ChatViewModelTest {
         override val input = Invite.serializer()
         override val output = Created.serializer()
         override val dataClasses = setOf(DataClass.PERSONAL)
-        override val returnsUntrustedContent = false
+        override val untrustedContent: UntrustedContent? = null
         override fun risk(input: Invite) = RiskTier.WRITE_EXTERNAL
         override fun describe(input: Invite) = "Create \"${input.title}\" and invite ${input.attendees.joinToString()}"
         override suspend fun invoke(input: Invite, context: ToolContext): Created = Created("e${++created}")
@@ -242,5 +394,129 @@ class ChatViewModelTest {
         assertEquals("Stopped", bubbles.last().note)
         assertFalse(viewModel.state.value.busy)
         assertEquals(1, base.cancellations)
+    }
+
+    /** A recorder that records [seconds] of made-up audio, then finishes, cut short when [interrupted]; or fails with [error]. */
+    private class FakeRecorder(private val seconds: Int = 4, private val interrupted: Boolean = false, private val error: String? = null) : VoiceRecorder {
+        var finishes = 0
+        private val stop = kotlinx.coroutines.CompletableDeferred<Unit>()
+
+        override fun record(maxSeconds: Int): kotlinx.coroutines.flow.Flow<RecordingEvent> = kotlinx.coroutines.flow.flow {
+            if (error != null) {
+                emit(RecordingEvent.Error(error))
+                return@flow
+            }
+            emit(RecordingEvent.Level(0.5f, seconds))
+            if (!interrupted) stop.await()
+            emit(RecordingEvent.Finished(Recording(byteArrayOf(1, 2), seconds, interrupted = interrupted)))
+        }
+
+        override fun finish() {
+            finishes++
+            stop.complete(Unit)
+        }
+    }
+
+    private class FakeTranscriber(private val words: List<String>, private val error: Exception? = null) : Transcriber {
+        override fun available() = true
+
+        override fun transcribe(recording: Recording): kotlinx.coroutines.flow.Flow<String> = kotlinx.coroutines.flow.flow {
+            error?.let { throw it }
+            words.forEach { emit(it) }
+        }
+    }
+
+    private fun voiceChat(recorder: VoiceRecorder, transcriber: Transcriber, hears: Boolean = true): ChatViewModel {
+        val brains = mapOf(Tier.BASE to base, Tier.PRO to pro)
+        val session = ChatSession(Agent(Router(), BrainProvider { brains[it] }, ToolBroker(emptyList(), ApprovalCenter())), transcriber = transcriber)
+        return ChatViewModel(session, device = { device }, recorder = recorder, hears = { hears })
+    }
+
+    @Test
+    fun `a voice note records with a level and a time, Stop keeps it for the message, and its words show in your turn`() {
+        val recorder = FakeRecorder(seconds = 4)
+        val chat = voiceChat(recorder, FakeTranscriber(listOf("Call Maya", " on Thursday.")))
+        chat.startRecording()
+        assertEquals(4, chat.state.value.recordingSeconds)
+        assertEquals(VoicePhase.LISTENING, chat.state.value.voice)
+        chat.finishRecording()
+        assertNull(chat.state.value.recordingSeconds)
+        assertEquals(4, chat.state.value.recording?.seconds)
+
+        pro.enqueue(Step.Reply("I'll add that."))
+        chat.send("")
+        val state = chat.state.value
+        assertNull("the recording left the composer", state.recording)
+        val clip = state.bubbles.first { it.fromUser }.voice!!
+        assertEquals("Call Maya on Thursday.", clip.words)
+        assertFalse(clip.writing)
+        assertNull("the recording is let go once written down", clip.recording)
+        assertEquals("I'll add that.", state.bubbles.last().text)
+        assertEquals("Writing it down", state.bubbles.last().details?.let(::speedRows)?.first()?.first)
+    }
+
+    @Test
+    fun `cancelling throws the recording away, and without a model that can hear none starts`() {
+        val chat = voiceChat(FakeRecorder(), FakeTranscriber(emptyList()))
+        chat.startRecording()
+        chat.cancelRecording()
+        assertNull(chat.state.value.recordingSeconds)
+        assertNull(chat.state.value.recording)
+
+        val deaf = voiceChat(FakeRecorder(), FakeTranscriber(emptyList()), hears = false)
+        deaf.startRecording()
+        assertNull(deaf.state.value.recordingSeconds)
+        assertEquals(ChatSession.CANT_HEAR, deaf.state.value.attachmentNote)
+    }
+
+    @Test
+    fun `a recording cut short is kept and says so, and a busy microphone is reported`() {
+        val cut = voiceChat(FakeRecorder(seconds = 7, interrupted = true), FakeTranscriber(emptyList()))
+        cut.startRecording()
+        assertEquals(7, cut.state.value.recording?.seconds)
+        assertEquals("The recording stopped early. What was recorded is kept.", cut.state.value.attachmentNote)
+
+        val busy = voiceChat(FakeRecorder(error = "The microphone is in use by another app."), FakeTranscriber(emptyList()))
+        busy.startRecording()
+        assertNull(busy.state.value.recording)
+        assertEquals("The microphone is in use by another app.", busy.state.value.attachmentNote)
+    }
+
+    @Test
+    fun `a recording that can't be written down goes back to the composer, and one with no words doesn't`() {
+        val broken = voiceChat(FakeRecorder(), FakeTranscriber(emptyList(), IllegalStateException("decoder")))
+        broken.attachRecording(Recording(byteArrayOf(1), seconds = 12, shared = true))
+        broken.send("")
+        assertEquals(ChatSession.COULDNT_HEAR, broken.state.value.bubbles.last().text)
+        assertEquals("the same recording can be sent again", 12, broken.state.value.recording?.seconds)
+
+        val silent = voiceChat(FakeRecorder(), FakeTranscriber(listOf(" ")))
+        silent.attachRecording(Recording(byteArrayOf(1), seconds = 3))
+        silent.send("")
+        assertEquals(ChatSession.NOTHING_SAID, silent.state.value.bubbles.last().text)
+        assertNull(silent.state.value.recording)
+        assertEquals("the turn shows it wasn't written down", VoiceClip(seconds = 3), silent.state.value.bubbles.first().voice)
+    }
+
+    @Test
+    fun `a saved voice note comes back with its words, and Retry sends them without the recording`() {
+        val saved = listOf(
+            ChatMessage.User("", voiceNote = VoiceNote("Buy oat milk.", seconds = 3)),
+            ChatMessage.Model("Noted: oat milk."),
+        )
+        val brains = mapOf(Tier.BASE to base, Tier.PRO to pro)
+        val session = ChatSession(Agent(Router(), BrainProvider { brains[it] }, ToolBroker(emptyList(), ApprovalCenter())), InMemoryTranscriptStore(saved))
+        val chat = ChatViewModel(session, device = { device })
+        assertEquals(VoiceClip(seconds = 3, words = "Buy oat milk."), chat.state.value.bubbles.first().voice)
+        pro.enqueue(Step.Reply("Added oat milk to your list."))
+        chat.retryWithPro()
+        val sent = pro.requests.single().transcript.first() as ChatMessage.User
+        assertEquals(VoiceNote("Buy oat milk.", seconds = 3), sent.voiceNote)
+    }
+
+    @Test
+    fun `a voice note's label says what it is, how long, and whether it stopped early`() {
+        assertEquals("Voice note · 0:17", voiceLabel(VoiceClip(17)))
+        assertEquals("Shared recording · 1:02 · Stopped early", voiceLabel(VoiceClip(62, shared = true, interrupted = true)))
     }
 }

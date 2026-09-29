@@ -26,7 +26,34 @@ data class MessageEntity(
     val toolCallsJson: String?,
     val toolResultsJson: String?,
     val createdAtMillis: Long,
+    /** The ids of a user message's photos in `photos` (ADR-075), as a JSON array. Null when it has none. */
+    val photosJson: String? = null,
+    /**
+     * A user message's voice note (ADR-078), as JSON: its words, length and whether it was shared or cut short. The
+     * recording itself is never saved. Null when it has none.
+     */
+    val voiceNoteJson: String? = null,
 )
+
+/** A photo the user attached, kept in the encrypted database with its message (G2, ADR-075). A JPEG, 1,024 px at most. */
+@Entity(tableName = "photos")
+class PhotoEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val bytes: ByteArray,
+    val createdAtMillis: Long,
+)
+
+@Dao
+interface PhotoDao {
+    @Insert
+    suspend fun insert(photo: PhotoEntity): Long
+
+    @Query("SELECT * FROM photos WHERE id IN (:ids)")
+    suspend fun load(ids: List<Long>): List<PhotoEntity>
+
+    @Query("DELETE FROM photos WHERE id IN (:ids)")
+    suspend fun delete(ids: List<Long>)
+}
 
 /** One Privacy Ledger entry (I3). It describes what was sent, never the content. */
 @Entity(tableName = "ledger")
@@ -131,13 +158,17 @@ interface ToolResultDao {
     entities = [
         MessageEntity::class, LedgerEntity::class, VaultAuditEntity::class, ToolAuditEntity::class, ToolResultEntity::class,
         MemoryEventEntity::class, FactEntity::class, FactSourceEntity::class, RejectedFactEntity::class, ProfileVersionEntity::class,
-        McpServerEntity::class, StoreEntity::class, FactVectorEntity::class,
+        McpServerEntity::class, StoreEntity::class, FactVectorEntity::class, AnswerEntity::class, PhotoEntity::class,
     ],
-    version = 5,
+    version = 8,
     // v2 (Phase 2) adds tool_audit and tool_results; v3 (Phase 3) adds memory; v4 adds MCP servers and
-    // stores (ADR-046, ADR-047); v5 adds fact vectors for search by meaning (ADR-055). Room derives each
-    // migration from the committed schemas.
-    autoMigrations = [AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3), AutoMigration(from = 3, to = 4), AutoMigration(from = 4, to = 5)],
+    // stores (ADR-046, ADR-047); v5 adds fact vectors for search by meaning (ADR-055); v6 adds answers'
+    // details (ADR-071); v7 adds photos and the messages' photo ids (ADR-075); v8 adds the messages' voice notes
+    // (ADR-078). Room derives each migration from the committed schemas.
+    autoMigrations = [
+        AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3), AutoMigration(from = 3, to = 4), AutoMigration(from = 4, to = 5),
+        AutoMigration(from = 5, to = 6), AutoMigration(from = 6, to = 7), AutoMigration(from = 7, to = 8),
+    ],
 )
 abstract class AnuDatabase : RoomDatabase() {
     abstract fun transcripts(): TranscriptDao
@@ -153,6 +184,10 @@ abstract class AnuDatabase : RoomDatabase() {
     abstract fun memory(): MemoryDao
 
     abstract fun connectors(): ConnectorDao
+
+    abstract fun answers(): AnswerDao
+
+    abstract fun photos(): PhotoDao
 
     companion object {
         fun open(context: Context): AnuDatabase {

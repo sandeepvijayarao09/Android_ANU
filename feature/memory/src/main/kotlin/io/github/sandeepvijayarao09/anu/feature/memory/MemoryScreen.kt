@@ -78,6 +78,13 @@ fun MemoryScreen(viewModel: MemoryViewModel, sentToday: Int, onOpenPrivacy: () -
     var showAdd by rememberSaveable { mutableStateOf(false) }
     var openFact by rememberSaveable { mutableStateOf<Long?>(null) }
     val shown = remember(state.facts, query) { state.facts.filter { matches(it, query) } }
+    val requested by viewModel.requested.collectAsStateWithLifecycle()
+    LaunchedEffect(requested) {
+        requested?.let { id ->
+            openFact = id
+            viewModel.shown()
+        }
+    }
 
     AnuPage(
         title = "Memory",

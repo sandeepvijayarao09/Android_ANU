@@ -20,6 +20,19 @@ class MemoryViewModel(private val memory: MemoryInspector) : ViewModel() {
     private val mutableMessage = MutableStateFlow<String?>(null)
     val message: StateFlow<String?> = mutableMessage.asStateFlow()
 
+    private val mutableRequested = MutableStateFlow<Long?>(null)
+
+    /** A fact another page asked to show, such as "About this answer" (ADR-071). */
+    val requested: StateFlow<Long?> = mutableRequested.asStateFlow()
+
+    fun show(factId: Long) {
+        mutableRequested.value = factId
+    }
+
+    fun shown() {
+        mutableRequested.value = null
+    }
+
     fun learnNow() = act { mutableMessage.value = describe(memory.learnNow()) }
 
     /** True while the on-device model reads something the user typed. */

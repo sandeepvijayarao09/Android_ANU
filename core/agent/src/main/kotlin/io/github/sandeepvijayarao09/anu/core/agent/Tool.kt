@@ -2,6 +2,7 @@ package io.github.sandeepvijayarao09.anu.core.agent
 
 import io.github.sandeepvijayarao09.anu.core.model.DataClass
 import io.github.sandeepvijayarao09.anu.core.model.ToolSpec
+import io.github.sandeepvijayarao09.anu.core.model.UntrustedContent
 import kotlinx.serialization.KSerializer
 
 /** How much a tool call can affect the world (ARCHITECTURE §7.1). The Tool Broker's policy is keyed on it. */
@@ -44,8 +45,11 @@ interface Tool<I : Any, O : Any> {
     /** The personal data this tool's results contain (§12.1). */
     val dataClasses: Set<DataClass>
 
-    /** Connector content such as event titles or email bodies can be written by others, so it is untrusted (P4). */
-    val returnsUntrustedContent: Boolean
+    /**
+     * The kind of content from other people this tool returns, such as email bodies or event titles, or null
+     * when it returns only the user's own data (P4). While the model can see it, Anu asks before acting (§7.2).
+     */
+    val untrustedContent: UntrustedContent?
 
     /** Risk can depend on the input. For example, an event with attendees sends invites (§9). */
     fun risk(input: I): RiskTier

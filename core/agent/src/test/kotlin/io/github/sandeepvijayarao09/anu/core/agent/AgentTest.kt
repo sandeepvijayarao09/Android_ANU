@@ -7,6 +7,7 @@ import io.github.sandeepvijayarao09.anu.core.model.Sampling
 import io.github.sandeepvijayarao09.anu.core.model.ScriptedBrain
 import io.github.sandeepvijayarao09.anu.core.model.ScriptedBrain.Step
 import io.github.sandeepvijayarao09.anu.core.model.ToolCall
+import io.github.sandeepvijayarao09.anu.core.model.UntrustedContent
 import io.github.sandeepvijayarao09.anu.core.router.DeviceState
 import io.github.sandeepvijayarao09.anu.core.router.RouteRequest
 import io.github.sandeepvijayarao09.anu.core.router.Router
@@ -103,8 +104,19 @@ class AgentTest {
         )
         gate.decision = ApprovalDecision.Denied("I never asked for that")
         run()
-        assertEquals("This request read content written by others", gate.requests.single().reason)
+        assertEquals("Anu asks because this chat shows an email, which others can write. Check this closely", gate.requests.single().reason)
         assertTrue(create.created.isEmpty())
+    }
+
+    @Test
+    fun `tool results record the kind of content from others they hold, and a call that never ran holds none`() = runTest {
+        base.enqueue(
+            Step.Reply(listOf(""), toolCalls = listOf(ToolCall("email_search", buildJsonObject { put("query", "x") }), ToolCall("made_up_tool", buildJsonObject { }))),
+            Step.Reply("Nothing new."),
+        )
+        val results = (run().last() as AgentEvent.Completed).added.filterIsInstance<ChatMessage.Tool>().single().results
+        assertEquals(listOf("email_search" to UntrustedContent.EMAIL, "made_up_tool" to null), results.map { it.toolName to it.untrusted })
+        assertTrue(results.all { it.untrustedKnown })
     }
 
     @Test

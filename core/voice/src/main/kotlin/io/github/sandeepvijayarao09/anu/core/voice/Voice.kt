@@ -1,5 +1,6 @@
 package io.github.sandeepvijayarao09.anu.core.voice
 
+import io.github.sandeepvijayarao09.anu.core.model.Recording
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 
@@ -31,6 +32,30 @@ interface SpeechInput {
 
     /** Asks the on-device recognizer to fetch this language's model, when the user chooses to. */
     fun downloadLanguagePack() {}
+}
+
+/** What a voice note's recorder reports (G3, ADR-078). */
+sealed interface RecordingEvent {
+    /** How loud it is now, from 0 to 1, for the sphere and the level bars, and how long it has run. */
+    data class Level(val value: Float, val seconds: Int) : RecordingEvent
+
+    /** The recording, ended by [VoiceRecorder.finish], by its time limit, or cut short ([Recording.interrupted]). */
+    data class Finished(val recording: Recording) : RecordingEvent
+
+    /** It couldn't record, such as when another app holds the microphone. */
+    data class Error(val reason: String) : RecordingEvent
+}
+
+/** Records voice notes on the phone, as mono 16 kHz WAV, kept in memory only (G3, ADR-078). */
+interface VoiceRecorder {
+    /**
+     * Cold: collecting starts recording, up to [maxSeconds]. It ends with [RecordingEvent.Finished] after [finish],
+     * at the limit, or when the microphone is taken away (a call, or leaving the app). Cancelling throws it away.
+     */
+    fun record(maxSeconds: Int): Flow<RecordingEvent>
+
+    /** Ends the recording now, keeping what was recorded. */
+    fun finish()
 }
 
 /** Text to speech. Sentences are queued as they arrive, so Anu starts talking before the answer is finished. */

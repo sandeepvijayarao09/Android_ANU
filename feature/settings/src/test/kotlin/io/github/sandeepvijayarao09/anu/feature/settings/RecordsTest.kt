@@ -144,4 +144,28 @@ class RecordsTest {
         assertEquals("Gemma 4 E4B is already installed.", installMessage(InstallOutcome.AlreadyThere("Gemma 4 E4B")))
         assertEquals("No.", installMessage(InstallOutcome.Refused("No.")))
     }
+
+    @Test
+    fun `speeds read as one short line, and in words for TalkBack`() {
+        val counted = io.github.sandeepvijayarao09.anu.core.model.Speed(firstWordMs = 1_234, readPerSecond = 271.4, writePerSecond = 5.26, counted = true)
+        assertEquals("first word 1.2 s · reads 271/s · writes 5.3/s", speedLine(counted))
+        assertEquals("first word 1.2 seconds, reads 271 tokens a second, writes 5.3 tokens a second", speedWords(counted))
+        val estimated = counted.copy(counted = false, readPerSecond = null)
+        assertEquals("first word 1.2 s · writes about 5.3/s", speedLine(estimated))
+        assertEquals("first word 1 min 50 s", speedLine(io.github.sandeepvijayarao09.anu.core.model.Speed(110_500, null, null)))
+        assertEquals("first word 1 minute 50 seconds", speedWords(io.github.sandeepvijayarao09.anu.core.model.Speed(110_500, null, null)))
+        assertEquals("first word 12 s", speedLine(io.github.sandeepvijayarao09.anu.core.model.Speed(12_300, null, null)))
+    }
+
+    @Test
+    fun `the test's steps, the build and how long ago read plainly`() {
+        assertEquals("Setting up the GPU. First time only, about a minute.", testStepLine(io.github.sandeepvijayarao09.anu.core.model.TestStep.GPU_SETUP, "Gemma 4 E4B"))
+        assertEquals("Getting Gemma 4 E4B ready…", testStepLine(io.github.sandeepvijayarao09.anu.core.model.TestStep.LOADING, "Gemma 4 E4B"))
+        assertEquals("Runs on the GPU", buildLine("GPU"))
+        assertEquals("Runs on the NPU", buildLine("NPU_TENSOR_G5"))
+        assertEquals("just now", ago(0, 30_000))
+        assertEquals("2 min ago", ago(0, 120_000))
+        assertEquals("3 h ago", ago(0, 3 * 3_600_000))
+        assertEquals("2 days ago", ago(0, 49 * 3_600_000L))
+    }
 }

@@ -5,6 +5,7 @@ import io.github.sandeepvijayarao09.anu.core.agent.Tool
 import io.github.sandeepvijayarao09.anu.core.agent.ToolContext
 import io.github.sandeepvijayarao09.anu.core.model.DataClass
 import io.github.sandeepvijayarao09.anu.core.model.Description
+import io.github.sandeepvijayarao09.anu.core.model.UntrustedContent
 import io.github.sandeepvijayarao09.anu.core.security.LedgerEntry
 import io.github.sandeepvijayarao09.anu.core.security.PrivacyLedger
 import kotlinx.coroutines.CancellationException
@@ -87,7 +88,7 @@ class ShopSearchTool(
     override val input: KSerializer<ShopSearchInput> = ShopSearchInput.serializer()
     override val output: KSerializer<ShopSearchOutput> = ShopSearchOutput.serializer()
     override val dataClasses = setOf(DataClass.PERSONAL)
-    override val returnsUntrustedContent = true
+    override val untrustedContent = UntrustedContent.STORE
 
     private fun targets(input: ShopSearchInput): List<Store> {
         val all = stores()
@@ -207,7 +208,7 @@ class ShopCheckoutTool(
     override val input: KSerializer<ShopCheckoutInput> = ShopCheckoutInput.serializer()
     override val output: KSerializer<ShopCheckoutOutput> = ShopCheckoutOutput.serializer()
     override val dataClasses = setOf(DataClass.PERSONAL)
-    override val returnsUntrustedContent = true
+    override val untrustedContent = UntrustedContent.STORE
 
     private fun store(input: ShopCheckoutInput): Store = stores().named(input.store).also {
         require(it.canCheckout) { "${it.name} doesn't offer checkout through Anu. The user can buy on its site." }

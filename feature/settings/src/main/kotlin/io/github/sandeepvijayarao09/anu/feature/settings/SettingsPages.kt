@@ -56,7 +56,7 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlin.math.roundToInt
 
-private val BACK = SettingsPage.MAIN.title
+internal val BACK = SettingsPage.MAIN.title
 
 /**
  * Services the user adds as MCP servers (ADR-046). Their tools are offered when the user names the
@@ -288,6 +288,7 @@ private fun AddStoreSheet(onDismiss: () -> Unit, onAdd: (String) -> Unit) {
 internal fun ModelsPage(viewModel: SettingsViewModel, sentToday: Int, onOpenPrivacy: () -> Unit, onBack: () -> Unit) {
     val rows by viewModel.modelRows.collectAsStateWithLifecycle()
     val message by viewModel.message.collectAsStateWithLifecycle()
+    val sheet by viewModel.modelSheet.collectAsStateWithLifecycle()
     LifecycleResumeEffect(Unit) {
         viewModel.refreshModels()
         onPauseOrDispose {}
@@ -309,6 +310,7 @@ internal fun ModelsPage(viewModel: SettingsViewModel, sentToday: Int, onOpenPriv
                                 viewModel.download(row.info.id)
                             },
                             onDelete = { viewModel.delete(row.info.id) },
+                            onOpen = { viewModel.openModel(row.info.id) },
                         )
                     }
                 }
@@ -320,6 +322,18 @@ internal fun ModelsPage(viewModel: SettingsViewModel, sentToday: Int, onOpenPriv
         }
         item(key = "search") { SearchByMeaningGroup(viewModel) }
         if (viewModel.canInstallFiles) item(key = "file") { InstallFromFileGroup(viewModel) }
+    }
+    sheet?.let { open ->
+        val row = rows.firstOrNull { it.info.id == open.id && it.state == ModelState.Ready }
+        if (row != null) {
+            ModelSheet(
+                row, open, now = System.currentTimeMillis(),
+                onTest = viewModel::testSpeed,
+                onStop = viewModel::stopTest,
+                onDelete = { viewModel.delete(open.id) },
+                onDismiss = viewModel::closeModel,
+            )
+        }
     }
 }
 
@@ -402,12 +416,11 @@ private fun SearchByMeaningGroup(viewModel: SettingsViewModel) {
 }
 
 @Composable
-private fun ModelRowView(row: ModelRow, onDownload: () -> Unit, onDelete: () -> Unit) {
+private fun ModelRowView(row: ModelRow, onDownload: () -> Unit, onDelete: () -> Unit, onOpen: () -> Unit) {
     val colors = AnuTheme.colors
     val name = modelName(row.info.id)
     val size = gigabytes(row.info.sizeBytes)
     val about = "${modelTier(row.info.id)} · ${row.info.variant.uppercase()} · ${modelSpace(row)}" + (memoryNote(row)?.let { "\n$it" } ?: "")
-    var confirmDelete by remember { mutableStateOf(false) }
     when (val state = row.state) {
         ModelState.NotInstalled -> GroupRow(name, subtitle = about, trailing = { AnuTextButton("Download", onClick = onDownload) })
         is ModelState.Downloading -> Column {
@@ -424,20 +437,9 @@ private fun ModelRowView(row: ModelRow, onDownload: () -> Unit, onDelete: () -> 
                 drawStopIndicator = {},
             )
         }
-        // A model is gigabytes to download again, so deleting one is never a single tap.
-        ModelState.Ready -> GroupRow(name, subtitle = about, trailing = { AnuTextButton("Delete", onClick = { confirmDelete = true }, color = colors.errorText) })
+        // One item with several actions opens as a sheet (design review 2C): Test speed and Delete are there.
+        ModelState.Ready -> GroupRow(name, subtitle = about, chevron = true, onClick = onOpen)
         is ModelState.Failed -> GroupRow(name, subtitle = state.reason, subtitleColor = colors.errorText, trailing = { AnuTextButton("Retry", onClick = onDownload) })
-    }
-    if (confirmDelete) {
-        AnuDialog(
-            title = "Delete $name?",
-            text = "This frees ${gigabytes(row.spaceUsed)}. Downloading it again takes a while on Wi-Fi.",
-            confirm = "Delete",
-            onConfirm = { confirmDelete = false; onDelete() },
-            dismiss = "Keep",
-            onDismiss = { confirmDelete = false },
-            destructive = true,
-        )
     }
 }
 

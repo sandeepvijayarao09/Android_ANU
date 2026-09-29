@@ -8,6 +8,7 @@ import io.github.sandeepvijayarao09.anu.core.agent.Tool
 import io.github.sandeepvijayarao09.anu.core.agent.ToolContext
 import io.github.sandeepvijayarao09.anu.core.model.DataClass
 import io.github.sandeepvijayarao09.anu.core.model.Description
+import io.github.sandeepvijayarao09.anu.core.model.UntrustedContent
 import io.github.sandeepvijayarao09.anu.core.security.OneTimeCodes
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -100,7 +101,7 @@ class SmsSearchTool(private val sms: SmsSource, private val zone: () -> ZoneId) 
     override val input = SmsSearchInput.serializer()
     override val output = SmsSearchOutput.serializer()
     override val dataClasses = setOf(DataClass.PERSONAL)
-    override val returnsUntrustedContent = true
+    override val untrustedContent = UntrustedContent.MESSAGE
 
     override fun risk(input: SmsSearchInput) = RiskTier.READ
     override fun describe(input: SmsSearchInput) = buildString {

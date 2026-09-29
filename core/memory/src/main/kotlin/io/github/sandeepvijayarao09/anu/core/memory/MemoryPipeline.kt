@@ -268,7 +268,7 @@ class MemoryPipeline(
      */
     suspend fun relevant(message: String, previous: String? = null): List<RelevantFact> {
         val about = if (previous != null && Relevance.pointsBack(message)) "$previous\n$message" else message
-        return Relevance.pick(about, store.activeFacts(), similarities(about)).map { RelevantFact(it.text, it.sensitive) }
+        return Relevance.pick(about, store.activeFacts(), similarities(about)).map { RelevantFact(it.text, it.sensitive, it.id) }
     }
 
     /**

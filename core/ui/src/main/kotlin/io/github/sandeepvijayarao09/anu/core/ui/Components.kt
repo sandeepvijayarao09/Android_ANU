@@ -345,11 +345,15 @@ fun DetailPanel(modifier: Modifier = Modifier, content: @Composable ColumnScope.
     )
 }
 
+/** One exact detail. [spoken] is what TalkBack says instead, such as a speed in words rather than "271/s". */
 @Composable
-fun DetailRow(label: String, value: String, first: Boolean = false, valueColor: Color? = null) {
+fun DetailRow(label: String, value: String, first: Boolean = false, valueColor: Color? = null, spoken: String? = null) {
     val colors = AnuTheme.colors
     if (!first) HorizontalDivider(thickness = 0.5.dp, color = colors.separator)
-    Row(Modifier.fillMaxWidth().padding(vertical = 10.dp).semantics(mergeDescendants = true) {}) {
+    Row(
+        Modifier.fillMaxWidth().padding(vertical = 10.dp)
+            .then(if (spoken != null) Modifier.clearAndSetSemantics { contentDescription = "$label: $spoken" } else Modifier.semantics(mergeDescendants = true) {}),
+    ) {
         Text(label, Modifier.width(84.dp), style = AnuTheme.type.callout, color = colors.textMuted)
         Text(value, style = AnuTheme.type.callout, color = valueColor ?: colors.text)
     }

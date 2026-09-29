@@ -6,6 +6,7 @@ import io.github.sandeepvijayarao09.anu.core.agent.Tool
 import io.github.sandeepvijayarao09.anu.core.agent.ToolContext
 import io.github.sandeepvijayarao09.anu.core.model.DataClass
 import io.github.sandeepvijayarao09.anu.core.model.ToolSpec
+import io.github.sandeepvijayarao09.anu.core.model.UntrustedContent
 import io.github.sandeepvijayarao09.anu.core.security.LedgerEntry
 import io.github.sandeepvijayarao09.anu.core.security.PrivacyLedger
 import io.github.sandeepvijayarao09.anu.core.security.SecretRef
@@ -49,7 +50,7 @@ class McpTool(
     override val input: KSerializer<JsonObject> = JsonObject.serializer()
     override val output: KSerializer<JsonObject> = JsonObject.serializer()
     override val dataClasses = setOf(DataClass.PERSONAL)
-    override val returnsUntrustedContent = true
+    override val untrustedContent = UntrustedContent.SERVICE
 
     private val parameters = McpSchemas.forModel(info.inputSchema)
 

@@ -69,6 +69,7 @@ dependencies {
     implementation(project(":connector:messages"))
     implementation(project(":connector:mcp"))
     implementation(project(":connector:shopping"))
+    implementation(project(":connector:phone"))
     // SMS is Play-restricted, so only the owner's build links it (ADR-012, ADR-032).
     "personalImplementation"(project(":connector:sms"))
     implementation(libs.androidx.work.runtime) // memory learning (ADR-037)

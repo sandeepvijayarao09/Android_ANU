@@ -6,6 +6,7 @@ import io.github.sandeepvijayarao09.anu.core.agent.Tool
 import io.github.sandeepvijayarao09.anu.core.agent.ToolContext
 import io.github.sandeepvijayarao09.anu.core.model.DataClass
 import io.github.sandeepvijayarao09.anu.core.model.Description
+import io.github.sandeepvijayarao09.anu.core.model.UntrustedContent
 import io.github.sandeepvijayarao09.anu.core.security.OneTimeCodes
 import kotlinx.serialization.Serializable
 import java.time.Instant
@@ -43,7 +44,7 @@ class ListConversationsTool(private val store: ConversationStore, private val zo
     override val input = ListConversationsInput.serializer()
     override val output = ConversationsOutput.serializer()
     override val dataClasses = setOf(DataClass.PERSONAL)
-    override val returnsUntrustedContent = true
+    override val untrustedContent = UntrustedContent.MESSAGE
 
     override fun risk(input: ListConversationsInput) = RiskTier.READ
     override fun describe(input: ListConversationsInput) = "Check your recent chats"
@@ -90,7 +91,7 @@ class ReadConversationTool(private val store: ConversationStore, private val zon
     override val input = ReadConversationInput.serializer()
     override val output = ConversationLinesOutput.serializer()
     override val dataClasses = setOf(DataClass.PERSONAL)
-    override val returnsUntrustedContent = true
+    override val untrustedContent = UntrustedContent.MESSAGE
 
     override fun risk(input: ReadConversationInput) = RiskTier.READ
     override fun describe(input: ReadConversationInput) = "Read the chat \"${store.find(input.conversationId)?.title ?: input.conversationId}\""
@@ -129,7 +130,7 @@ class ReplyTool(private val store: ConversationStore) : Tool<ReplyInput, ReplyOu
     override val input = ReplyInput.serializer()
     override val output = ReplyOutput.serializer()
     override val dataClasses = setOf(DataClass.PERSONAL)
-    override val returnsUntrustedContent = false
+    override val untrustedContent: UntrustedContent? = null
 
     override fun risk(input: ReplyInput) = RiskTier.WRITE_EXTERNAL
     // The reply's words can change on the approval sheet; the chat it goes to can't (§7.2).

@@ -53,6 +53,7 @@ enum class SettingsPage(val title: String) {
     MODELS("Models"),
     ACTIVITY("Activity"),
     VAULT("Vault activity"),
+    LAB("Prompt lab"),
 }
 
 /**
@@ -68,6 +69,8 @@ fun SettingsScreen(
     page: SettingsPage,
     onPage: (SettingsPage) -> Unit,
     modifier: Modifier = Modifier,
+    /** The prompt lab (G7, ADR-080), when the phone can run models. */
+    lab: LabViewModel? = null,
 ) {
     val home = rememberLazyListState()
     val reducedMotion = rememberReducedMotion()
@@ -80,12 +83,13 @@ fun SettingsScreen(
         label = "settings page",
     ) { shown ->
         when (shown) {
-            SettingsPage.MAIN -> SettingsHome(viewModel, sentToday, onOpenPrivacy, onPage, home)
+            SettingsPage.MAIN -> SettingsHome(viewModel, sentToday, onOpenPrivacy, onPage, home, hasLab = lab != null)
             SettingsPage.SERVICES -> ServicesPage(viewModel, sentToday, onOpenPrivacy, back)
             SettingsPage.STORES -> StoresPage(viewModel, sentToday, onOpenPrivacy, back)
             SettingsPage.MODELS -> ModelsPage(viewModel, sentToday, onOpenPrivacy, back)
             SettingsPage.ACTIVITY -> ActivityPage(viewModel, sentToday, onOpenPrivacy, back)
             SettingsPage.VAULT -> VaultPage(viewModel, sentToday, onOpenPrivacy, back)
+            SettingsPage.LAB -> if (lab != null) LabPage(lab, sentToday, onOpenPrivacy, back, onOpenModels = { onPage(SettingsPage.MODELS) }) else back()
         }
     }
 }
@@ -97,13 +101,14 @@ private fun SettingsHome(
     onOpenPrivacy: () -> Unit,
     onPage: (SettingsPage) -> Unit,
     list: LazyListState,
+    hasLab: Boolean = false,
 ) {
     val message by viewModel.message.collectAsStateWithLifecycle()
     AnuPage("Settings", sentToday, onOpenPrivacy, listState = list) {
         message?.let { text -> item(key = "message") { Notice(text, viewModel::dismissMessage) } }
         item(key = "voice") { VoiceGroup(viewModel) }
         item(key = "connections") { ConnectionsGroup(viewModel, onPage) }
-        item(key = "intelligence") { IntelligenceGroup(viewModel, onPage) }
+        item(key = "intelligence") { IntelligenceGroup(viewModel, onPage, hasLab) }
         item(key = "privacy") { PrivacyGroup(viewModel, sentToday, onOpenPrivacy, onPage) }
     }
 }
@@ -275,9 +280,11 @@ private fun GmailRow(viewModel: SettingsViewModel) {
 
 /** The models on the phone, and Gemini in the cloud, which is used only with consent (§5, §12.2). */
 @Composable
-private fun IntelligenceGroup(viewModel: SettingsViewModel, onPage: (SettingsPage) -> Unit) {
+private fun IntelligenceGroup(viewModel: SettingsViewModel, onPage: (SettingsPage) -> Unit, hasLab: Boolean = false) {
     val rows by viewModel.modelRows.collectAsStateWithLifecycle()
     val hasKey by viewModel.hasCloudKey.collectAsStateWithLifecycle()
+    val thinking by viewModel.thinking.collectAsStateWithLifecycle()
+    val haptics = LocalHapticFeedback.current
     var gemini by rememberSaveable { mutableStateOf(false) }
     Column {
         SectionHeader("Intelligence")
@@ -292,6 +299,24 @@ private fun IntelligenceGroup(viewModel: SettingsViewModel, onPage: (SettingsPag
                 chevron = true,
                 onClick = { gemini = true },
             )
+            if (viewModel.canThink) {
+                GroupDivider()
+                // Reasoning first helps on hard questions and costs seconds before the answer (G4, ADR-077).
+                GroupRow(
+                    "Think before answering",
+                    modifier = Modifier.toggleable(value = thinking, role = Role.Switch) { on ->
+                        haptics.performHapticFeedback(if (on) HapticFeedbackType.ToggleOn else HapticFeedbackType.ToggleOff)
+                        viewModel.setThinking(on)
+                    },
+                    subtitle = "Better on hard questions; answers start later",
+                    trailing = { AnuSwitch(thinking, onCheckedChange = null) },
+                )
+            }
+            if (hasLab) {
+                GroupDivider()
+                // Try prompts and sampling on the phone's models, apart from the assistant (G7, ADR-080).
+                GroupRow("Prompt lab", chevron = true, onClick = { onPage(SettingsPage.LAB) })
+            }
         }
         GroupFooter("Answers from the models on this phone never leave it. Anu asks before anything personal goes to Gemini.")
     }

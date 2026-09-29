@@ -1,5 +1,6 @@
 package io.github.sandeepvijayarao09.anu.brain.litertlm
 
+import com.google.ai.edge.litertlm.Content
 import com.google.ai.edge.litertlm.Contents
 import com.google.ai.edge.litertlm.Conversation
 import com.google.ai.edge.litertlm.ConversationConfig
@@ -7,7 +8,9 @@ import com.google.ai.edge.litertlm.Engine
 import com.google.ai.edge.litertlm.ExperimentalApi
 import com.google.ai.edge.litertlm.Message
 import com.google.ai.edge.litertlm.MessageCallback
+import com.google.ai.edge.litertlm.ExperimentalFlags
 import com.google.ai.edge.litertlm.ResponseFormat
+import com.google.ai.edge.litertlm.ThinkingConfig
 import com.google.ai.edge.litertlm.tool
 import io.github.sandeepvijayarao09.anu.core.model.Brain
 import io.github.sandeepvijayarao09.anu.core.model.BrainCapabilities
@@ -27,6 +30,7 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -56,6 +60,10 @@ class LiteRtLmBrain(
     private val dispatcher: CoroutineDispatcher = Dispatchers.IO,
     /** Told each turn's speed when the engine keeps the runtime's counters ([EngineOptions.benchmark]). */
     private val onTurn: ((TurnSpeed) -> Unit)? = null,
+    /** The model file's backend, such as CPU or GPU, reported with each turn for "About this answer" (ADR-071). */
+    private val backend: String? = null,
+    /** Told when a turn starts and stops reading a whole chat again, so the wait can say so (ADR-074). */
+    private val onReading: ((Boolean) -> Unit)? = null,
 ) : Brain {
 
     /** One generation at a time per model. It also guards [cached]. */
@@ -68,17 +76,26 @@ class LiteRtLmBrain(
         val finished = CompletableDeferred<Boolean>()
         var session: CachedConversation? = null
         try {
+            // A conversation built again from the chat reads all of it before the first word, and building it takes
+            // time too (about 30 s for a long chat on the emulator), so the wait is named from the start (ADR-074).
+            val rereading = request.transcript.size > 1 && !reusable(request)
+            if (rereading) onReading?.invoke(true)
             val active = acquire(engines.get(), request)
             session = active
             val reply = StringBuilder()
             val calls = mutableListOf<ToolCall>()
             val sent = AtomicLong()
             val first = AtomicLong()
+            // Text arrives one decoded token at a time, so counting the pieces estimates what was written.
+            var pieces = 0
             val callback = object : MessageCallback {
                 override fun onMessage(message: Message) {
-                    first.compareAndSet(0, System.nanoTime())
+                    if (first.compareAndSet(0, System.nanoTime()) && rereading) onReading?.invoke(false)
+                    // The reasoning comes in its own channel, apart from the answer (G4, ADR-077).
+                    message.channels[THOUGHT]?.takeIf(String::isNotEmpty)?.let { trySend(BrainEvent.TextDelta(it, thought = true)) }
                     val delta = message.text()
                     if (delta.isNotEmpty()) {
+                        pieces++
                         reply.append(delta)
                         trySend(BrainEvent.TextDelta(delta))
                     }
@@ -90,9 +107,13 @@ class LiteRtLmBrain(
                 }
 
                 override fun onDone() {
+                    val done = System.nanoTime()
                     active.history = request.transcript + ChatMessage.Model(reply.toString(), calls.toList())
-                    onTurn?.let { report -> speed(active.conversation, sent.get(), first.get())?.let(report) }
-                    trySend(BrainEvent.Usage(contextTokens = active.conversation.getTokenCount()))
+                    val counters = speed(active.conversation, sent.get(), first.get())
+                    counters?.let { speed -> onTurn?.invoke(speed) }
+                    val tokens = active.conversation.getTokenCount()
+                    trySend(usage(tokens, active.tokens, pieces, counters, sent.get(), first.get(), done))
+                    active.tokens = tokens
                     trySend(BrainEvent.Finished(if (calls.isEmpty()) StopReason.COMPLETE else StopReason.TOOL_CALLS))
                     finished.complete(true)
                     channel.close()
@@ -120,7 +141,123 @@ class LiteRtLmBrain(
             }
         } finally {
             withContext(NonCancellable) {
+                onReading?.invoke(false)
                 session?.let { release(it, finished) }
+                generation.unlock()
+            }
+        }
+    }.flowOn(dispatcher)
+
+    /**
+     * Writes one recording down (G3, ADR-078) in a conversation of its own ([alone]). Greedy, with no tools, memory or
+     * system prompt, and a short answer limit. The model's no-speech marker becomes nothing, so the words are held
+     * back until they differ from it.
+     */
+    fun transcribe(wav: ByteArray): Flow<String> = flow {
+        val said = StringBuilder()
+        var streaming = false
+        val note = Message.user(Contents.of(Content.AudioBytes(wav), Content.Text(TRANSCRIBE)))
+        alone(ConversationConfig(samplerConfig = Sampling.Precise.toLiteRt()), note, TRANSCRIPT_TOKENS).collect { piece ->
+            val delta = (piece as? Piece.Part)?.message?.text().orEmpty()
+            if (delta.isEmpty()) return@collect
+            said.append(delta)
+            when {
+                streaming -> emit(delta)
+                !NO_SPEECH.startsWith(said.toString().trimStart()) -> {
+                    streaming = true
+                    emit(said.toString().trimStart())
+                }
+            }
+        }
+    }
+
+    /**
+     * One request in a conversation of its own ([alone]): the prompt lab's (G7, ADR-080), with its own instruction and
+     * sampling and nothing else, no history, tools or memory. It streams like [stream], the reasoning apart, then its
+     * usage.
+     */
+    fun once(request: BrainRequest): Flow<BrainEvent> = flow {
+        val config = ConversationConfig(
+            systemInstruction = request.system?.let { Contents.of(it) },
+            samplerConfig = request.sampling.toLiteRt(),
+            thinkingConfig = ThinkingConfig(enableThinking = request.thinking, thinkingTokenBudget = THINKING_BUDGET),
+        )
+        alone(config, request.messageAt(request.transcript.lastIndex), request.maxOutputTokens).collect { piece ->
+            when (piece) {
+                is Piece.Part -> {
+                    piece.message.channels[THOUGHT]?.takeIf(String::isNotEmpty)?.let { emit(BrainEvent.TextDelta(it, thought = true)) }
+                    piece.message.text().takeIf(String::isNotEmpty)?.let { emit(BrainEvent.TextDelta(it)) }
+                }
+                is Piece.End -> {
+                    emit(piece.usage)
+                    emit(BrainEvent.Finished(StopReason.COMPLETE))
+                }
+            }
+        }
+    }
+
+    /** What [alone] streams: each piece of the answer, then how the turn ran. */
+    private sealed interface Piece {
+        class Part(val message: Message) : Piece
+
+        class End(val usage: BrainEvent.Usage) : Piece
+    }
+
+    /**
+     * Sends [ask] in a conversation of its own (ADR-078, ADR-080), beside the chat's cached one, which the engine
+     * keeps as it is (S6: both can be open, and the chat still knew what it had been told). It holds [generation], so
+     * it never runs beside a chat turn. When the runtime is done it closes; cancelling stops the runtime first, and
+     * only then closes the conversation (I7).
+     */
+    private fun alone(config: ConversationConfig, ask: Message, maxOutputTokens: Int?): Flow<Piece> = callbackFlow {
+        generation.lock()
+        val finished = CompletableDeferred<Boolean>()
+        var open: Conversation? = null
+        try {
+            val conversation = engines.get().createConversation(config)
+            open = conversation
+            val sent = AtomicLong()
+            val first = AtomicLong()
+            var pieces = 0
+            val callback = object : MessageCallback {
+                override fun onMessage(message: Message) {
+                    first.compareAndSet(0, System.nanoTime())
+                    if (message.text().isNotEmpty()) pieces++
+                    trySend(Piece.Part(message))
+                }
+
+                override fun onDone() {
+                    val done = System.nanoTime()
+                    val counters = speed(conversation, sent.get(), first.get())
+                    trySend(Piece.End(usage(conversation.getTokenCount(), 0, pieces, counters, sent.get(), first.get(), done)))
+                    finished.complete(true)
+                    channel.close()
+                }
+
+                override fun onError(throwable: Throwable) {
+                    finished.complete(false)
+                    close(throwable)
+                }
+            }
+            try {
+                sent.set(System.nanoTime())
+                conversation.sendMessageAsync(ask, callback, maxOutputToken = maxOutputTokens)
+            } catch (t: Throwable) {
+                finished.complete(false)
+                throw t
+            }
+            awaitClose {
+                if (!finished.isCompleted) runCatching { conversation.cancelProcess() }
+            }
+        } finally {
+            withContext(NonCancellable) {
+                open?.let { conversation ->
+                    if (withTimeoutOrNull(CANCEL_GRACE_MS) { finished.await() } == null) {
+                        finished.invokeOnCompletion { conversation.close() }
+                    } else {
+                        conversation.close()
+                    }
+                }
                 generation.unlock()
             }
         }
@@ -132,26 +269,55 @@ class LiteRtLmBrain(
         cached = null
     }
 
+    /** Whether the cached conversation already holds everything before [request]'s new message. Callers hold [generation]. */
+    private fun reusable(request: BrainRequest): Boolean = cached?.let { previous ->
+        previous.key == ConversationKey(request.onDeviceSystem, request.tools, request.sampling, request.thinking) && previous.history == request.transcript.dropLast(1)
+    } ?: false
+
     private fun acquire(engine: Engine, request: BrainRequest): CachedConversation {
         val system = request.onDeviceSystem
-        val key = ConversationKey(system, request.tools, request.sampling)
+        val key = ConversationKey(system, request.tools, request.sampling, request.thinking)
         val history = request.transcript.dropLast(1)
         val previous = cached
         cached = null
         if (previous != null && previous.key == key && previous.history == history) return previous
         previous?.conversation?.close()
-        val conversation = engine.createConversation(
-            ConversationConfig(
-                systemInstruction = system?.let { Contents.of(it) },
-                initialMessages = history.indices.map(request::messageAt),
-                tools = request.tools.map { tool(DeclaredTool(it)) },
-                samplerConfig = request.sampling.toLiteRt(),
-                automaticToolCalling = false,
-                enableResponseFormat = true,
-            ),
+        val config = ConversationConfig(
+            systemInstruction = system?.let { Contents.of(it) },
+            initialMessages = history.indices.map(request::messageAt),
+            tools = request.tools.map { tool(DeclaredTool(it)) },
+            samplerConfig = request.sampling.toLiteRt(),
+            automaticToolCalling = false,
+            enableResponseFormat = true,
+            // The model's own template turns thinking on (I8); its budget fits the answer's reserve (ADR-040).
+            thinkingConfig = ThinkingConfig(enableThinking = request.thinking, thinkingTokenBudget = THINKING_BUDGET),
         )
+        val conversation = withoutThoughtsInCache { engine.createConversation(config) }
         return CachedConversation(key, conversation, history)
     }
+
+    /**
+     * The turn's totals, and how it ran (ADR-071). With the runtime's counters ([counters]), the token counts
+     * and rates are the runtime's own. Without them they are estimates: what was written is the number of text
+     * pieces, what was read is the rest of the context's growth since [before] (the size after the previous turn
+     * in this conversation, 0 when new), and the times come from the clock around the first piece. The first
+     * piece can arrive late, so those estimates still need S1's check against the counters (ENG-2).
+     */
+    private fun usage(tokens: Int, before: Int, pieces: Int, counters: TurnSpeed?, sent: Long, first: Long, done: Long): BrainEvent.Usage {
+        val start = if (first > 0) first else done
+        return BrainEvent.Usage(
+            contextTokens = tokens,
+            inputTokens = counters?.read ?: (tokens - before - pieces).coerceAtLeast(0),
+            outputTokens = counters?.written ?: pieces,
+            backend = backend,
+            readMs = counters?.let { millisFor(it.read, it.readPerSecond) } ?: ((start - sent) / 1_000_000),
+            writeMs = counters?.let { millisFor(it.written, it.writtenPerSecond) } ?: ((done - start) / 1_000_000),
+            counted = counters != null,
+        )
+    }
+
+    /** How long [tokens] took at the runtime's own [perSecond] rate, or null when it gave none. */
+    private fun millisFor(tokens: Int, perSecond: Double): Long? = if (perSecond > 0) (tokens * 1_000 / perSecond).toLong() else null
 
     /** The runtime's counters for the turn that just finished, with the time to the first token measured here. */
     @OptIn(ExperimentalApi::class)
@@ -176,15 +342,49 @@ class LiteRtLmBrain(
         }
     }
 
-    private data class ConversationKey(val system: String?, val tools: List<ToolSpec>, val sampling: Sampling)
+    private data class ConversationKey(val system: String?, val tools: List<ToolSpec>, val sampling: Sampling, val thinking: Boolean)
 
     private class CachedConversation(
         val key: ConversationKey,
         val conversation: Conversation,
         @Volatile var history: List<ChatMessage>,
-    )
+    ) {
+        /** The context's size after the last turn, so the next can tell what it read. */
+        @Volatile var tokens: Int = 0
+    }
+
+    /**
+     * Creates a conversation that drops channel content, the model's reasoning, from its KV cache, so the next turn
+     * never reads it (ADR-077). LiteRT-LM reads the flag when a conversation is created, and the flag is process-wide.
+     */
+    @OptIn(ExperimentalApi::class)
+    private fun <T> withoutThoughtsInCache(create: () -> T): T = synchronized(EngineHolder.FLAGS) {
+        val before = ExperimentalFlags.filterChannelContentFromKvCache
+        ExperimentalFlags.filterChannelContentFromKvCache = true
+        try {
+            create()
+        } finally {
+            ExperimentalFlags.filterChannelContentFromKvCache = before
+        }
+    }
 
     private companion object {
         const val CANCEL_GRACE_MS = 2_000L
+
+        /** The channel Gemma 4 thinks in, as the thinking probe found (ADR-077). */
+        const val THOUGHT = "thought"
+
+        /** The most the model thinks, in tokens. With a short answer it stays within the 1,536-token reserve (ADR-040). */
+        const val THINKING_BUDGET = 512
+
+        /** What the model says for a recording with no words, as asked in [TRANSCRIBE] (S6: silence and noise). */
+        const val NO_SPEECH = "[no speech]"
+
+        /** The transcription prompt S6 measured: word for word, in the spoken language, with a marker for silence. */
+        const val TRANSCRIBE = "Write down exactly what is said in this recording, word for word, in the language it is spoken in. " +
+            "Reply with the words only. If no one speaks, reply with only: $NO_SPEECH"
+
+        /** Room for the words of a 30-second piece, about 100 tokens, with a wide margin, so a loop can't run on. */
+        const val TRANSCRIPT_TOKENS = 384
     }
 }

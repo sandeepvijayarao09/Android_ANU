@@ -101,6 +101,11 @@ internal fun approvalCopy(request: ApprovalRequest): ApprovalCopy {
         tool == "shop_checkout" -> Words("Start this checkout?", "Start checkout", "Don't start", AnuIcons.Bag)
         tool == "shop_search" -> Words("Search your stores?", "Search", "Don't search", AnuIcons.Bag)
         tool.startsWith("mcp_") -> Words("Send this to a service?", "Send", "Don't send", AnuIcons.Service)
+        tool == "phone_set_timer" -> Words("Set this timer?", "Set timer", "Don't set", AnuIcons.Settings)
+        tool == "phone_set_alarm" -> Words("Set this alarm?", "Set alarm", "Don't set", AnuIcons.Settings)
+        tool == "phone_flashlight" -> Words("Change the flashlight?", "Do it", "Don't", AnuIcons.Settings)
+        tool == "phone_do_not_disturb" -> Words("Change Do Not Disturb?", "Do it", "Don't", AnuIcons.Settings)
+        tool == "phone_open_settings" -> Words("Open this settings page?", "Open", "Don't open", AnuIcons.Settings)
         else -> Words("Allow this?", "Allow", "Don't allow", AnuIcons.Sparkle)
     }
     val destination = request.destination
@@ -112,7 +117,6 @@ internal fun approvalCopy(request: ApprovalRequest): ApprovalCopy {
         else -> false to "Stays on this phone"
     }
     val notes = buildList {
-        if (request.tainted) add("Written after reading someone else's content. Read it closely.")
         if (tool == "shop_checkout" && destination != null) add("Anu won't pay. You finish on $destination.")
     }
     return ApprovalCopy(words.question, words.verb, words.decline, words.icon, leaves, where, notes)

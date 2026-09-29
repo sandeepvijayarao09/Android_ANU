@@ -30,7 +30,8 @@ data class BrainCapabilities(
 )
 
 sealed interface BrainEvent {
-    data class TextDelta(val text: String) : BrainEvent
+    /** Streamed text. [thought] marks the model's reasoning before its answer (G4, ADR-077), which isn't the answer. */
+    data class TextDelta(val text: String, val thought: Boolean = false) : BrainEvent
 
     data class ToolCallRequested(val call: ToolCall) : BrainEvent
 
@@ -38,12 +39,19 @@ sealed interface BrainEvent {
      * Emitted once per request with totals, never running sums (§18).
      *
      * [contextTokens] is the model's context size after this request. On-device budgets use it.
-     * [inputTokens] and [outputTokens] are null when the runtime doesn't report them.
+     * [inputTokens] and [outputTokens] are null when the runtime doesn't report them. On-device brains also
+     * say how the request ran, for "About this answer" (ADR-071): the [backend], and how long reading
+     * ([readMs], until the first token) and writing ([writeMs]) took. [counted] is true when the token
+     * counts are the runtime's own, and false when they are estimates.
      */
     data class Usage(
         val contextTokens: Int,
         val inputTokens: Int? = null,
         val outputTokens: Int? = null,
+        val backend: String? = null,
+        val readMs: Long? = null,
+        val writeMs: Long? = null,
+        val counted: Boolean = false,
     ) : BrainEvent
 
     data class Finished(val reason: StopReason) : BrainEvent

@@ -66,6 +66,12 @@ object SkillDetector {
     )
 
     /**
+     * The phone's own controls (G6, ADR-076). A whole command never reaches here: it runs with no model. This is for
+     * the rest, such as "wake me at 6:30 and turn the flashlight off", so the model has the tools.
+     */
+    private val PHONE_CONTROLS = Regex("\\b(timers?|alarms?|wake me|flashlight|torch|do not disturb|dnd)\\b", RegexOption.IGNORE_CASE)
+
+    /**
      * [previous] is the skill of the last user turn. A short follow-up such as "yes please" or "make it
      * 3pm" keeps it, so the tools stay available. The emulator showed that dropping them made the model
      * write raw tool-call text.
@@ -80,11 +86,17 @@ object SkillDetector {
      * settles a "reply that 7 works" by the chat it belongs to, and a skill carries over at most
      * [MAX_FOLLOW_UPS] short follow-ups in a row, so it doesn't follow the user around.
      */
-    fun detect(turns: List<String>): Skill {
+    fun detect(turns: List<String>): Skill = replay(turns.map(::Turn))
+
+    /**
+     * Like [detect], for turns whose skill may be fixed rather than read from their words, such as a voice note's
+     * (ADR-078). A turn with a [Turn.skill] counts as if its words had found it.
+     */
+    fun replay(turns: List<Turn>): Skill {
         var skill = Skill.CHAT
         var followUps = 0
-        for (text in turns.takeLast(REPLAY_TURNS)) {
-            val found = byKeywords(text, skill)
+        for ((text, fixed) in turns.takeLast(REPLAY_TURNS)) {
+            val found = fixed ?: byKeywords(text, skill)
             when {
                 found != null -> { skill = found; followUps = 0 }
                 skill != Skill.CHAT && isFollowUp(text) && followUps < MAX_FOLLOW_UPS -> followUps++
@@ -93,6 +105,12 @@ object SkillDetector {
         }
         return skill
     }
+
+    /** The skill [text]'s own words name, or null when they name none, as for a message with no clear request. */
+    fun keywords(text: String): Skill? = byKeywords(text, previous = null)
+
+    /** A user message for [replay]: its words, and the skill it has regardless of them, if any. */
+    data class Turn(val text: String, val skill: Skill? = null)
 
     private fun byKeywords(text: String, previous: Skill?): Skill? = when {
         // First: "Remember Maya's email is…" is about memory, not email.
@@ -104,6 +122,7 @@ object SkillDetector {
             if (previous == Skill.MESSAGES || hasPhoneNumber(text)) Skill.MESSAGES else Skill.EMAIL
         SCHEDULING.containsMatchIn(text) -> Skill.SCHEDULING
         SHOPPING.containsMatchIn(text) -> Skill.SHOPPING
+        PHONE_CONTROLS.containsMatchIn(text) -> Skill.PHONE
         else -> null
     }
 

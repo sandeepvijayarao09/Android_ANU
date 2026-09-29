@@ -67,4 +67,45 @@ class MigrationTest {
             db.query("SELECT COUNT(*) FROM fact_vectors").use { c -> c.moveToFirst(); assertEquals(0, c.getInt(0)) }
         }
     }
+
+    @Test
+    fun v5ToV6KeepsEverythingAndAddsAnswers() {
+        helper.createDatabase("migration-test-6", 5).use { db ->
+            db.execSQL("INSERT INTO messages (conversationId, seq, role, text, toolCallsJson, toolResultsJson, createdAtMillis) VALUES ('main', 0, 'user', 'hello', NULL, NULL, 1)")
+        }
+        helper.runMigrationsAndValidate("migration-test-6", 6, true).use { db ->
+            db.query("SELECT text FROM messages").use { c -> c.moveToFirst(); assertEquals("hello", c.getString(0)) }
+            db.query("SELECT COUNT(*) FROM answers").use { c -> c.moveToFirst(); assertEquals(0, c.getInt(0)) }
+        }
+    }
+
+    @Test
+    fun v6ToV7KeepsEverythingAndAddsPhotos() {
+        helper.createDatabase("migration-test-7", 6).use { db ->
+            db.execSQL("INSERT INTO messages (conversationId, seq, role, text, toolCallsJson, toolResultsJson, createdAtMillis) VALUES ('main', 0, 'user', 'hello', NULL, NULL, 1)")
+        }
+        helper.runMigrationsAndValidate("migration-test-7", 7, true).use { db ->
+            db.query("SELECT text, photosJson FROM messages").use { c ->
+                c.moveToFirst()
+                assertEquals("hello", c.getString(0))
+                assertEquals(true, c.isNull(1))
+            }
+            db.query("SELECT COUNT(*) FROM photos").use { c -> c.moveToFirst(); assertEquals(0, c.getInt(0)) }
+        }
+    }
+
+    @Test
+    fun v7ToV8KeepsEverythingAndAddsVoiceNotes() {
+        helper.createDatabase("migration-test-8", 7).use { db ->
+            db.execSQL("INSERT INTO messages (conversationId, seq, role, text, toolCallsJson, toolResultsJson, createdAtMillis, photosJson) VALUES ('main', 0, 'user', 'hello', NULL, NULL, 1, '[4]')")
+        }
+        helper.runMigrationsAndValidate("migration-test-8", 8, true).use { db ->
+            db.query("SELECT text, photosJson, voiceNoteJson FROM messages").use { c ->
+                c.moveToFirst()
+                assertEquals("hello", c.getString(0))
+                assertEquals("[4]", c.getString(1))
+                assertEquals(true, c.isNull(2))
+            }
+        }
+    }
 }

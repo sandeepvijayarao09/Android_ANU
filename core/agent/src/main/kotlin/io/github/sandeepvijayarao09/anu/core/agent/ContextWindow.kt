@@ -3,6 +3,7 @@ package io.github.sandeepvijayarao09.anu.core.agent
 import io.github.sandeepvijayarao09.anu.core.model.BrainRequest
 import io.github.sandeepvijayarao09.anu.core.model.ChatMessage
 import io.github.sandeepvijayarao09.anu.core.model.ToolSpec
+import io.github.sandeepvijayarao09.anu.core.model.modelText
 import io.github.sandeepvijayarao09.anu.core.model.onDeviceSystem
 import kotlin.math.ceil
 
@@ -17,7 +18,8 @@ object Tokens {
     fun of(text: String?): Int = count(text, PROSE_CHARS_PER_TOKEN)
 
     fun of(message: ChatMessage): Int = PER_MESSAGE + when (message) {
-        is ChatMessage.User -> of(message.text)
+        // A photo reads as a fixed budget of vision tokens (G2).
+        is ChatMessage.User -> of(message.modelText) + message.photos.size * PHOTO_TOKENS
         is ChatMessage.Model -> of(message.text) + message.toolCalls.sumOf { json(it.name) + json(it.arguments.toString()) }
         is ChatMessage.Tool -> message.results.sumOf { json(it.toolName) + json(it.result.toString()) }
     }
@@ -33,6 +35,9 @@ object Tokens {
     /** Everything a brain is sent for [request]: system prompt, memory, tools, transcript, and the time on the newest message. */
     fun ofRequest(request: BrainRequest): Int =
         of(request.onDeviceSystem) + ofTools(request.tools) + of(request.transcript) + (request.sentAt?.let { of(it) + 2 } ?: 0)
+
+    /** What a photo costs the model, about Gemma 4's default image budget. */
+    const val PHOTO_TOKENS = 280
 
     private const val PROSE_CHARS_PER_TOKEN = 3.5
     private const val JSON_CHARS_PER_TOKEN = 2.5

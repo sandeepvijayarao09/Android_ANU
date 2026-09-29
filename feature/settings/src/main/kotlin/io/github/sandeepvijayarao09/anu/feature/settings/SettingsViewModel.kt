@@ -8,11 +8,15 @@ import io.github.sandeepvijayarao09.anu.core.agent.ToolAuditEntry
 import io.github.sandeepvijayarao09.anu.core.model.BrainId
 import io.github.sandeepvijayarao09.anu.core.model.ModelInfo
 import io.github.sandeepvijayarao09.anu.core.model.ModelInstaller
+import io.github.sandeepvijayarao09.anu.core.model.ModelSpeed
+import io.github.sandeepvijayarao09.anu.core.model.Speed
+import io.github.sandeepvijayarao09.anu.core.model.TestStep
 import io.github.sandeepvijayarao09.anu.core.model.ModelState
 import io.github.sandeepvijayarao09.anu.core.model.OnDeviceModels
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -81,6 +85,13 @@ interface VoiceSettings {
     fun setWakeWord(enabled: Boolean)
 }
 
+/** Whether the models on the phone reason before answering (G4, ADR-077). Off unless the user chooses it. */
+interface ThinkingSetting {
+    val thinking: StateFlow<Boolean>
+
+    fun setThinking(on: Boolean)
+}
+
 /** An MCP server as Settings shows it (ADR-046). */
 data class McpServerRow(
     val id: String,
@@ -125,6 +136,31 @@ interface StoreSettings {
 /** One use of a vault secret, as the audit trail records it: never the value (§11). */
 data class VaultActivity(val label: String, val caller: String, val host: String, val at: Instant)
 
+/** A model's sheet on the Models page (design review 2C, ADR-073). */
+data class ModelSheet(
+    val id: BrainId,
+    /** The middle of the user's last answers on this model, or null for none. */
+    val realUse: Speed? = null,
+    val realUseLoaded: Boolean = false,
+    val lastTest: Speed? = null,
+    /** The phone is warm now, so a test wouldn't be comparable (ADR-072). */
+    val warm: Boolean = false,
+    val test: TestState = TestState.Idle,
+)
+
+/** Where Test speed is (design review D12). */
+sealed interface TestState {
+    data object Idle : TestState
+
+    /** [speed] is what was measured so far. */
+    data class Running(val step: TestStep, val speed: Speed?) : TestState
+
+    /** Stopped by the user: partial numbers, marked. */
+    data class Stopped(val speed: Speed?) : TestState
+
+    data class Failed(val reason: String) : TestState
+}
+
 class SettingsViewModel(
     private val models: OnDeviceModels,
     private val cloudKey: CloudKeySettings,
@@ -141,7 +177,70 @@ class SettingsViewModel(
     private val searchByMeaning: (() -> Boolean)? = null,
     /** Installs a model file the user already has (ADR-067). Null where the app can't. */
     private val installer: ModelInstaller? = null,
+    /** Real use and Test speed for each model's sheet (ADR-073). Null where the app has none. */
+    private val speeds: ModelSpeed? = null,
+    /** Thinking before answering (ADR-077). Null where the app has none. */
+    private val thinkingSetting: ThinkingSetting? = null,
 ) : ViewModel() {
+
+    val thinking: StateFlow<Boolean> = thinkingSetting?.thinking ?: MutableStateFlow(false)
+    val canThink: Boolean get() = thinkingSetting != null
+
+    fun setThinking(on: Boolean) {
+        thinkingSetting?.setThinking(on)
+    }
+
+    private val mutableSheet = MutableStateFlow<ModelSheet?>(null)
+
+    /** The open model's sheet (design review 2C), with its speeds and any test in progress. */
+    val modelSheet: StateFlow<ModelSheet?> = mutableSheet.asStateFlow()
+
+    private var testing: Job? = null
+
+    fun openModel(id: BrainId) {
+        mutableSheet.value = ModelSheet(id, lastTest = speeds?.lastTest(id), warm = speeds?.warm() ?: false)
+        val speeds = speeds ?: return
+        viewModelScope.launch {
+            val realUse = runCatching { speeds.realUse(id) }.getOrNull()
+            mutableSheet.value = mutableSheet.value?.takeIf { it.id == id }?.copy(realUse = realUse, realUseLoaded = true)
+        }
+    }
+
+    /** Closing the sheet stops a test that is running: its numbers would have nowhere to show. */
+    fun closeModel() {
+        testing?.cancel()
+        mutableSheet.value = null
+    }
+
+    /** Test speed (design review D12): each step shows as it happens; the result replaces the last test. */
+    fun testSpeed() {
+        val sheet = mutableSheet.value ?: return
+        val speeds = speeds ?: return
+        if (testing?.isActive == true) return
+        mutableSheet.value = sheet.copy(test = TestState.Running(TestStep.WAITING, null), warm = speeds.warm())
+        testing = viewModelScope.launch {
+            try {
+                speeds.test(sheet.id).collect { update ->
+                    mutableSheet.value = mutableSheet.value?.let { open ->
+                        if (update.step == TestStep.DONE) {
+                            open.copy(test = TestState.Idle, lastTest = update.speed ?: open.lastTest, warm = speeds.warm())
+                        } else {
+                            open.copy(test = TestState.Running(update.step, update.speed))
+                        }
+                    }
+                }
+            } catch (e: CancellationException) {
+                mutableSheet.value = mutableSheet.value?.let { open -> open.copy(test = TestState.Stopped((open.test as? TestState.Running)?.speed)) }
+                throw e
+            } catch (e: Exception) {
+                mutableSheet.value = mutableSheet.value?.copy(test = TestState.Failed(e.message ?: "the model didn't answer"))
+            }
+        }
+    }
+
+    fun stopTest() {
+        testing?.cancel()
+    }
 
     private val mutableSearch = MutableStateFlow(searchByMeaning?.invoke())
     val searchInstalled: StateFlow<Boolean?> = mutableSearch.asStateFlow()

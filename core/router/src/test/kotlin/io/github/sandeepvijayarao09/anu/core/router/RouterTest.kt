@@ -88,21 +88,145 @@ class RouterTest {
         assertEquals(TierBudgets(base = 5_324, pro = 6_656), TierBudgets.forContext(8_192))
     }
 
+    private val proRequest = request("Find a time next week for me, Maya and Raj, then email them an invite", Skill.SCHEDULING)
+
     @Test
-    fun `constrained device avoids Pro`() {
-        val decision = route(
-            request("Find a time next week for me, Maya and Raj, then email them an invite", Skill.SCHEDULING),
-            everything.copy(constrained = true, availableTiers = setOf(Tier.BASE, Tier.PRO)),
-        )
-        assertEquals(Tier.BASE, decision.tier)
+    fun `a guarded phone sends a Pro request to Base when it fits, and says why`() {
+        for (guard in Guard.entries) {
+            val decision = route(proRequest, everything.copy(guard = guard))
+            assertEquals(Tier.BASE, decision.tier)
+            assertTrue(decision.guarded)
+            assertEquals(null, decision.maxOutputTokens)
+            assertTrue(decision.reasons.toString(), decision.reasons.contains("${guard.reason}: Base instead of Pro"))
+        }
+        assertEquals("not guarded, it stays on Pro", Tier.PRO, route(proRequest).tier)
     }
 
     @Test
-    fun `pinned tier wins when available and is ignored otherwise`() {
+    fun `a guarded Pro request that doesn't fit Base, or has no Base, stays on Pro with a shorter answer`() {
+        val long = route(proRequest.copy(promptTokens = 2_300), everything.copy(guard = Guard.HEAT))
+        assertEquals(Tier.PRO, long.tier)
+        assertEquals(GuardLimits.ANSWER_TOKENS, long.maxOutputTokens)
+        assertTrue(long.guarded)
+        val noBase = route(proRequest, everything.copy(guard = Guard.BATTERY, availableTiers = setOf(Tier.PRO, Tier.CLOUD)))
+        assertEquals(Tier.PRO, noBase.tier)
+        assertEquals(GuardLimits.ANSWER_TOKENS, noBase.maxOutputTokens)
+    }
+
+    @Test
+    fun `a Base request isn't changed by the guard`() {
+        val decision = route(request("Reply with just the word pong"), everything.copy(guard = Guard.HEAT))
+        assertEquals(Tier.BASE, decision.tier)
+        assertEquals(false, decision.guarded)
+    }
+
+    @Test
+    fun `retrying on this phone while guarded runs Pro with the shorter answer, and asking Gemini goes through consent`() {
+        // ENG-5's regression contract, as design review D21 amended it.
+        val personal = request("Explain tides", data = setOf(DataClass.PERSONAL))
+        val onPhone = route(personal.copy(pinnedTier = Tier.PRO), everything.copy(guard = Guard.HEAT))
+        assertEquals(Tier.PRO, onPhone.tier)
+        assertEquals(GuardLimits.ANSWER_TOKENS, onPhone.maxOutputTokens)
+        val gemini = route(personal.copy(pinnedTier = Tier.CLOUD), everything.copy(guard = Guard.HEAT))
+        assertEquals(Tier.CLOUD, gemini.tier)
+        assertEquals(Consent.ASK, gemini.consent)
+        val noCloud = route(personal.copy(pinnedTier = Tier.PRO), everything.copy(guard = Guard.BATTERY, online = false))
+        assertEquals(Tier.PRO, noCloud.tier)
+        assertEquals(GuardLimits.ANSWER_TOKENS, noCloud.maxOutputTokens)
+        val unguarded = route(personal.copy(pinnedTier = Tier.PRO))
+        assertEquals(null, unguarded.maxOutputTokens)
+        assertEquals(false, unguarded.guarded)
+    }
+
+    @Test
+    fun `a guarded phone never moves a failed turn to the cloud by itself`() {
+        val start = route(request("Reply with pong"), everything.copy(guard = Guard.BATTERY))
+        val pro = router.escalate(request("Reply with pong"), start, "empty answer")!!
+        assertEquals(Tier.PRO, pro.tier)
+        assertEquals("Pro keeps the shorter answer", GuardLimits.ANSWER_TOKENS, pro.maxOutputTokens)
+        assertNull(router.escalate(request("Reply with pong"), pro, "empty answer"))
+    }
+
+    @Test
+    fun `the guard is heat first, then a low battery, and severe heat counts without a forecast`() {
+        assertEquals(Guard.HEAT, guardFor(0.85f, 0.8f, severe = false, batteryPercent = 10, charging = false))
+        assertEquals(Guard.HEAT, guardFor(null, 0.8f, severe = true, batteryPercent = 80, charging = false))
+        assertEquals(null, guardFor(null, 0.8f, severe = false, batteryPercent = 80, charging = false))
+        assertEquals(null, guardFor(0.5f, 0.8f, severe = false, batteryPercent = 80, charging = false))
+        assertEquals(Guard.BATTERY, guardFor(0.5f, 0.8f, severe = false, batteryPercent = 15, charging = false))
+        assertEquals(null, guardFor(0.5f, 0.8f, severe = false, batteryPercent = 15, charging = true))
+    }
+
+    @Test
+    fun `the heat forecast is read at most every 10 s, and a listener's readings replace asking`() {
+        var now = 0L
+        val readings = ArrayDeque(listOf(0.5f, Float.NaN, 0.9f))
+        var reads = 0
+        val forecast = HeatForecast(read = { reads++; readings.removeFirst() }, clock = { now })
+        assertEquals(0.5f, forecast.current())
+        now = 9_999
+        assertEquals("reused within 10 s", 0.5f, forecast.current())
+        assertEquals(1, reads)
+        now = 10_000
+        assertEquals("NaN keeps the last reading", 0.5f, forecast.current())
+        now = 20_000
+        assertEquals(0.9f, forecast.current())
+        assertEquals(3, reads)
+        forecast.push(0.3f)
+        now = 60_000
+        assertEquals(0.3f, forecast.current())
+        assertEquals("pushed readings are never polled", 3, reads)
+        assertNull(HeatForecast(read = { Float.NaN }, clock = { 0L }).current())
+    }
+
+    @Test
+    fun `a pinned tier wins when available, an unavailable Pro is ignored, and Gemini says it cannot`() {
         assertEquals(Tier.PRO, route(request("hi").copy(pinnedTier = Tier.PRO)).tier)
-        val offline = route(request("hi").copy(pinnedTier = Tier.CLOUD), everything.copy(online = false))
-        assertEquals(Tier.BASE, offline.tier)
-        assertTrue(offline.reasons.contains("pinned tier CLOUD is unavailable"))
+        val noPro = route(request("hi").copy(pinnedTier = Tier.PRO), everything.copy(availableTiers = setOf(Tier.BASE)))
+        assertEquals(Tier.BASE, noPro.tier)
+        assertTrue(noPro.reasons.contains("pinned tier PRO is unavailable"))
+        // Asking Gemini by name never quietly runs on the phone instead.
+        val offline = router.route(request("hi").copy(pinnedTier = Tier.CLOUD), everything.copy(online = false))
+        assertTrue(offline is RouteResult.Unavailable)
+        assertTrue((offline as RouteResult.Unavailable).reasons.contains("Gemini can't be asked here"))
+        val photo = router.route(request("hi").copy(pinnedTier = Tier.CLOUD, hasPhotos = true), everything)
+        assertTrue((photo as RouteResult.Unavailable).reasons.contains("a photo is in view: on-device only"))
+    }
+
+    @Test
+    fun `a photo in view keeps the turn on the phone, whatever the score or consent`() {
+        val heavy = route(request(heavy).copy(hasPhotos = true, cloudConsented = true))
+        assertTrue(heavy.tier != Tier.CLOUD)
+        assertTrue(Tier.CLOUD !in heavy.allowed)
+    }
+
+    @Test
+    fun `a voice note in view keeps the turn on the phone, whatever the score or consent, and says why`() {
+        val heavy = route(request(heavy).copy(hasVoiceNote = true, cloudConsented = true))
+        assertTrue(heavy.tier != Tier.CLOUD)
+        assertTrue(Tier.CLOUD !in heavy.allowed)
+        assertTrue(heavy.reasons.contains("a voice note is in view: on-device only"))
+    }
+
+    @Test
+    fun `a voice note of the user's own goes to Pro, where several tasks and dates are worked out`() {
+        assertEquals(Tier.PRO, route(request("Call Maya on Thursday.").copy(skill = Skill.VOICE_NOTE, hasVoiceNote = true)).tier)
+    }
+
+    @Test
+    fun `a turn with a fixed skill counts in the replay, so a short follow-up keeps a voice note's tools`() {
+        val turns = listOf(SkillDetector.Turn("Lunch with Maya on Friday.", Skill.VOICE_NOTE), SkillDetector.Turn("yes please"))
+        assertEquals(Skill.VOICE_NOTE, SkillDetector.replay(turns))
+        assertEquals(Skill.CHAT, SkillDetector.replay(listOf(SkillDetector.Turn("Check my calendar", Skill.CHAT))))
+        assertEquals(null, SkillDetector.keywords("Lunch with Maya on Friday."))
+    }
+
+    @Test
+    fun `a request that uses the phone's controls but is more than one command gets them, on Base`() {
+        assertEquals(Skill.PHONE, SkillDetector.detect("Wake me at 6:30 and turn the flashlight off"))
+        assertEquals(Skill.PHONE, SkillDetector.detect("Start a timer for the pasta, about eleven minutes"))
+        assertEquals("email still wins when it's asked for", Skill.EMAIL, SkillDetector.detect("Set an alarm and email Maya the agenda"))
+        assertEquals(Tier.BASE, route(request("Turn the torch on and set a timer").copy(skill = Skill.PHONE)).tier)
     }
 
     @Test
@@ -186,5 +310,16 @@ class RouterTest {
     @Test
     fun `secrets are rejected before routing`() {
         assertThrows(IllegalArgumentException::class.java) { request("x", data = setOf(DataClass.SECRET)) }
+    }
+
+    @Test
+    fun `warm start loads the model the last answer used, else Base, among those installed`() {
+        val both = setOf(io.github.sandeepvijayarao09.anu.core.model.BrainId.BASE, io.github.sandeepvijayarao09.anu.core.model.BrainId.PRO)
+        assertEquals(io.github.sandeepvijayarao09.anu.core.model.BrainId.PRO, warmModel(Tier.PRO, both))
+        assertEquals(io.github.sandeepvijayarao09.anu.core.model.BrainId.BASE, warmModel(Tier.BASE, both))
+        assertEquals("no history", io.github.sandeepvijayarao09.anu.core.model.BrainId.BASE, warmModel(null, both))
+        assertEquals("after Gemini", io.github.sandeepvijayarao09.anu.core.model.BrainId.BASE, warmModel(Tier.CLOUD, both))
+        assertEquals("only Pro installed", io.github.sandeepvijayarao09.anu.core.model.BrainId.PRO, warmModel(null, setOf(io.github.sandeepvijayarao09.anu.core.model.BrainId.PRO)))
+        assertNull(warmModel(Tier.PRO, emptySet()))
     }
 }

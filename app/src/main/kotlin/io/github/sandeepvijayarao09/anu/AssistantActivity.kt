@@ -33,10 +33,12 @@ class AssistantActivity : ComponentActivity() {
             if (BuildConfig.DEBUG) Log.d("Anu", if (blurred) "Assistant card: frosted" else "Assistant card: opaque, the system has blurs off")
         }
         val graph = (application as AnuApp).graph
+        // The power button or "Hey Anu": the model loads while the user speaks (EXP-1).
+        graph.warmStart()
         val query = intent.getStringExtra(AnuVoiceInteractionService.EXTRA_QUERY)?.takeIf(String::isNotBlank)
         setContent {
             AnuTheme {
-                val chat = viewModel { ChatViewModel(graph.chat, graph.device::current, graph.approvals, graph.speechIn, graph.speechOut) }
+                val chat = viewModel { ChatViewModel(graph.chat, graph.device::current, graph.approvals, graph.speechIn, graph.speechOut, facts = graph::factTexts, brainStatus = graph.onDevice.status, warm = graph::warmStart, recorder = graph.recorder, hears = graph.onDevice::available) }
                 var micGranted by remember { mutableStateOf(checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) }
                 val askMic = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
                     micGranted = granted

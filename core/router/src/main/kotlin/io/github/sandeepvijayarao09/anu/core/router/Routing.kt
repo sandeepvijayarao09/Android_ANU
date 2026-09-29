@@ -6,7 +6,11 @@ import io.github.sandeepvijayarao09.anu.core.model.DataClass
 enum class Tier { BASE, PRO, CLOUD }
 
 /** The skill a request belongs to (§10). */
-enum class Skill { CHAT, WRITING, EMAIL, SCHEDULING, MESSAGES, BRIEF, MEMORY, SHOPPING }
+/**
+ * [VOICE_NOTE] is a voice note of the user's own that the typed words don't send elsewhere (EXP-3, ADR-078). [PHONE]
+ * is a request that uses the phone's controls but is more than one whole command, which runs with no model (G6).
+ */
+enum class Skill { CHAT, WRITING, EMAIL, SCHEDULING, MESSAGES, BRIEF, MEMORY, SHOPPING, VOICE_NOTE, PHONE }
 
 /**
  * Whether a skill may send personal data to the cloud. ASK is the default (OD-6).
@@ -18,9 +22,13 @@ data class DeviceState(
     val online: Boolean,
     /** Tiers that can run right now: on-device models installed and loadable, and Cloud with a key set. */
     val availableTiers: Set<Tier>,
-    /** Hot, or low on battery and not charging. The heavy on-device model is avoided (§6, Stage A). */
-    val constrained: Boolean = false,
-)
+    /** Why the phone is guarded right now, if it is: heat forecast, or a low battery (§6, Stage A; ADR-072). */
+    val guard: Guard? = null,
+) {
+    /** Whether Gemini could be asked right now, as far as the phone knows. */
+    val cloudAllowed: Boolean
+        get() = online && Tier.CLOUD in availableTiers
+}
 
 data class RouteRequest(
     val text: String,
@@ -33,6 +41,10 @@ data class RouteRequest(
     val pinnedTier: Tier? = null,
     /** The user has already approved sending this request to the cloud. */
     val cloudConsented: Boolean = false,
+    /** A photo is in the model's view. Photos never leave the phone, so the cloud is out (MEDIA-1, ADR-075). */
+    val hasPhotos: Boolean = false,
+    /** A voice note is in the model's view. Recordings and their words never leave the phone (MEDIA-1, ADR-078). */
+    val hasVoiceNote: Boolean = false,
 ) {
     init {
         require(DataClass.SECRET !in dataClasses) { "Secrets never enter a model context (I1)" }
@@ -52,6 +64,12 @@ data class RouteDecision(
     val reasons: List<String>,
     /** ASK means the user must approve before this request goes to the cloud (§12.2). */
     val consent: Consent,
+    /** The phone's guard when this was decided. A failed turn under a guard never moves to the cloud by itself. */
+    val guard: Guard? = null,
+    /** True when [guard] changed this decision: Base instead of Pro, or Pro with a shorter answer (ADR-072). */
+    val guarded: Boolean = false,
+    /** The longest answer allowed, in tokens, or null for the tier's own limit. */
+    val maxOutputTokens: Int? = null,
 )
 
 sealed interface RouteResult {

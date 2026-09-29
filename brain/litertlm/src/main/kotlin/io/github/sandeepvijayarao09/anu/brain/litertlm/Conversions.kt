@@ -7,6 +7,7 @@ import com.google.ai.edge.litertlm.OpenApiTool
 import com.google.ai.edge.litertlm.SamplerConfig
 import io.github.sandeepvijayarao09.anu.core.model.BrainRequest
 import io.github.sandeepvijayarao09.anu.core.model.ChatMessage
+import io.github.sandeepvijayarao09.anu.core.model.Photo
 import io.github.sandeepvijayarao09.anu.core.model.Sampling
 import io.github.sandeepvijayarao09.anu.core.model.ToolCall
 import io.github.sandeepvijayarao09.anu.core.model.ToolSpec
@@ -18,12 +19,22 @@ import com.google.ai.edge.litertlm.ToolCall as LiteRtToolCall
 
 /** The transcript message at [index] as LiteRT-LM sees it, with the newest user message's time (ADR-018). */
 internal fun BrainRequest.messageAt(index: Int): Message = when (val message = transcript[index]) {
-    is ChatMessage.User -> Message.user(userText(index))
+    is ChatMessage.User -> userMessage(userText(index), message.photos)
     else -> message.toLiteRt()
 }
 
+/** A user message: its photos first, as the vision encoder expects, then the words (G2, ADR-075). */
+private fun userMessage(text: String, photos: List<Photo>): Message {
+    val pictures = photos.mapNotNull { it.bytes }.map { Content.ImageBytes(it) }
+    return if (pictures.isEmpty()) Message.user(text) else Message.user(Contents.of(pictures + Content.Text(text)))
+}
+
+/** Whether a request shows the model a photo, so its engine needs the vision encoder. */
+internal val BrainRequest.hasPhotos: Boolean
+    get() = transcript.any { it is ChatMessage.User && it.photos.any { photo -> photo.bytes != null } }
+
 internal fun ChatMessage.toLiteRt(): Message = when (this) {
-    is ChatMessage.User -> Message.user(text)
+    is ChatMessage.User -> userMessage(text, photos)
     is ChatMessage.Model -> if (text.isEmpty()) {
         Message.model(toolCalls = toolCalls.map { it.toLiteRt() })
     } else {

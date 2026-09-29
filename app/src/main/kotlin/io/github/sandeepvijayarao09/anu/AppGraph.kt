@@ -1,12 +1,16 @@
 package io.github.sandeepvijayarao09.anu
 
+import io.github.sandeepvijayarao09.anu.connector.phone.DoNotDisturbTool
+import io.github.sandeepvijayarao09.anu.core.voice.AndroidVoiceRecorder
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.BatteryManager
+import android.os.Build
 import android.os.PowerManager
+import android.os.SystemClock
 import android.provider.Settings
 import android.util.Log
 import androidx.core.content.edit
@@ -52,6 +56,8 @@ import io.github.sandeepvijayarao09.anu.core.data.AnuDatabase
 import io.github.sandeepvijayarao09.anu.core.data.RoomPrivacyLedger
 import io.github.sandeepvijayarao09.anu.core.data.RoomToolAudit
 import io.github.sandeepvijayarao09.anu.core.data.RoomMemoryStore
+import io.github.sandeepvijayarao09.anu.core.data.RoomAnswerStore
+import io.github.sandeepvijayarao09.anu.core.data.RoomPhotoStore
 import io.github.sandeepvijayarao09.anu.core.data.RoomToolResultStore
 import io.github.sandeepvijayarao09.anu.core.memory.FactExtractor
 import io.github.sandeepvijayarao09.anu.core.voice.AndroidSpeechInput
@@ -66,9 +72,13 @@ import io.github.sandeepvijayarao09.anu.core.data.RoomVaultAudit
 import io.github.sandeepvijayarao09.anu.core.model.BrainId
 import io.github.sandeepvijayarao09.anu.core.router.ComplexityScorer
 import io.github.sandeepvijayarao09.anu.core.router.DeviceState
+import io.github.sandeepvijayarao09.anu.core.router.GuardLimits
+import io.github.sandeepvijayarao09.anu.core.router.HeatForecast
 import io.github.sandeepvijayarao09.anu.core.router.Router
 import io.github.sandeepvijayarao09.anu.core.router.Skill
 import io.github.sandeepvijayarao09.anu.core.router.Tier
+import io.github.sandeepvijayarao09.anu.core.router.guardFor
+import io.github.sandeepvijayarao09.anu.core.router.warmModel
 import io.github.sandeepvijayarao09.anu.core.router.TierBudgets
 import io.github.sandeepvijayarao09.anu.core.security.EgressGate
 import io.github.sandeepvijayarao09.anu.core.security.PrivacyLedger
@@ -92,6 +102,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import io.github.sandeepvijayarao09.anu.connector.mcp.McpClient
@@ -109,6 +120,12 @@ import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import java.util.concurrent.TimeUnit
 import java.io.File
 import java.time.ZoneId
+import io.github.sandeepvijayarao09.anu.connector.phone.SetTimerTool
+import io.github.sandeepvijayarao09.anu.connector.phone.SetAlarmTool
+import io.github.sandeepvijayarao09.anu.connector.phone.FlashlightTool
+import io.github.sandeepvijayarao09.anu.connector.phone.OpenSettingsTool
+import io.github.sandeepvijayarao09.anu.core.agent.PhoneCommands
+import io.github.sandeepvijayarao09.anu.feature.settings.ThinkingSetting
 
 /**
  * The app's object graph, wired by hand (ADR-023). This is the only place concrete brains, the vault
@@ -147,6 +164,49 @@ class AppGraph(private val context: Context) {
     val geminiKey = GeminiKeySettings(vault, prefs)
     val device = DeviceStateProvider(context, models, geminiKey)
 
+    private val warming = java.util.concurrent.atomic.AtomicBoolean(false)
+
+    init {
+        // What the models are doing, for debugging waits (ADR-074). Names and tiers only, never content.
+        if (BuildConfig.DEBUG) scope.launch { onDevice.status.collect { Log.d(TAG, "Model: $it") } }
+    }
+
+    /**
+     * Warm start (EXP-1, ADR-074): when Anu is summoned, loads the model the last answer used, or Base, so the first
+     * word doesn't wait for the load. Not while the heat or battery guard is on, nor in battery saver: a load can't
+     * be stopped once it starts, and a summon may end with no question.
+     */
+    fun warmStart() {
+        if (device.current().guard != null || context.getSystemService(PowerManager::class.java).isPowerSaveMode) return
+        if (!warming.compareAndSet(false, true)) return
+        scope.launch {
+            try {
+                val last = runCatching { db.answers().latestTier() }.getOrNull()?.let { name -> Tier.entries.firstOrNull { it.name == name } }
+                val id = warmModel(last, setOfNotNull(BrainId.BASE.takeIf(models::isInstalled), BrainId.PRO.takeIf(models::isInstalled))) ?: return@launch
+                val started = System.nanoTime()
+                runCatching { onDevice.warm(id) }
+                // Which model and how long, never content.
+                if (BuildConfig.DEBUG) Log.d(TAG, "Warm start: $id ready in ${(System.nanoTime() - started) / 1_000_000} ms")
+            } finally {
+                warming.set(false)
+            }
+        }
+    }
+
+    /** Whether the models on the phone reason before answering (G4, ADR-077): off unless the user turns it on. */
+    val thinking = object : ThinkingSetting {
+        private val state = MutableStateFlow(prefs.getBoolean(THINKING_KEY, false))
+        override val thinking: StateFlow<Boolean> = state.asStateFlow()
+
+        override fun setThinking(on: Boolean) {
+            prefs.edit { putBoolean(THINKING_KEY, on) }
+            state.value = on
+        }
+    }
+
+    /** How fast each model is here: real use and Test speed, for the Models page (ADR-073). */
+    val speeds by lazy { ModelSpeeds(db.answers(), onDevice, models, device, prefs) }
+
     private val vaultHttp: OkHttpClient by lazy { OkHttpClient.Builder().withVault(vault).build() }
 
     private val brains = BrainProvider { tier ->
@@ -165,6 +225,9 @@ class AppGraph(private val context: Context) {
 
     /** Speech in and out, on the phone only (ADR-043). */
     val speechIn by lazy { AndroidSpeechInput(context) }
+
+    /** Records voice notes, in memory only (G3, ADR-078). */
+    val recorder by lazy { AndroidVoiceRecorder(context) }
     val speechOut by lazy { AndroidSpeechOutput(context) }
 
     /** Anu as the assistant, and "Hey Anu" (ADR-044, ADR-045). */
@@ -289,6 +352,12 @@ class AppGraph(private val context: Context) {
                 ledger,
                 linkAllowed = { link -> link.toHttpUrlOrNull()?.let { it.isHttps || localTestHost(it) } == true },
             ),
+            // Phone controls (G6, ADR-076): simple commands run them with no model.
+            SetTimerTool(context),
+            SetAlarmTool(context),
+            FlashlightTool(context),
+            DoNotDisturbTool(context),
+            OpenSettingsTool(context),
         ) + Flavor.tools(context, zone)
     }
 
@@ -304,7 +373,19 @@ class AppGraph(private val context: Context) {
         ) + if (Flavor.HAS_SMS) listOf("sms_search") else emptyList()
         Skill.MEMORY -> listOf("memory_remember", "memory_search", "memory_forget")
         Skill.SHOPPING -> listOf("shop_search", "shop_checkout")
+        // What a voice note of the user's own usually asks for: events, alarms and things to remember (EXP-3, ADR-078).
+        // Each one is proposed and approved; a shared recording gets none of these (P4).
+        Skill.VOICE_NOTE -> listOf("calendar_create_event", "calendar_find_free_slots", "contacts_find", "phone_set_alarm", "memory_remember")
+        // More than one whole command: the model gets the phone's controls, each still run by the broker (G6).
+        Skill.PHONE -> listOf("phone_set_timer", "phone_set_alarm", "phone_flashlight", "phone_do_not_disturb", "phone_open_settings")
         else -> emptyList()
+    }
+
+    /** The text of memory's current facts among [ids], for "About this answer" (ADR-071). */
+    suspend fun factTexts(ids: List<Long>): Map<Long, String> {
+        if (ids.isEmpty()) return emptyMap()
+        val wanted = ids.toSet()
+        return memory.state.first().facts.filter { it.id in wanted }.associate { it.id to it.text }
     }
 
     private val broker by lazy {
@@ -315,6 +396,11 @@ class AppGraph(private val context: Context) {
         ChatSession(
             agent = Agent(router, brains, broker),
             store = RoomTranscriptStore(db.transcripts(), conversationId = "main"),
+            answers = RoomAnswerStore(db.answers(), conversationId = "main"),
+            photoStore = RoomPhotoStore(db.photos()),
+            commands = PhoneCommands::match,
+            thinking = { thinking.thinking.value },
+            transcriber = onDevice,
             toolsFor = ::toolsFor,
             memory = {
                 // The chat carries on without memory if it fails. The log names the failure, never the content.
@@ -368,6 +454,9 @@ class AppGraph(private val context: Context) {
 
     private companion object {
         const val TAG = "Anu"
+
+        /** The app setting that says whether models think before answering (ADR-077). */
+        const val THINKING_KEY = "think_before_answering"
 
         /** The on-device engines' context, in tokens. S1 on the reference phone may raise it (ADR-040). */
         const val ON_DEVICE_CONTEXT = 4_096
@@ -442,6 +531,26 @@ class DeviceStateProvider(
     private val models: ModelManager,
     private val geminiKey: GeminiKeySettings,
 ) {
+    private val power = context.getSystemService(PowerManager::class.java)
+    private val battery = context.getSystemService(BatteryManager::class.java)
+
+    /** Android's heat forecast (ENG-1): pushed by a listener on Android 16 and later, otherwise asked at most every 10 s. */
+    private val heat = HeatForecast(read = { power.getThermalHeadroom(GuardLimits.FORECAST_SECONDS) }, clock = SystemClock::elapsedRealtime)
+
+    /** Where Android says moderate throttling starts, when it says (Android 15 and later). The guard acts there. */
+    @Volatile private var moderate: Float? = null
+
+    init {
+        if (Build.VERSION.SDK_INT >= 35) moderate = runCatching { power.thermalHeadroomThresholds[PowerManager.THERMAL_STATUS_MODERATE] }.getOrNull()
+        if (Build.VERSION.SDK_INT >= 36) {
+            // Registered for as long as the app runs: each new forecast replaces the last, and nothing is polled.
+            power.addThermalHeadroomListener(context.mainExecutor) { _, forecast, _, thresholds ->
+                thresholds[PowerManager.THERMAL_STATUS_MODERATE]?.let { moderate = it }
+                heat.push(forecast)
+            }
+        }
+    }
+
     fun current(): DeviceState {
         val connectivity = context.getSystemService(ConnectivityManager::class.java)
         val capabilities = connectivity.getNetworkCapabilities(connectivity.activeNetwork)
@@ -452,10 +561,14 @@ class DeviceStateProvider(
             if (models.isInstalled(BrainId.PRO)) add(Tier.PRO)
             if (geminiKey.ref() != null) add(Tier.CLOUD)
         }
-        val power = context.getSystemService(PowerManager::class.java)
-        val battery = context.getSystemService(BatteryManager::class.java)
-        val hot = power.currentThermalStatus >= PowerManager.THERMAL_STATUS_SEVERE
-        val low = battery.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) in 0..15 && !battery.isCharging
-        return DeviceState(online = online, availableTiers = tiers, constrained = hot || low)
+        // The guard (ADR-072): heat first, from the forecast or Android's severe status, then a low battery.
+        val guard = guardFor(
+            forecast = heat.current(),
+            threshold = moderate ?: GuardLimits.HEADROOM,
+            severe = power.currentThermalStatus >= PowerManager.THERMAL_STATUS_SEVERE,
+            batteryPercent = battery.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY),
+            charging = battery.isCharging,
+        )
+        return DeviceState(online = online, availableTiers = tiers, guard = guard)
     }
 }

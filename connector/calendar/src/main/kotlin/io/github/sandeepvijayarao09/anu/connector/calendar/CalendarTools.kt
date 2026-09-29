@@ -6,6 +6,7 @@ import io.github.sandeepvijayarao09.anu.core.agent.Tool
 import io.github.sandeepvijayarao09.anu.core.agent.ToolContext
 import io.github.sandeepvijayarao09.anu.core.model.DataClass
 import io.github.sandeepvijayarao09.anu.core.model.Description
+import io.github.sandeepvijayarao09.anu.core.model.UntrustedContent
 import kotlinx.serialization.Serializable
 import java.time.Duration
 import java.time.Instant
@@ -47,7 +48,7 @@ class ListEventsTool(private val calendar: CalendarSource, private val zone: () 
     override val input = EventsInput.serializer()
     override val output = EventsOutput.serializer()
     override val dataClasses = setOf(DataClass.PERSONAL)
-    override val returnsUntrustedContent = true
+    override val untrustedContent = UntrustedContent.CALENDAR
 
     override fun risk(input: EventsInput) = RiskTier.READ
     override fun describe(input: EventsInput) = "Read calendar events from ${input.from} to ${input.to}"
@@ -99,7 +100,7 @@ class FindFreeSlotsTool(
     override val input = SlotsInput.serializer()
     override val output = SlotsOutput.serializer()
     override val dataClasses = setOf(DataClass.PERSONAL)
-    override val returnsUntrustedContent = false
+    override val untrustedContent: UntrustedContent? = null
 
     override fun risk(input: SlotsInput) = RiskTier.READ
     override fun describe(input: SlotsInput) = "Find ${input.durationMinutes}-minute free slots from ${input.fromDate} to ${input.toDate}"
@@ -143,7 +144,7 @@ class CreateEventTool(private val calendar: CalendarSource, private val zone: ()
     override val input = CreateEventInput.serializer()
     override val output = CreatedOut.serializer()
     override val dataClasses = setOf(DataClass.PERSONAL)
-    override val returnsUntrustedContent = false
+    override val untrustedContent: UntrustedContent? = null
 
     override fun risk(input: CreateEventInput) = if (input.attendees.isEmpty()) RiskTier.WRITE_PRIVATE else RiskTier.WRITE_EXTERNAL
     // Times stay as they are: typed as text they'd be easy to get wrong. Adding invitees makes it an invite.

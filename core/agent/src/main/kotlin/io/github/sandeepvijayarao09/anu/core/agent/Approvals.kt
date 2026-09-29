@@ -5,6 +5,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import io.github.sandeepvijayarao09.anu.core.model.UntrustedContent
 import kotlinx.serialization.json.JsonObject
 
 /** What the user is asked to approve: the exact payload, not a paraphrase from the model (I2). */
@@ -15,19 +16,25 @@ data class ApprovalRequest(
     val summary: String,
     val payload: JsonObject,
     val risk: RiskTier,
-    /** Why approval is needed, for example "invites other people" or "the request read untrusted content". */
+    /**
+     * Why approval is needed, for example "Other people will see this". When the model can see content from
+     * other people, it names the kind: "Anu asks because this chat shows an email, which others can write".
+     */
     val reason: String,
     /** The third party the payload goes to, when the tool says ([Tool.sendsTo]), such as a store's host. */
     val destination: String? = null,
-    /** The run read content written by others before asking (P4), so the sheet asks for a closer read. */
-    val tainted: Boolean = false,
+    /** The kinds of content from other people the model could see when it asked (P4, §7.2). */
+    val untrusted: Set<UntrustedContent> = emptySet(),
     /** Fields the user may change before approving ([Tool.editable]). Empty: the sheet offers no Edit. */
     val editable: List<EditableField> = emptyList(),
     /** The payload includes the user's own changes. */
     val edited: Boolean = false,
     /** Why the user's last change wasn't accepted, such as "\"maya@\" is not an email address". */
     val problem: String? = null,
-)
+) {
+    /** The model could see content from other people, so the sheet asks for a closer read. */
+    val tainted: Boolean get() = untrusted.isNotEmpty()
+}
 
 sealed interface ApprovalDecision {
     data object Approved : ApprovalDecision

@@ -11,6 +11,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertThrows
 import org.junit.Test
@@ -89,5 +90,32 @@ class EgressTest {
             runBlocking { gate.prepare(request.copy(dataClasses = setOf(DataClass.SECRET)), "cloud") }
         }
         assertEquals(emptyList<LedgerEntry>(), ledger.entries.value)
+    }
+
+    @Test
+    fun `a photo is refused at the gate, before any ledger entry`() = runTest {
+        val request = io.github.sandeepvijayarao09.anu.core.model.BrainRequest(
+            transcript = listOf(
+                io.github.sandeepvijayarao09.anu.core.model.ChatMessage.User("What does this say?", listOf(io.github.sandeepvijayarao09.anu.core.model.Photo(7, byteArrayOf(1, 2, 3)))),
+            ),
+        )
+        val refused = runCatching { gate.prepare(request, "generativelanguage.googleapis.com") }
+        assertTrue(refused.exceptionOrNull()?.message.orEmpty(), refused.isFailure)
+        assertTrue("nothing was recorded, so nothing left", ledger.entries.value.isEmpty())
+    }
+
+    @Test
+    fun `a voice note is refused at the gate, before any ledger entry, even in an older message`() = runTest {
+        val note = io.github.sandeepvijayarao09.anu.core.model.VoiceNote("Call Maya on Thursday.", seconds = 17)
+        val request = io.github.sandeepvijayarao09.anu.core.model.BrainRequest(
+            transcript = listOf(
+                io.github.sandeepvijayarao09.anu.core.model.ChatMessage.User("", voiceNote = note),
+                io.github.sandeepvijayarao09.anu.core.model.ChatMessage.Model("Added."),
+                io.github.sandeepvijayarao09.anu.core.model.ChatMessage.User("Thanks"),
+            ),
+        )
+        val refused = runCatching { gate.prepare(request, "generativelanguage.googleapis.com") }
+        assertEquals("Voice notes never leave the phone (MEDIA-1)", refused.exceptionOrNull()?.message)
+        assertTrue("nothing was recorded, so nothing left", ledger.entries.value.isEmpty())
     }
 }

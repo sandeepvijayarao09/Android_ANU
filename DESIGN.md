@@ -159,7 +159,7 @@ components:
 - A pearl sphere resting on a quiet gray page. It's the only object on screen, and it has depth.
 - "On device" with a green dot in the corner, before you've asked anything.
 - Large, confident type: "Good afternoon".
-- One composer, one microphone. There's nothing to learn.
+- One composer, one microphone, and a "+" to add a photo or a voice note. There's nothing to learn.
 
 ## Colors
 
@@ -210,10 +210,16 @@ Adjacent levels differ by at least 4sp or a clear weight step. Text scales with 
   - Once you talk, the sphere moves into the app bar (26dp) and the thread fills the page.
   - The composer (52dp) is pinned above the tab bar.
 - **Thread:**
-  - Your turns sit in right-aligned `surface-2` bubbles, at most 78% wide.
+  - Your turns sit in right-aligned `surface-2` bubbles, at most 78% wide. A photo you attached sits above your words, right-aligned, with `md` corners, at most 240dp wide (TalkBack: "Photo you shared"). One no longer kept keeps its place: a photo glyph and "Photo no longer kept" in `text-muted` on `surface-2`.
+  - A voice note sits in your turn above your words, in its own `surface-2` bubble: a small mic glyph and "Voice note · 0:17" (or "Shared recording · 1:02", then "· Stopped early" when it was cut short) in `text-muted` label, then its words in body. While they're being written down they appear in `text-muted` and turn to `text` when done, like live speech; Anu's line says "Writing down your voice note…". One whose words weren't written down says "Not written down". There's no play button: the recording isn't kept. TalkBack reads it as one item.
   - Anu's replies are plain text at full width, with no bubble.
   - Receipts sit under the reply they belong to.
-  - A caption after each answer names the model ("On device · Gemma 4 E4B").
+  - A caption after each answer names the model ("On device · Gemma 4 E4B"), with its privacy dot. When the answer's details are saved, the caption is a 48dp button with a chevron that opens About this answer; long-press on the answer opens it too.
+  - With thinking on, the answer shows "Thinking…" while the model reasons, then a quiet 48dp line "Thought it through ›" above the answer, in `text-muted` caption. It opens the reasoning in `text-muted` callout on a `surface-2` panel with `md` corners. How long it thought is in About this answer, not here.
+  - A phone command done with no model answers with its receipt only ("Timer set for 10 minutes.", then the receipt), captioned "On device · no model needed"; it offers no Retry.
+  - Before the first word, an answer shows "…". After 1 s, if the model is loading, being set up, switching or re-reading the chat, that line names it in `text-muted` callout ("Getting Gemma 4 E4B ready…", "Catching up on this chat…"), and TalkBack hears it once. The sphere doesn't animate for it.
+  - When the heat or battery guard changed an answer, one `text-muted` caption line under the caption says what changed: "Lighter model while the phone is warm", "Kept short to save battery".
+  - Under the last answer, text buttons offer to try again: "Retry with Gemma 4 E4B" under a Base answer. While guarded, and when Gemini can be asked, "Retry on this phone" and "Ask Gemini" (with an `away` dot) side by side.
 - **Tablets and foldables:** content is centered with a maximum width of 640dp.
 
 ## Elevation & Depth
@@ -275,7 +281,12 @@ A 30dp pill at the top right of every page, which opens the Privacy report:
 It's always visible and never hidden by scrolling.
 
 ### Composer
-- **Resting:** a 52dp pill with the placeholder "Ask Anu". The mic button on the right is a 42dp `primary` circle with an `on-primary` glyph.
+- **Resting:** a 52dp pill with the placeholder "Ask Anu". The mic button on the right is a 42dp `primary` circle with an `on-primary` glyph. A 48dp "+" at the start, in `text-muted`, opens a sheet titled "Add to your message" with two grouped rows (TalkBack: "Add a photo or a voice note"):
+  - **Photo** ("Choose one from your photos") opens the system photo picker.
+  - **Voice note** ("Record it, and Anu writes it down on this phone") starts recording. Without a model that can hear it's disabled, with "Needs Gemma 4 on this phone".
+- **With a photo:** the picked photo sits above the pill as a 64dp thumbnail with `md` corners and a 48dp Remove button, and the mic becomes Send, so a photo can go on its own.
+- **Recording a voice note:** the pill becomes the recording bar: "Cancel" in `text-muted` at the start; in the middle the level bars, the time in mono ("0:12") and "Recording" in `text-muted` callout; at the end Stop, a 42dp `primary` circle (TalkBack: "Stop recording"). The sphere shows Listening, following the voice. No red: red means an error here. At 5 minutes it stops by itself and says so.
+- **With a voice note:** a `full` pill above the composer, `surface-2`, with the mic glyph and "Voice note · 0:17", and a 48dp Remove button. The mic becomes Send, so a voice note can go on its own, or with words that say what to do with it. When it stopped early, or couldn't be used, one `text-muted` caption line above the composer says why, with OK.
 - **Listening:** the page switches to the listening layout: a large sphere, live speech, "Listening" with a level meter, a 64dp Stop button, "Type instead" and Mute.
 
 ### Receipts
@@ -287,6 +298,15 @@ One row per action, written by the app from the Tool Broker's record, never by t
 
 Failed and declined actions say so plainly, in the same row.
 
+### About this answer
+A sheet (`xl` corners, grabber, scrim), opened from an answer's caption:
+1. **Heading:** "About this answer" in title style.
+2. **Where your data went**, first, as a where line: a `local` dot and "Nothing left your phone", or an `away` dot and "1 item left your phone · to notes.example.com", or "Sent to Gemini (Google)".
+3. **Who answered**, in `text-muted` label style: "Gemma 4 E4B · GPU, on this phone" or "Gemini · in the cloud". After an escalation, a second line: "Answered after Gemma 4 E2B's answer didn't pass its checks."
+4. **Facts it was given** ("Facts you shared" for Gemini), in a detail panel: each fact as a row that opens it in Memory; a deleted or changed one reads "A fact you've since deleted or changed" in `text-muted`, and opens nothing; "Your memory summary" opens Memory.
+5. **What it did:** the answer's receipts.
+6. **Speed**, in a detail panel: First word and Total from the phone's clock; Reading and Writing in tokens a second on the phone. Estimated rates read "about 13 tokens/s", with the note "Reading and writing speeds are estimates." Gemini answers show only times, and a "View in Privacy report" text button.
+
 ### Approval sheet
 A modal sheet (`xl` corners, grabber, scrim):
 1. **Heading:** a 44dp icon tile for the app or service, and a question in title style: "Send this email?", "Start this checkout?", "Add this note?".
@@ -295,8 +315,8 @@ A modal sheet (`xl` corners, grabber, scrim):
    - If it stays: a `local` dot and "Stays on this phone".
 3. **The exact payload.** It sits in a `background` container with `md` corners: field labels in `text-muted` (To, Subject, Items, Total) and your words in body style. This is exactly what will be sent, never a paraphrase. Exact values like totals and ids are in mono.
 4. **Why it asks:** a 13sp footnote, such as "Other people will see this. Nothing is sent until you tap Send." or "This goes to shoes.example.com, outside your phone."
+   - While the model can see content from other people, the footnote names its kind, never the content: "Anu asks because this chat shows an email, which others can write. Check this closely." A sender or subject could pose as Anu.
 5. **Extra lines when they apply:**
-   - "Written after reading someone else's email. Read it closely."
    - "Anu won't pay. You finish on shoes.example.com."
    - For cloud consent: the redacted text Gemini would actually receive, and the facts from memory it would also see. They sit in a `background` panel under an "Include what Anu knows" switch, on by default, and dim when it's off. What's listed is exactly what goes; sensitive facts are never listed or sent.
 6. **Actions:**
@@ -317,6 +337,22 @@ It opens from the power button, the corner swipe or "Hey Anu".
   - a 38dp mic button.
 - **Behavior:** tapping the card opens the full app. Tapping outside it closes it. The underlying app stays visible and lightly dimmed.
 
+### Segmented control
+A `full` track in `surface-2`, at least 48dp tall, with a 4dp inset. The selected segment is a `surface` pill with the soft shadow (none in dark mode) and `text` label; the others are `text-muted`. Labels are 13sp and never wrap. TalkBack hears each segment as a radio button. For a choice among two to four peers, such as the lab's template or model.
+
+### Slider row
+Inside a grouped list: the setting's name in body and its exact value in mono (`text-muted`) on one line, the slider below. The thumb and the active track are `accent`, the rest of the track `separator`, with no tick marks. TalkBack hears the value as the row shows it ("0.95", "512 tokens").
+
+### Prompt lab
+A page inside Settings (‹ Settings), titled "Prompt lab", whose subtitle says what it is and isn't: "Try a prompt on the models on this phone. The lab has no memory, tools or history, and keeps nothing."
+1. A segmented control for the template (Free form, Rewrite, Summarize, Code), and under it a second one for its tone, style or language.
+2. Instruction and Prompt, multi-line fields with their labels above.
+3. Model: a segmented control of the installed models.
+4. Sampling: one row with the four values in mono that opens the four slider rows, then Think first with a switch. The footer gives Gemma's defaults.
+5. Run, a full-width primary button, disabled until there's a prompt; Stop, secondary, while it runs.
+6. Answer: before the first word, what the model is doing ("Getting Gemma 4 E4B ready…"); then the words, selectable, with "Thought it through ›" above them when it reasoned; "Stopped before the end" when stopped; the speed in mono ("First word 1.2 s · reads 64/s · writes 8.4/s") and Copy.
+With no model installed, the page is one row, "Download a model to use the lab", which opens Models. The lab is the one place speed sits next to an answer: it's a workspace for trying the models, not the chat.
+
 ### Grouped lists (Memory, Settings)
 - **Sections:** titles are 13sp weight 600 in `text-muted`. Groups are `card` surfaces with inset 0.5dp separators.
 - **Rows:** a label (16sp) with an optional secondary line (13sp `text-muted`), a trailing value in `text-muted`, and a chevron.
@@ -325,10 +361,11 @@ It opens from the power button, the corner swipe or "Hey Anu".
 - **Footers:** a group can end with a 13sp `text-muted` footnote saying what the group does with your data. Explanations go there, not in every row.
 - **Action rows** such as "Add a server" have an `accent` title with a plus icon.
 - **Model rows** (Settings → Models) give the tier, the build and the real space: "Pro · CPU · needs 5.9 GB" before download, "Pro · CPU · 5.9 GB used" once installed. Both count the weight cache a model keeps after its first run; the footer says why a model needs more than its download.
+- **A model's sheet** opens from an installed model's row (a chevron): a 44dp tile and the model's name, a `local` where line "Stays on this phone", then a detail panel: Tier ("Pro · harder requests"), Build ("Runs on the CPU"), Space, Your answers ("first word 1 min 50 s · reads 16/s · writes 2.1/s · from 2 answers", or "No answers yet"), Last test (the same, with how long ago, and "phone was warm" when it was), and Phone (Cool or Warm). TalkBack reads the speeds as words ("reads about 16 tokens a second"). Below: the test's step while it runs, in `text-muted` ("Waiting for the current answer…", "Getting Gemma 4 E4B ready…", "Setting up the GPU. First time only, about a minute.", "Reading…", "Writing…"), "Stopped" with partial numbers, or "Couldn't test: …" in `error-text`; a note that testing sets the chat aside; a full-width primary "Test speed" (or "Stop test" while it runs), and "Delete" as a secondary button in `error-text`, which asks first.
   - A phone with less memory than a model asks for gets a second line: "Made for 12 GB of memory; this phone has 10 GB, so it may be slow". It informs; Download still works. Numbers and their units never split across lines.
   - A download says how long it has left once its speed is known: "Downloading · 42% of 3.7 GB · about 3 min left".
 - **From a file** (Settings → Models): one row, "Choose a file", opens the system's file picker. While a file is checked it becomes "Checking and installing" with a percentage and a progress bar. What happened appears as a notice at the top of the page, in plain words: "Installed EmbeddingGemma's tokenizer.", or why a file wasn't kept. The footer says Anu keeps only the exact files it lists.
-- **Pages or sheets:** a list opens as a page (Services, Stores, Models, Activity, Vault activity); a single item with several actions opens as a sheet (a server, a store, the Gemini key), with its details in a `background` panel and a destructive action as a secondary button with `error-text`.
+- **Pages or sheets:** a list opens as a page (Services, Stores, Models, Activity, Vault activity); a single item with several actions opens as a sheet (a server, a store, a model, the Gemini key), with its details in a `background` panel and a destructive action as a secondary button with `error-text`.
 
 ### Memory
 - **Header:** the large title "Memory", with the subtitle "What Anu knows about you, kept on this phone.", a search field, and a round "+" button (34dp) to add a fact in your own words.
@@ -394,3 +431,13 @@ Three tabs with 24dp line icons at stroke 1.7 and 11sp labels. The selected tab 
 | 2026-09-27 | Model rows show the space a model really takes, with its weight cache | "3.7 GB" hid E4B's 2.2 GB cache, and Delete said it freed less than it did. What a download costs and what Delete frees should be exact |
 | 2026-09-27 | The sphere rests when idle; its animations run only in their state and only on screen | The idle breath redrew the whole screen at 120 Hz on the Pixel 10 Pro, 43% of a CPU core, and it followed no real event |
 | 2026-09-28 | Models show a memory note, a download's time left, and a From a file row | Following Google's AI Edge Gallery where it helps: its memory warning and download estimate. Installing from a file lets a model downloaded in the browser be installed without a computer, and only an exact catalog file is kept. Speed figures stay out of the chat: they help developers, not the conversation |
+| 2026-09-29 | The approval sheet names the kind of outside content the chat shows, never the content | After ADR-070 a later turn can ask because an earlier email is still in view, so "Written after reading someone else's email" was no longer true of this request. Naming the kind explains the question; a sender or subject on the sheet could pose as Anu |
+| 2026-09-29 | Every answer can be checked: the caption opens About this answer, which says where your data went first | Trust you can verify beats speed numbers in the chat. Where the data went is the first thing a privacy-first assistant should answer; the model, facts, actions and speed follow. Speed stays out of the thread itself |
+| 2026-09-29 | Under a guarded answer, one line says what the guard changed, and Retry offers the phone and Gemini side by side | A lighter or shorter answer with no explanation reads as Anu getting worse. Keeping it private must be a visible choice, not a dead end after declining a consent sheet |
+| 2026-09-29 | Each installed model opens a sheet with its speed from your answers and from Test speed | One item with several actions opens as a sheet. Speed stays out of the chat but belongs with the model: your own answers beside a controlled test, and the phone's heat, so numbers are read in context |
+| 2026-09-29 | A wait before the first word says what the model is doing | A silent "…" for half a minute reads as broken. Naming the load, the GPU's first setup, a switch or a re-read says why, and that it's working |
+| 2026-09-29 | A "+" in the composer adds a photo, and the photo sits in your turn above your words | Asking about a photo is how people use a vision model (the Gallery's Ask Image). The picker shows only what the user chooses; the photo reads as part of what you said, and stays visible so it's clear what the model saw |
+| 2026-09-29 | A phone command answers with its receipt, captioned "no model needed" | The receipt is the truth of what happened; words from a model would add nothing. Saying no model was needed explains why it was instant |
+| 2026-09-29 | Thinking shows as "Thought it through", collapsed above the answer; its seconds are in About this answer | The reasoning is there for anyone who wants to check it, without crowding the answer. A time in the thread would be a speed figure, which stays out of the chat |
+| 2026-09-29 | "+" opens a small sheet with Photo and Voice note. A voice note records in the composer's place, then waits above it like a photo; in your turn it shows its words, with no player | Both are things you add to a message, so they share one door. Recording inline keeps the thread in view, and Stop before Send lets words go with the note. The words are what the model read, so they're what you see; the recording isn't kept, so nothing pretends to play it |
+| 2026-09-29 | The prompt lab is a Settings page built from grouped lists, with a segmented control and slider rows, and shows speed next to its answer | It's a tool for trying the models, so it belongs with them in Settings, not in Talk. The segmented control and slider rows are the plainest way to pick among a few peers and to set a number exactly; both use the existing tokens. Speed is what people try the lab for, so here it sits by the answer, in mono, unlike the chat |

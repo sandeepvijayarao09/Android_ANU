@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Timers and alarms go to the phone's clock app (G6, ADR-076). A normal permission: granted at install. -->
+    <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
+    <!-- Do Not Disturb. A normal permission, but Android also asks the user to allow Anu on a page of its own. -->
+    <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
+</manifest>

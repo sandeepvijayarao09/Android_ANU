@@ -5,6 +5,8 @@ import io.github.sandeepvijayarao09.anu.core.agent.ToolBroker
 import io.github.sandeepvijayarao09.anu.core.model.BrainId
 import io.github.sandeepvijayarao09.anu.core.model.InstallOutcome
 import io.github.sandeepvijayarao09.anu.core.model.ModelState
+import io.github.sandeepvijayarao09.anu.core.model.Speed
+import io.github.sandeepvijayarao09.anu.core.model.TestStep
 import io.github.sandeepvijayarao09.anu.core.security.LedgerEntry
 import io.github.sandeepvijayarao09.anu.core.security.PiiKind
 import java.time.Instant
@@ -98,6 +100,60 @@ internal fun modelName(id: BrainId): String = if (id == BrainId.BASE) "Gemma 4 E
 internal fun modelTier(id: BrainId): String = if (id == BrainId.BASE) "Base" else "Pro"
 
 internal fun gigabytes(bytes: Long, locale: Locale = Locale.getDefault()): String = String.format(locale, "%.1f GB", bytes / 1e9)
+
+/** The model's build, as the sheet says it (ADR-073): "Runs on the GPU". */
+internal fun buildLine(variant: String): String = "Runs on the " + if (variant.startsWith("NPU")) "NPU" else variant.uppercase()
+
+/**
+ * A speed as one line (design review D12): "first word 1.2 s · reads 271/s · writes 5.3/s". Estimated rates say
+ * "about". Parts that weren't measured are left out.
+ */
+internal fun speedLine(speed: Speed, locale: Locale = Locale.US): String = speedParts(speed, locale, words = false).joinToString(" · ")
+
+/** The same, in words for TalkBack: "first word 1.2 seconds, reads about 271 tokens a second". */
+internal fun speedWords(speed: Speed, locale: Locale = Locale.US): String = speedParts(speed, locale, words = true).joinToString(", ")
+
+private fun speedParts(speed: Speed, locale: Locale, words: Boolean): List<String> = buildList {
+    speed.firstWordMs?.let { add("first word " + duration(it, locale, words)) }
+    val about = if (speed.counted) "" else "about "
+    speed.readPerSecond?.let { add("reads $about${rate(it, locale)}" + if (words) " tokens a second" else "/s") }
+    speed.writePerSecond?.let { add("writes $about${rate(it, locale)}" + if (words) " tokens a second" else "/s") }
+}
+
+/** A time as About this answer shows it: "1.2 s", "12 s", "1 min 51 s"; in words, "1 minute 51 seconds". */
+private fun duration(ms: Long, locale: Locale, words: Boolean): String = when {
+    ms < 10_000 -> String.format(locale, "%.1f", ms / 1_000.0) + if (words) " seconds" else " s"
+    ms < 60_000 -> "${Math.round(ms / 1_000.0)}" + if (words) " seconds" else " s"
+    else -> {
+        val minutes = ms / 60_000
+        val rest = (ms % 60_000) / 1_000
+        if (words) "$minutes ${if (minutes == 1L) "minute" else "minutes"} $rest seconds" else "$minutes min $rest s"
+    }
+}
+
+private fun rate(value: Double, locale: Locale): String =
+    if (value >= 10) Math.round(value).toString() else String.format(locale, "%.1f", value)
+
+/** How long ago something happened, briefly: "just now", "2 min ago", "3 h ago", "2 days ago". */
+internal fun ago(atMillis: Long, now: Long): String {
+    val minutes = (now - atMillis) / 60_000
+    return when {
+        minutes < 1 -> "just now"
+        minutes < 60 -> "$minutes min ago"
+        minutes < 48 * 60 -> "${minutes / 60} h ago"
+        else -> "${minutes / (24 * 60)} days ago"
+    }
+}
+
+/** What Test speed is doing, in words (design review D12). */
+internal fun testStepLine(step: TestStep, model: String): String = when (step) {
+    TestStep.WAITING -> "Waiting for the current answer…"
+    TestStep.LOADING -> "Getting $model ready…"
+    TestStep.GPU_SETUP -> "Setting up the GPU. First time only, about a minute."
+    TestStep.READING -> "Reading…"
+    TestStep.WRITING -> "Writing…"
+    TestStep.DONE -> "Done"
+}
 
 /**
  * The space a model takes (ADR-061): what it needs before it's downloaded, and what it uses once it is. Both

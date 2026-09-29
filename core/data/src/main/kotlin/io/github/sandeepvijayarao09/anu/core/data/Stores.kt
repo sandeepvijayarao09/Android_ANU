@@ -3,12 +3,16 @@ package io.github.sandeepvijayarao09.anu.core.data
 import io.github.sandeepvijayarao09.anu.core.agent.RiskTier
 import io.github.sandeepvijayarao09.anu.core.agent.ToolAudit
 import io.github.sandeepvijayarao09.anu.core.agent.ToolAuditEntry
+import io.github.sandeepvijayarao09.anu.core.agent.PhotoStore
 import io.github.sandeepvijayarao09.anu.core.agent.ToolResultStore
 import io.github.sandeepvijayarao09.anu.core.agent.TranscriptStore
 import io.github.sandeepvijayarao09.anu.core.model.ChatMessage
 import io.github.sandeepvijayarao09.anu.core.model.DataClass
+import io.github.sandeepvijayarao09.anu.core.model.Photo
 import io.github.sandeepvijayarao09.anu.core.model.ToolCall
 import io.github.sandeepvijayarao09.anu.core.model.ToolResult
+import io.github.sandeepvijayarao09.anu.core.model.UntrustedContent
+import io.github.sandeepvijayarao09.anu.core.model.VoiceNote
 import io.github.sandeepvijayarao09.anu.core.security.LedgerEntry
 import io.github.sandeepvijayarao09.anu.core.security.PiiKind
 import io.github.sandeepvijayarao09.anu.core.security.PrivacyLedger
@@ -25,7 +29,9 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -111,6 +117,18 @@ class RoomToolAudit(private val dao: ToolAuditDao) : ToolAudit {
     }
 }
 
+/** Attached photos in the encrypted database, beside their messages (G2, ADR-075). */
+class RoomPhotoStore(private val dao: PhotoDao, private val clock: () -> Long = System::currentTimeMillis) : PhotoStore {
+    override suspend fun save(bytes: ByteArray): Long = dao.insert(PhotoEntity(bytes = bytes, createdAtMillis = clock()))
+
+    override suspend fun load(ids: Collection<Long>): Map<Long, ByteArray> =
+        if (ids.isEmpty()) emptyMap() else dao.load(ids.distinct()).associate { it.id to it.bytes }
+
+    override suspend fun delete(ids: Collection<Long>) {
+        if (ids.isNotEmpty()) dao.delete(ids.distinct())
+    }
+}
+
 /** Idempotent results that survive a restart, so a resumed turn never repeats a side effect (§7.2, §18). */
 class RoomToolResultStore(private val dao: ToolResultDao, private val clock: () -> Long = System::currentTimeMillis) : ToolResultStore {
     override suspend fun get(key: String): JsonElement? = dao.get(key)?.let(Json::parseToJsonElement)
@@ -121,7 +139,18 @@ class RoomToolResultStore(private val dao: ToolResultDao, private val clock: () 
 /** Maps transcript messages to rows. Tool calls keep their provider signature (ADR-022). */
 internal object MessageCodec {
     fun encode(conversationId: String, seq: Int, message: ChatMessage, now: Long): MessageEntity = when (message) {
-        is ChatMessage.User -> MessageEntity(conversationId, seq, "user", message.text, null, null, now)
+        is ChatMessage.User -> MessageEntity(
+            conversationId, seq, "user", message.text, null, null, now,
+            photosJson = message.photos.takeIf { it.isNotEmpty() }?.let { photos -> JsonArray(photos.map { JsonPrimitive(it.id) }).toString() },
+            voiceNoteJson = message.voiceNote?.let { note ->
+                buildJsonObject {
+                    put("words", note.words)
+                    put("seconds", note.seconds)
+                    if (note.shared) put("shared", true)
+                    if (note.interrupted) put("interrupted", true)
+                }.toString()
+            },
+        )
         is ChatMessage.Model -> MessageEntity(
             conversationId, seq, "model", message.text,
             toolCallsJson = message.toolCalls.takeIf { it.isNotEmpty() }?.let { calls ->
@@ -142,14 +171,33 @@ internal object MessageCodec {
             conversationId, seq, "tool", text = "",
             toolCallsJson = null,
             toolResultsJson = JsonArray(
-                message.results.map { result -> buildJsonObject { put("toolName", result.toolName); put("result", result.result) } },
+                message.results.map { result ->
+                    buildJsonObject {
+                        put("toolName", result.toolName)
+                        put("result", result.result)
+                        // Written even when null, which means "holds none"; rows without it predate the field.
+                        if (result.untrustedKnown) put("untrusted", result.untrusted?.name)
+                    }
+                },
             ).toString(),
             createdAtMillis = now,
         )
     }
 
     fun decode(row: MessageEntity): ChatMessage = when (row.role) {
-        "user" -> ChatMessage.User(row.text)
+        "user" -> ChatMessage.User(
+            row.text,
+            row.photosJson?.let { json -> Json.parseToJsonElement(json).jsonArray.map { Photo(it.jsonPrimitive.content.toLong()) } }.orEmpty(),
+            row.voiceNoteJson?.let { json ->
+                val note = Json.parseToJsonElement(json).jsonObject
+                VoiceNote(
+                    words = note.getValue("words").jsonPrimitive.content,
+                    seconds = note.getValue("seconds").jsonPrimitive.int,
+                    shared = note["shared"]?.jsonPrimitive?.boolean ?: false,
+                    interrupted = note["interrupted"]?.jsonPrimitive?.boolean ?: false,
+                )
+            },
+        )
         "model" -> ChatMessage.Model(
             row.text,
             row.toolCallsJson?.let { json ->
@@ -166,7 +214,15 @@ internal object MessageCodec {
         "tool" -> ChatMessage.Tool(
             Json.parseToJsonElement(row.toolResultsJson ?: "[]").jsonArray.map { element ->
                 val result = element.jsonObject
-                ToolResult(result.getValue("toolName").jsonPrimitive.content, result.getValue("result"))
+                val untrusted = result["untrusted"]
+                ToolResult(
+                    result.getValue("toolName").jsonPrimitive.content,
+                    result.getValue("result"),
+                    untrusted = untrusted?.jsonPrimitive?.contentOrNull?.let { name ->
+                        UntrustedContent.entries.firstOrNull { it.name == name } ?: UntrustedContent.UNKNOWN
+                    },
+                    untrustedKnown = untrusted != null,
+                )
             },
         )
         else -> error("Unknown message role ${row.role}")

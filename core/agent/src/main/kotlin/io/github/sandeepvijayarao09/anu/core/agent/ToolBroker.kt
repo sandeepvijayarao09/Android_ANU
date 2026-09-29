@@ -4,6 +4,7 @@ import io.github.sandeepvijayarao09.anu.core.model.BrainLocation
 import io.github.sandeepvijayarao09.anu.core.model.DataClass
 import io.github.sandeepvijayarao09.anu.core.model.ToolCall
 import io.github.sandeepvijayarao09.anu.core.model.ToolSpec
+import io.github.sandeepvijayarao09.anu.core.model.UntrustedContent
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.SerializationException
@@ -17,10 +18,11 @@ import java.security.MessageDigest
 /**
  * The broker's verdict on one call. Every outcome goes back to the model as the tool's result.
  * [summary] is the tool's own description of the call (never the model's words), shown to the user (ADR-027).
+ * [destination] is the third party the call's input went to, or would have ([Tool.sendsTo]).
  */
 sealed interface ToolOutcome {
     /** [wrote] is true when the call changed something, so an answer may truthfully say it acted. */
-    data class Ok(val result: JsonElement, val summary: String = "", val wrote: Boolean = false) : ToolOutcome
+    data class Ok(val result: JsonElement, val summary: String = "", val wrote: Boolean = false, val destination: String? = null) : ToolOutcome
 
     /** Unknown tool or arguments that don't match the schema. Never executed (I6). The model may try again. */
     data class Invalid(val reason: String) : ToolOutcome
@@ -29,10 +31,10 @@ sealed interface ToolOutcome {
      * Blocked by policy, or the user said no. [code] tells the model which: it read a plain
      * "not_allowed" for a declined reply as a system rule, as the emulator showed.
      */
-    data class Rejected(val reason: String, val summary: String = "", val code: String = "not_allowed") : ToolOutcome
+    data class Rejected(val reason: String, val summary: String = "", val code: String = "not_allowed", val destination: String? = null) : ToolOutcome
 
     /** The tool itself threw. */
-    data class Failed(val reason: String, val summary: String = "") : ToolOutcome
+    data class Failed(val reason: String, val summary: String = "", val destination: String? = null) : ToolOutcome
 
     fun toResultJson(): JsonElement = when (this) {
         is Ok -> result as? JsonObject ?: buildJsonObject { put("result", result) }
@@ -47,16 +49,28 @@ sealed interface ToolOutcome {
     }
 }
 
-/** What the broker knows about the run it serves. [tainted] becomes true once untrusted content has been read (P4). */
+/**
+ * What the broker knows about the run it serves. The run is tainted while the model can see content from
+ * other people (P4): what the chat already shows when the run starts ([inView]), and what tools return.
+ */
 class RunState(
     val runId: String,
     /** Identifies the user turn. The same turn re-sent (for example after consent) reuses its idempotency keys. */
     val turnKey: String,
     var brainLocation: BrainLocation,
     val cloudConsented: Boolean,
+    inView: Set<UntrustedContent> = emptySet(),
 ) {
-    var tainted: Boolean = false
-        internal set
+    private val seen = inView.toMutableSet()
+
+    /** The kinds of untrusted content the model can see, so the approval sheet can name them (§7.2). */
+    val untrusted: Set<UntrustedContent> get() = seen.toSet()
+
+    val tainted: Boolean get() = seen.isNotEmpty()
+
+    internal fun taint(kind: UntrustedContent) {
+        seen += kind
+    }
 
     /** Data classes of everything tools have returned, so escalation to the cloud can re-check consent. */
     val dataClassesSeen: MutableSet<DataClass> = mutableSetOf()
@@ -130,6 +144,15 @@ class ToolBroker(
 
     private fun find(name: String): Tool<*, *>? = byName[name] ?: dynamicTools().firstOrNull { it.name == name }
 
+    /**
+     * The kind of untrusted content a result from [toolName] holds. A tool that's no longer there, such as
+     * a removed MCP server's, counts as untrusted, since nothing can vouch for what it returned (P4).
+     */
+    fun untrustedContent(toolName: String): UntrustedContent? {
+        val tool = find(toolName) ?: return UntrustedContent.UNKNOWN
+        return tool.untrustedContent
+    }
+
     /** Schemas of the named tools, so each skill offers only the tools it needs (§7.3). */
     fun specs(names: Collection<String>): List<ToolSpec> = names.map { name ->
         requireNotNull(find(name)) { "No tool named $name" }.spec()
@@ -154,7 +177,7 @@ class ToolBroker(
 
         if (run.brainLocation == BrainLocation.CLOUD && DataClass.SENSITIVE in tool.dataClasses && !run.cloudConsented) {
             record("blocked: sensitive data for the cloud", null)
-            return ToolOutcome.Rejected("${tool.name} returns sensitive data, which stays on this phone", current.summary)
+            return ToolOutcome.Rejected("${tool.name} returns sensitive data, which stays on this phone", current.summary, destination = current.destination)
         }
 
         val proposed = idempotencyKey(run.turnKey, tool.name, current.payload)
@@ -162,25 +185,25 @@ class ToolBroker(
         if (current.risk != RiskTier.READ) {
             results.get(key)?.let { stored ->
                 record("replayed", null)
-                return ToolOutcome.Ok(stored, current.summary, wrote = true)
+                return ToolOutcome.Ok(stored, current.summary, wrote = true, destination = current.destination)
             }
         }
 
         // Ask until the user approves, declines or doesn't answer. An edit approves nothing: the broker checks
         // it like the model's arguments and asks again with exactly what will run (I2).
-        var reason = approvalReason(current.risk, current.destination, run.tainted)
+        var reason = approvalReason(current.risk, current.destination, run.untrusted)
         val asked = reason != null
         var edited = false
         var problem: String? = null
         while (reason != null) {
             val request = ApprovalRequest(
-                key, tool.name, current.summary, current.payload, current.risk, reason, current.destination, run.tainted,
+                key, tool.name, current.summary, current.payload, current.risk, reason, current.destination, run.untrusted,
                 tool.editable, edited, problem,
             )
             when (val decision = withTimeoutOrNull(approvalTimeoutMillis) { approvals.request(request) }) {
                 null -> {
                     record("no answer in time", approved = false)
-                    return ToolOutcome.Rejected("Nobody answered the approval in time, so nothing was done.", current.summary, code = "no_answer")
+                    return ToolOutcome.Rejected("Nobody answered the approval in time, so nothing was done.", current.summary, code = "no_answer", destination = current.destination)
                 }
                 is ApprovalDecision.Denied -> {
                     record("denied: ${decision.reason}", approved = false)
@@ -188,6 +211,7 @@ class ToolBroker(
                         "The user was shown this and declined (${decision.reason}), so nothing was done. Don't try again unless they ask.",
                         current.summary,
                         code = "declined",
+                        destination = current.destination,
                     )
                 }
                 ApprovalDecision.Approved -> reason = null
@@ -205,11 +229,11 @@ class ToolBroker(
                     if (current.risk != RiskTier.READ) {
                         results.get(key)?.let { stored ->
                             record("replayed", null)
-                            return ToolOutcome.Ok(stored, current.summary, wrote = true)
+                            return ToolOutcome.Ok(stored, current.summary, wrote = true, destination = current.destination)
                         }
                     }
                     // The user always sees the final payload before it runs, even if it no longer needs asking.
-                    reason = approvalReason(current.risk, current.destination, run.tainted) ?: "You changed this"
+                    reason = approvalReason(current.risk, current.destination, run.untrusted) ?: "You changed this"
                 }
             }
         }
@@ -219,8 +243,10 @@ class ToolBroker(
         } catch (e: CancellationException) {
             throw e // never swallow cancellation (§18)
         } catch (e: Exception) {
+            // A failure's message can carry the other side's words, such as a service's error text.
+            tool.untrustedContent?.let(run::taint)
             record("failed: ${e.message}", if (asked) true else null)
-            return ToolOutcome.Failed(e.message ?: e::class.simpleName ?: "error", current.summary)
+            return ToolOutcome.Failed(e.message ?: e::class.simpleName ?: "error", current.summary, current.destination)
         }
         val result = json.encodeToJsonElement(tool.output, output)
         if (current.risk != RiskTier.READ) {
@@ -228,10 +254,10 @@ class ToolBroker(
             // A retry of the model's original call replays what the user's edit did, instead of acting again.
             if (key != proposed) results.put(proposed, result)
         }
-        if (tool.returnsUntrustedContent) run.tainted = true
+        tool.untrustedContent?.let(run::taint)
         run.dataClassesSeen += tool.dataClasses
         record(if (edited) OK_EDITED else "ok", if (asked) true else null)
-        return ToolOutcome.Ok(result, current.summary, wrote = current.risk != RiskTier.READ)
+        return ToolOutcome.Ok(result, current.summary, wrote = current.risk != RiskTier.READ, destination = current.destination)
     }
 
     /** A call's input after validation, what the tool says about it, and the payload the user sees. */
@@ -264,15 +290,31 @@ class ToolBroker(
         return assess(tool, edited).takeIf { it.payload != current.payload }
     }
 
-    /** Why a call needs the user's approval, or null when it runs by itself (§7.1). */
-    private fun approvalReason(risk: RiskTier, destination: String?, tainted: Boolean): String? = when (risk) {
-        // Injected text could otherwise send the user's data to a third party without asking.
-        RiskTier.READ -> if (tainted && destination != null) "This sends data to $destination after reading content written by others" else null
-        RiskTier.WRITE_PRIVATE -> if (tainted) "This request read content written by others" else null
-        // A service or store the user added isn't "other people": say where it goes (seen on the emulator).
-        RiskTier.WRITE_EXTERNAL -> if (destination != null) "This goes to $destination, outside your phone" else "Other people will see this"
-        RiskTier.DESTRUCTIVE -> if (destination != null) "This goes to $destination, and may not be undoable there" else "This can't be undone"
+    /**
+     * Why a call needs the user's approval, or null when it runs by itself (§7.1). When the model can see
+     * content from other people, the reason names its kind, never the content: its sender or subject is
+     * written by outsiders, and could pose as Anu on the one screen that must be trusted (§7.2).
+     */
+    private fun approvalReason(risk: RiskTier, destination: String?, untrusted: Set<UntrustedContent>): String? {
+        val shows = if (untrusted.isEmpty()) null else shownIn(untrusted)
+        return when (risk) {
+            // Injected text could otherwise send the user's data to a third party without asking.
+            RiskTier.READ -> if (shows != null && destination != null) "This sends data to $destination".andShows(shows, untrusted) else null
+            RiskTier.WRITE_PRIVATE -> if (shows != null) "Anu asks because $shows, ${whoWrote(untrusted)}. Check this closely" else null
+            // A service or store the user added isn't "other people": say where it goes (seen on the emulator).
+            RiskTier.WRITE_EXTERNAL ->
+                (if (destination != null) "This goes to $destination, outside your phone" else "Other people will see this").andShows(shows, untrusted)
+            RiskTier.DESTRUCTIVE ->
+                (if (destination != null) "This goes to $destination, and may not be undoable there" else "This can't be undone").andShows(shows, untrusted)
+        }
     }
+
+    private fun String.andShows(shows: String?, untrusted: Set<UntrustedContent>): String =
+        if (shows == null) this else "$this. ${shows.replaceFirstChar(Char::uppercase)}, ${whoWrote(untrusted)}, so check this closely"
+
+    /** A photo or a recording can hold other people's words (a screenshot, a meeting); a message or a reply is theirs. */
+    private fun whoWrote(untrusted: Set<UntrustedContent>): String =
+        if (untrusted.all { it == UntrustedContent.PHOTO || it == UntrustedContent.RECORDING }) "which can hold other people's words" else "which others can write"
 
     private fun idempotencyKey(turnKey: String, tool: String, payload: JsonObject): String =
         MessageDigest.getInstance("SHA-256").digest("$turnKey|$tool|$payload".toByteArray())
@@ -281,6 +323,24 @@ class ToolBroker(
     companion object {
         /** The audit's outcome for a call that ran with the user's own changes. */
         const val OK_EDITED = "ok, edited by you"
+
+        /** "this chat shows an email and a store's results", in a fixed order. */
+        internal fun shownIn(untrusted: Set<UntrustedContent>): String {
+            val names = untrusted.sorted().map { kind ->
+                when (kind) {
+                    UntrustedContent.EMAIL -> "an email"
+                    UntrustedContent.MESSAGE -> "a message"
+                    UntrustedContent.CALENDAR -> "calendar events"
+                    UntrustedContent.STORE -> "a store's results"
+                    UntrustedContent.SERVICE -> "a reply from one of your services"
+                    UntrustedContent.UNKNOWN -> "a reply from a service you removed"
+                    UntrustedContent.PHOTO -> "a photo"
+                    UntrustedContent.RECORDING -> "a recording"
+                }
+            }
+            val listed = if (names.size == 1) names.single() else names.dropLast(1).joinToString(", ") + " and " + names.last()
+            return "this chat shows $listed"
+        }
 
         // Unknown keys are ignored (they can't cause an action). Types and required fields are strict.
         private val json = Json {

@@ -8,8 +8,10 @@ import io.github.sandeepvijayarao09.anu.core.model.ChatMessage
 import io.github.sandeepvijayarao09.anu.core.model.echoesFraming
 import io.github.sandeepvijayarao09.anu.core.model.Sampling
 import io.github.sandeepvijayarao09.anu.core.model.ToolCall
+import io.github.sandeepvijayarao09.anu.core.model.VoiceNote
 import io.github.sandeepvijayarao09.anu.core.model.ToolSpec
 import io.github.sandeepvijayarao09.anu.core.model.ToolResult
+import io.github.sandeepvijayarao09.anu.core.model.UntrustedContent
 import io.github.sandeepvijayarao09.anu.core.model.withoutFraming
 import io.github.sandeepvijayarao09.anu.core.router.Consent
 import io.github.sandeepvijayarao09.anu.core.router.DeviceState
@@ -22,12 +24,27 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.FlowCollector
 import kotlinx.coroutines.flow.flow
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+
+/** How an escalation past a tier with no model installed is worded. That tier never tried. */
+internal const val NO_BRAIN = "no brain is wired"
 
 /** Limits for one agent run (§7.2). */
 data class Budgets(val maxSteps: Int = 8, val maxToolCalls: Int = 12)
 
-/** What a tool call actually did, as the broker recorded it. The chat shows these under each answer (ADR-027). */
-data class ActionRecord(val tool: String, val summary: String, val status: Status, val wrote: Boolean, val reason: String? = null) {
+/**
+ * What a tool call actually did, as the broker recorded it. The chat shows these under each answer (ADR-027).
+ * [destination] is the third party its input went to, such as a store's host, when the tool says.
+ */
+data class ActionRecord(
+    val tool: String,
+    val summary: String,
+    val status: Status,
+    val wrote: Boolean,
+    val reason: String? = null,
+    val destination: String? = null,
+) {
     enum class Status { DONE, NOT_DONE, FAILED }
 }
 
@@ -36,15 +53,18 @@ sealed interface AgentEvent {
 
     data class TextDelta(val tier: Tier, val text: String) : AgentEvent
 
+    /** The model's reasoning before its answer (G4, ADR-077). It is shown apart, and never becomes the answer. */
+    data class Thinking(val tier: Tier, val text: String) : AgentEvent
+
     /** Text streamed by this step is being thrown away. */
     data class Discarded(val tier: Tier, val reason: String) : AgentEvent
 
     data class Escalated(val from: Tier, val to: Tier, val reason: String) : AgentEvent
 
-    /** Nothing more was sent. Ask the user, then run again with `cloudConsented = true` (§12.2). */
     /**
-     * The turn needs the user's consent to use the cloud (§12.2). [facts] are the facts from memory the
-     * cloud would also see, if the user shares them (ADR-054): relevant ones only, never sensitive.
+     * The turn needs the user's consent to use the cloud (§12.2), and nothing more was sent: ask the user, then run
+     * again with `cloudConsented = true`. [facts] are the facts from memory the cloud would also see, if the user
+     * shares them (ADR-054): relevant ones only, never sensitive.
      */
     data class ConsentNeeded(val decision: RouteDecision, val facts: List<String> = emptyList()) : AgentEvent
 
@@ -56,7 +76,8 @@ sealed interface AgentEvent {
      * [added] holds every message this run produced, including tool turns, in transcript order.
      * [actions] is what really happened. [unverifiedClaim] is true when the answer still claims an action
      * that didn't happen, after repair and escalation. The text then carries a warning. [tokens] compares
-     * the estimate of the final request and answer with the runtime's count (ADR-041).
+     * the estimate of the final request and answer with the runtime's count (ADR-041). [usage] is how the
+     * final step ran. [details] is what "About this answer" shows, added by [ChatSession] (ADR-071).
      */
     data class Completed(
         val tier: Tier,
@@ -65,9 +86,22 @@ sealed interface AgentEvent {
         val actions: List<ActionRecord> = emptyList(),
         val unverifiedClaim: Boolean = false,
         val tokens: TokenSample? = null,
+        val usage: BrainEvent.Usage? = null,
+        val details: AnswerDetails? = null,
+        /** The route the final answer took, including any guard that shaped it (ADR-072). */
+        val decision: RouteDecision? = null,
+        /** A phone command done with no model (G6, ADR-076): [tier] means nothing then. */
+        val direct: Boolean = false,
     ) : AgentEvent
 
-    data class Failed(val reasons: List<String>) : AgentEvent
+    /** A voice note being written down on the phone before the turn goes on (G3, ADR-078): its [words] so far. */
+    data class Transcribing(val words: String) : AgentEvent
+
+    /** The voice note is written down: the turn goes on with [note], which a retry can send again as it is. */
+    data class Transcribed(val note: VoiceNote) : AgentEvent
+
+    /** [retry] is false when trying again can't help, as when a recording held no words. */
+    data class Failed(val reasons: List<String>, val retry: Boolean = true) : AgentEvent
 }
 
 /**
@@ -100,6 +134,39 @@ class Agent(
     /** The definitions of [tools] as the model will see them, so their size can be budgeted (§7.3). */
     fun toolSpecs(tools: List<String>): List<ToolSpec> = broker.specs(tools)
 
+    /** What kind of content from other people a result from [toolName] holds (P4). See [ToolBroker.untrustedContent]. */
+    fun untrustedContent(toolName: String): UntrustedContent? = broker.untrustedContent(toolName)
+
+    /**
+     * A phone command with no model (G6, ADR-076): [call] runs through the broker like a model's call, with the same
+     * risk tier, approval, taint ([inView]) and audit, and the answer is the tool's own words for what happened.
+     */
+    fun runDirect(call: ToolCall, turnKey: String, inView: Set<UntrustedContent> = emptySet()): Flow<AgentEvent> = flow {
+        val state = RunState(turnKey, turnKey, BrainLocation.ON_DEVICE, cloudConsented = false, inView = inView)
+        emit(AgentEvent.ToolStarted(call))
+        val outcome = broker.execute(call, state)
+        emit(AgentEvent.ToolFinished(call, outcome))
+        val action = when (outcome) {
+            is ToolOutcome.Ok -> ActionRecord(call.name, outcome.summary, ActionRecord.Status.DONE, outcome.wrote, destination = outcome.destination)
+            is ToolOutcome.Rejected -> ActionRecord(call.name, outcome.summary, ActionRecord.Status.NOT_DONE, false, outcome.reason, outcome.destination)
+            is ToolOutcome.Failed -> ActionRecord(call.name, outcome.summary, ActionRecord.Status.FAILED, false, outcome.reason, outcome.destination)
+            is ToolOutcome.Invalid -> null
+        }
+        val text = when (outcome) {
+            is ToolOutcome.Ok -> ((outcome.result as? JsonObject)?.get("said") as? JsonPrimitive)?.content ?: outcome.summary
+            is ToolOutcome.Rejected -> "Not done."
+            is ToolOutcome.Failed -> "That didn't work: ${outcome.reason}"
+            is ToolOutcome.Invalid -> "That didn't work: ${outcome.reason}"
+        }
+        val untrusted = if (outcome is ToolOutcome.Ok || outcome is ToolOutcome.Failed) broker.untrustedContent(call.name) else null
+        val added = listOf(
+            ChatMessage.Model("", listOf(call)),
+            ChatMessage.Tool(listOf(ToolResult(call.name, outcome.toResultJson(), untrusted))),
+            ChatMessage.Model(text),
+        )
+        emit(AgentEvent.Completed(Tier.BASE, text, added, listOfNotNull(action), direct = true))
+    }
+
     fun run(
         route: RouteRequest,
         device: DeviceState,
@@ -118,6 +185,10 @@ class Agent(
         sharedFacts: List<String> = emptyList(),
         /** The facts to show on the consent sheet, if the turn needs consent (ADR-054). */
         consentFacts: List<String> = emptyList(),
+        /** Whether on-device models reason before answering (G4, ADR-077). */
+        thinking: Boolean = false,
+        /** Content from other people that [history] already shows, so the run starts tainted (P4, §7.2). */
+        inView: Set<UntrustedContent> = emptySet(),
     ): Flow<AgentEvent> = flow {
         var route = route
         var decision = when (val result = router.route(route, device)) {
@@ -125,7 +196,7 @@ class Agent(
             is RouteResult.Routed -> result.decision
         }
         val specs = broker.specs(tools)
-        val state = RunState(runId, turnKey, BrainLocation.ON_DEVICE, route.cloudConsented)
+        val state = RunState(runId, turnKey, BrainLocation.ON_DEVICE, route.cloudConsented, inView)
         val added = mutableListOf<ChatMessage>()
         var steps = 0
         var toolCalls = 0
@@ -156,7 +227,7 @@ class Agent(
             }
             val brain = brains.brainFor(decision.tier)
             if (brain == null) {
-                if (!escalate("no brain is wired for ${decision.tier}")) return@flow
+                if (!escalate("$NO_BRAIN for ${decision.tier}")) return@flow
                 continue
             }
             if (++steps > budgets.maxSteps) return@flow emit(AgentEvent.Failed(listOf("stopped after ${budgets.maxSteps} steps")))
@@ -173,6 +244,8 @@ class Agent(
                 memory = memory,
                 relevant = relevant,
                 sharedFacts = sharedFacts,
+                maxOutputTokens = decision.maxOutputTokens,
+                thinking = thinking,
             )
             val text = StringBuilder()
             val calls = mutableListOf<ToolCall>()
@@ -180,7 +253,9 @@ class Agent(
             try {
                 brain.stream(request).collect { event ->
                     when (event) {
-                        is BrainEvent.TextDelta -> {
+                        is BrainEvent.TextDelta -> if (event.thought) {
+                            emit(AgentEvent.Thinking(decision.tier, event.text))
+                        } else {
                             text.append(event.text)
                             emit(AgentEvent.TextDelta(decision.tier, event.text))
                         }
@@ -250,11 +325,18 @@ class Agent(
                     val warned = "$text\n\n${ActionClaims.NOT_DONE_WARNING}"
                     added += ChatMessage.Model(warned)
                     return@flow emit(
-                        AgentEvent.Completed(decision.tier, warned, added.toList(), actions.toList(), unverifiedClaim = true, tokens = sample(request, brain, text, usage)),
+                        AgentEvent.Completed(
+                            decision.tier, warned, added.toList(), actions.toList(), unverifiedClaim = true, tokens = sample(request, brain, text, usage), usage = usage,
+                            decision = decision,
+                        ),
                     )
                 }
                 added += ChatMessage.Model(text.toString())
-                return@flow emit(AgentEvent.Completed(decision.tier, text.toString(), added.toList(), actions.toList(), tokens = sample(request, brain, text, usage)))
+                return@flow emit(
+                    AgentEvent.Completed(
+                        decision.tier, text.toString(), added.toList(), actions.toList(), tokens = sample(request, brain, text, usage), usage = usage, decision = decision,
+                    ),
+                )
             }
 
             added += ChatMessage.Model(text.toString(), calls.toList())
@@ -268,13 +350,18 @@ class Agent(
                 val outcome = broker.execute(call, state)
                 emit(AgentEvent.ToolFinished(call, outcome))
                 when (outcome) {
-                    is ToolOutcome.Ok -> actions += ActionRecord(call.name, outcome.summary, ActionRecord.Status.DONE, outcome.wrote)
-                    is ToolOutcome.Rejected -> actions += ActionRecord(call.name, outcome.summary, ActionRecord.Status.NOT_DONE, false, outcome.reason)
-                    is ToolOutcome.Failed -> actions += ActionRecord(call.name, outcome.summary, ActionRecord.Status.FAILED, false, outcome.reason)
+                    is ToolOutcome.Ok -> actions += ActionRecord(call.name, outcome.summary, ActionRecord.Status.DONE, outcome.wrote, destination = outcome.destination)
+                    is ToolOutcome.Rejected ->
+                        actions += ActionRecord(call.name, outcome.summary, ActionRecord.Status.NOT_DONE, false, outcome.reason, outcome.destination)
+                    is ToolOutcome.Failed ->
+                        actions += ActionRecord(call.name, outcome.summary, ActionRecord.Status.FAILED, false, outcome.reason, outcome.destination)
                     is ToolOutcome.Invalid -> Unit // never ran, so it isn't an action
                 }
                 if (outcome !is ToolOutcome.Invalid) anyValid = true
-                results += ToolResult(call.name, outcome.toResultJson())
+                // Saved with the result, so later turns know what the model can still see. A call that never
+                // ran holds only the broker's own words.
+                val untrusted = if (outcome is ToolOutcome.Ok || outcome is ToolOutcome.Failed) broker.untrustedContent(call.name) else null
+                results += ToolResult(call.name, outcome.toResultJson(), untrusted)
             }
             added += ChatMessage.Tool(results)
             // What tools returned counts too, so an escalation to the cloud re-checks consent with it.

@@ -111,4 +111,16 @@ class CascadeTest {
         assertEquals("once upon", (firstDelta as CascadeEvent.TextDelta).text)
         assertEquals(1, base.cancellations)
     }
+
+    @Test
+    fun `a guarded phone shortens writing to the smaller of the two limits`() = runTest {
+        val warm = DeviceState(online = true, availableTiers = setOf(Tier.PRO), guard = io.github.sandeepvijayarao09.anu.core.router.Guard.HEAT)
+        val cascade = Cascade(Router(), BrainProvider { if (it == Tier.PRO) pro else null })
+        pro.enqueue(Step.Reply("Short."), Step.Reply("Short."))
+        val route = RouteRequest("Improve this", promptTokens = 100)
+        cascade.run(route, warm, BrainRequest(transcript = listOf(ChatMessage.User("Improve this")), maxOutputTokens = 1_024)).toList()
+        assertEquals(256, pro.requests[0].maxOutputTokens)
+        cascade.run(route, warm, BrainRequest(transcript = listOf(ChatMessage.User("Improve this")), maxOutputTokens = 100)).toList()
+        assertEquals(100, pro.requests[1].maxOutputTokens)
+    }
 }

@@ -19,6 +19,7 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import com.google.ai.edge.litertlm.Backend
+import com.google.ai.edge.litertlm.Capabilities
 import com.google.ai.edge.litertlm.EngineConfig
 import io.github.sandeepvijayarao09.anu.core.model.BrainId
 import io.github.sandeepvijayarao09.anu.core.model.ModelInfo
@@ -65,6 +66,8 @@ class ModelManager(
 
     override fun spaceUsed(id: BrainId): Long = ModelFiles.spaceUsed(modelsDir, weightCacheDir, artifactFor(id).fileName)
 
+    override fun prepared(id: BrainId): Boolean = ModelFiles.caches(weightCacheDir, artifactFor(id).fileName).isNotEmpty()
+
     override fun state(id: BrainId): Flow<ModelState> =
         workManager.getWorkInfosForUniqueWorkFlow(workName(artifactFor(id))).map { infos ->
             val info = infos.lastOrNull()
@@ -96,16 +99,34 @@ class ModelManager(
         ModelFiles.delete(modelsDir, weightCacheDir, artifact.fileName)
     }
 
-    /** Engine settings for an installed model, or null if it isn't installed yet. */
-    fun engineConfig(brain: BrainId, maxNumTokens: Int): EngineConfig? {
+    /**
+     * How to load [brain], or null if it isn't installed yet. With [vision], the engine also loads Gemma's vision
+     * encoder, on the same backend as the model (the CPU until a chip's GPU passes S1, ADR-059), for up to [MAX_PHOTOS]
+     * photos (G2, ADR-075). Text-only engines skip it, so plain chat uses less memory. A model that can hear always
+     * gets its audio encoder, on the CPU as in Google's Gallery: it loads only when a recording arrives, so it costs
+     * nothing until then (S6, ADR-078).
+     */
+    fun engineConfig(brain: BrainId, maxNumTokens: Int, vision: Boolean = false): EngineConfig? {
         val file = installedFile(brain) ?: return null
+        val backend = backendFor(artifactFor(brain).variant)
         return EngineConfig(
             modelPath = file.absolutePath,
-            backend = backendFor(artifactFor(brain).variant),
+            backend = backend,
+            visionBackend = if (vision) backendFor(artifactFor(brain).variant) else null,
+            audioBackend = if (hears(brain)) Backend.CPU() else null,
             maxNumTokens = maxNumTokens,
+            maxNumImages = if (vision) MAX_PHOTOS else null,
             cacheDir = weightCacheDir.apply { mkdirs() }.absolutePath,
         )
     }
+
+    /** Whether [brain]'s installed file takes audio, as its own metadata declares (ADR-078). Read once per file. */
+    fun hears(brain: BrainId): Boolean {
+        val path = installedFile(brain)?.absolutePath ?: return false
+        return hearing.getOrPut(path) { runCatching { Capabilities(path).use { it.inputModalities().audio } }.getOrDefault(false) }
+    }
+
+    private val hearing = java.util.concurrent.ConcurrentHashMap<String, Boolean>()
 
     /** Runtime options for [brain]: the runtime's counters when [benchmark] is set, for the debug speed log. */
     fun engineOptions(brain: BrainId, benchmark: Boolean): EngineOptions = EngineOptions(benchmark = benchmark)
@@ -118,6 +139,9 @@ class ModelManager(
     }
 
     internal companion object {
+        /** The most photos one engine takes at a time: those in the model's view of a chat. */
+        const val MAX_PHOTOS = 4
+
         const val KEY_FILE = "file"
         const val KEY_DONE = "done"
         const val KEY_TOTAL = "total"

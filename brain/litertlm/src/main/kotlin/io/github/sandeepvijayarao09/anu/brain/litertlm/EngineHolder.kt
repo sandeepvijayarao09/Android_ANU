@@ -51,7 +51,8 @@ class EngineHolder(private val config: EngineConfig, val options: EngineOptions 
         }
     }
 
-    private companion object {
+    internal companion object {
+        /** Guards LiteRT-LM's process-wide flags, which engines and conversations read when they are created. */
         val FLAGS = Any()
     }
 }

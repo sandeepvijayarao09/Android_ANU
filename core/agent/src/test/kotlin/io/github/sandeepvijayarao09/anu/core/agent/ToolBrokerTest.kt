@@ -2,6 +2,7 @@ package io.github.sandeepvijayarao09.anu.core.agent
 
 import io.github.sandeepvijayarao09.anu.core.model.BrainLocation
 import io.github.sandeepvijayarao09.anu.core.model.ToolCall
+import io.github.sandeepvijayarao09.anu.core.model.UntrustedContent
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.launch
@@ -121,7 +122,7 @@ class ToolBrokerTest {
         broker(gate).execute(event("Lunch"), state)
         assertEquals(RiskTier.WRITE_PRIVATE, gate.requests[0].risk)
         assertEquals(RiskTier.WRITE_EXTERNAL, gate.requests[1].risk)
-        assertEquals("Other people will see this", gate.requests[1].reason)
+        assertEquals("Other people will see this. This chat shows an email, which others can write, so check this closely", gate.requests[1].reason)
         assertEquals(listOf(EventInput("Lunch", listOf("maya@example.com"))), create.created)
     }
 
@@ -180,7 +181,45 @@ class ToolBrokerTest {
         broker.execute(search, state)
         assertTrue(state.tainted)
         broker.execute(event("Injected event"), state)
-        assertEquals("This request read content written by others", gate.requests.single().reason)
+        assertEquals("Anu asks because this chat shows an email, which others can write. Check this closely", gate.requests.single().reason)
+        assertEquals(setOf(UntrustedContent.EMAIL), gate.requests.single().untrusted)
+    }
+
+    @Test
+    fun `content from others already in view taints the run from its start, and the sheet names each kind`() = runTest {
+        val state = RunState("run-1", "turn-1", BrainLocation.ON_DEVICE, false, inView = setOf(UntrustedContent.STORE, UntrustedContent.EMAIL))
+        assertTrue(state.tainted)
+        broker().execute(event("Injected event"), state)
+        assertEquals(
+            "Anu asks because this chat shows an email and a store's results, which others can write. Check this closely",
+            gate.requests.single().reason,
+        )
+    }
+
+    @Test
+    fun `writes that always ask also say what the chat shows`() = runTest {
+        val state = RunState("run-1", "turn-1", BrainLocation.ON_DEVICE, false, inView = setOf(UntrustedContent.MESSAGE))
+        broker().execute(event("Standup", "raj@example.com"), state)
+        assertEquals(
+            "Other people will see this. This chat shows a message, which others can write, so check this closely",
+            gate.requests.single().reason,
+        )
+    }
+
+    @Test
+    fun `a failed call to a tool that returns others' words still taints the run`() = runTest {
+        val broker = ToolBroker(listOf(create, FakeBrokenTool(untrustedContent = UntrustedContent.SERVICE)), gate)
+        val state = run()
+        assertTrue(broker.execute(ToolCall("broken_tool", buildJsonObject { put("query", "x") }), state) is ToolOutcome.Failed)
+        assertEquals(setOf(UntrustedContent.SERVICE), state.untrusted)
+    }
+
+    @Test
+    fun `a tool that is no longer there counts as returning untrusted content`() {
+        val broker = broker()
+        assertEquals(UntrustedContent.EMAIL, broker.untrustedContent("email_search"))
+        assertEquals(null, broker.untrustedContent("calendar_create_event"))
+        assertEquals(UntrustedContent.UNKNOWN, broker.untrustedContent("mcp_removed_search"))
     }
 
     @Test
@@ -273,7 +312,7 @@ class ToolBrokerTest {
             override val input = QueryInput.serializer()
             override val output = ItemsOutput.serializer()
             override val dataClasses = setOf(io.github.sandeepvijayarao09.anu.core.model.DataClass.PERSONAL)
-            override val returnsUntrustedContent = true
+            override val untrustedContent = UntrustedContent.STORE
             override fun risk(input: QueryInput) = RiskTier.WRITE_EXTERNAL
             override fun describe(input: QueryInput) = "Start a checkout for ${input.query}"
             override fun sendsTo(input: QueryInput) = "shoes.example.com"
