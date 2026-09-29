@@ -16,6 +16,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.platform.LocalContext
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.launch
 import androidx.activity.ComponentActivity
 import java.time.ZoneId
@@ -118,22 +119,23 @@ private fun AnuHome(graph: AppGraph, shared: MutableStateFlow<Shared?>) {
     val memory = viewModel { MemoryViewModel(graph.memory) }
     // The prompt lab runs only the models on this phone, with nothing from the chat (G7, ADR-080).
     val lab = viewModel { LabViewModel(graph.onDevice, graph.onDevice.status) }
-    // A shared photo or recording lands in Talk's composer, ready for a question about it (G2, G3).
-    val sharedItem by shared.collectAsStateWithLifecycle()
-    LaunchedEffect(sharedItem) {
-        val item = sharedItem ?: return@LaunchedEffect
-        shared.value = null
-        if (item.audio) {
-            when (val read = withContext(Dispatchers.IO) { readSharedRecording(context, item.uri, VOICE_NOTE_SECONDS) }) {
-                is SharedRecording.Ready -> chat.attachRecording(read.recording)
-                is SharedRecording.TooLong -> chat.recordingUnusable("This recording is ${clock(read.seconds)} long. Anu can write down up to 5 minutes.")
-                SharedRecording.Unreadable -> chat.recordingUnusable("This recording can't be read.")
+    // A shared photo or recording lands in Talk's composer, ready for a question about it (G2, G3). One collector
+    // takes each share in turn: clearing the share inside an effect keyed on it would cancel the effect mid-read.
+    LaunchedEffect(Unit) {
+        shared.filterNotNull().collect { item ->
+            shared.value = null
+            if (item.audio) {
+                when (val read = withContext(Dispatchers.IO) { readSharedRecording(context, item.uri, VOICE_NOTE_SECONDS) }) {
+                    is SharedRecording.Ready -> chat.attachRecording(read.recording)
+                    is SharedRecording.TooLong -> chat.recordingUnusable("This recording is ${clock(read.seconds)} long. Anu can write down up to 5 minutes.")
+                    SharedRecording.Unreadable -> chat.recordingUnusable("This recording can't be read.")
+                }
+            } else {
+                val jpeg = withContext(Dispatchers.IO) { readPhoto(context.contentResolver, item.uri) }
+                if (jpeg != null) chat.attach(jpeg) else chat.photoUnreadable()
             }
-        } else {
-            val jpeg = withContext(Dispatchers.IO) { readPhoto(context.contentResolver, item.uri) }
-            if (jpeg != null) chat.attach(jpeg) else chat.photoUnreadable()
+            pager.scrollToPage(0)
         }
-        pager.scrollToPage(0)
     }
     val settings = viewModel {
         SettingsViewModel(
