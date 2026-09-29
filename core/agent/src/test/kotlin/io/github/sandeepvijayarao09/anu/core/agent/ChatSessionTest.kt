@@ -636,6 +636,17 @@ class ChatSessionTest {
     }
 
     @Test
+    fun `a code found on a screen is masked in the answer even when nothing speaks of a code`() = runTest {
+        val screen = io.github.sandeepvijayarao09.anu.core.model.Screen("Files", atMillis = 5, image = byteArrayOf(1), secrets = listOf("482913"))
+        base.enqueue(Step.Reply(listOf("One file is visible: a text document named 482913.txt.")))
+        val events = session.send("What is on my screen?", onPhone, screen = screen).toList()
+        val completed = events.last() as AgentEvent.Completed
+        assertEquals("One file is visible: a text document named ••••••.txt.", completed.text)
+        assertTrue("never streamed", events.filterIsInstance<AgentEvent.TextDelta>().none { "482" in it.text })
+        assertEquals("the codes are never saved", emptyList<String>(), (session.history().first() as ChatMessage.User).screen?.secrets)
+    }
+
+    @Test
     fun `a code on a screen is masked in the answer about it`() = runTest {
         val screen = io.github.sandeepvijayarao09.anu.core.model.Screen("Messages", atMillis = 5, image = byteArrayOf(1))
         base.enqueue(Step.Reply(listOf("Your verification code is 482913.")))

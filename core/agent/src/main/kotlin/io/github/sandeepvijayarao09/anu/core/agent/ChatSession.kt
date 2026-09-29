@@ -220,7 +220,7 @@ class ChatSession(
             // When the model began reasoning, for how long it thought before the answer's first word.
             var firstThought: Long? = null
             // A photo or a screen in view can show a code or a password: the answer about it is guarded (I1, ADR-082).
-            val shield = if (route.hasPhotos || route.hasScreen) SecretShield(text) else null
+            val shield = if (route.hasPhotos || route.hasScreen) SecretShield(text, screen?.secrets.orEmpty()) else null
             agent.run(
                 route, device, system, turn, tools, turnKey = turnKey, sentAt = SENT_AT.format(now), memory = memoryBlock,
                 relevant = relevantBlock, sharedFacts = if (cloudConsented) sharedFacts else emptyList(), consentFacts = consentFacts,

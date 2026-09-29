@@ -22,6 +22,9 @@ object OneTimeCodes {
     /** Whether [text] holds something shaped like a code, a run of 4 to 8 digits or "123 456". */
     fun containsCode(text: String): Boolean = DIGITS.containsMatchIn(text)
 
+    /** The code-shaped runs in [text], as they're written. */
+    fun codes(text: String): List<String> = DIGITS.findAll(text).map { it.value }.toList()
+
     fun mask(text: String): String = if (looksLikeVerification(text)) DIGITS.replace(text, MASK) else text
 
     /**

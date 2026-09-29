@@ -21,6 +21,11 @@
         <intent>
             <action android:name="android.speech.RecognitionService" />
         </intent>
+        <!-- Apps with a launcher icon, so a screen question can name the app it read ("Reading Files", ADR-083). -->
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
     </queries>
 
     <!-- Nothing is backed up: every store is encrypted with device-bound keys (ARCHITECTURE §14). -->

@@ -39,10 +39,11 @@ class Photo(val id: Long, val bytes: ByteArray? = null) {
 /**
  * The screen the user asked about from the assistant card (EXP-2, ADR-083): the [app] it showed, and its picture with
  * any codes masked, while this turn has it. The picture is never saved: a saved message keeps only the app and when,
- * so later turns know a screen was shown, stay on the phone and stay tainted. Two are the same when their app and
- * time are.
+ * so later turns know a screen was shown, stay on the phone and stay tainted. [secrets] are the codes found in the
+ * screen's text: never shown to a model, never saved, only used to mask them in the answer if they come back
+ * (ADR-082). Two are the same when their app and time are.
  */
-class Screen(val app: String, val atMillis: Long, val image: ByteArray? = null) {
+class Screen(val app: String, val atMillis: Long, val image: ByteArray? = null, val secrets: List<String> = emptyList()) {
     override fun equals(other: Any?): Boolean = other is Screen && other.app == app && other.atMillis == atMillis
 
     override fun hashCode(): Int = 31 * app.hashCode() + atMillis.hashCode()

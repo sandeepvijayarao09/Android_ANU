@@ -9,7 +9,7 @@ import io.github.sandeepvijayarao09.anu.core.security.ShownSecrets
  * whole, so a code is never shown and taken back. The reasoning, when the model thinks, is guarded the same way. The
  * saved chat keeps only the masked answer. [asked] is what the user wrote this turn.
  */
-internal class SecretShield(private val asked: String) {
+internal class SecretShield(private val asked: String, private val known: Collection<String> = emptyList()) {
     private val answer = Hold()
     private val thought = Hold()
 
@@ -25,11 +25,11 @@ internal class SecretShield(private val asked: String) {
         }
         is AgentEvent.Completed -> {
             val reasoning = thought.rest().takeIf { it.isNotEmpty() }?.let { rest ->
-                AgentEvent.Thinking(event.tier, ShownSecrets.mask(rest, asked + "\n" + thought.all))
+                AgentEvent.Thinking(event.tier, ShownSecrets.mask(rest, asked + "\n" + thought.all, known))
             }
             val masked = event.copy(
-                text = ShownSecrets.mask(event.text, asked),
-                added = event.added.map { if (it is ChatMessage.Model) it.copy(text = ShownSecrets.mask(it.text, asked)) else it },
+                text = ShownSecrets.mask(event.text, asked, known),
+                added = event.added.map { if (it is ChatMessage.Model) it.copy(text = ShownSecrets.mask(it.text, asked, known)) else it },
             )
             listOfNotNull(reasoning, masked)
         }

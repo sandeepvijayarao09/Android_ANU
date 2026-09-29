@@ -19,4 +19,12 @@ class ShownSecretsTest {
         assertEquals("The concert is on June 5, 2026, in room 1204.", ShownSecrets.mask("The concert is on June 5, 2026, in room 1204.", "When is it?"))
         assertEquals("The password field is empty.", ShownSecrets.mask("The password field is empty.", "What's wrong?"))
     }
+
+    @Test
+    fun `a code found on the screen is masked wherever the answer repeats it, however it's written`() {
+        // The emulator's Files app: Gemma called the file "482913.txt", with no word about a code.
+        assertEquals("One file is visible: a text document named ••••••.txt.", ShownSecrets.mask("One file is visible: a text document named 482913.txt.", "What is on my screen?", listOf("482913")))
+        assertEquals("It reads •••••• and ••••••.", ShownSecrets.mask("It reads 482 913 and 482-913.", "What is this?", listOf("482913")))
+        assertEquals("the year 2026 isn't a known code", "Downloads, 2026.", ShownSecrets.mask("Downloads, 2026.", "What is this?", listOf("482913")))
+    }
 }

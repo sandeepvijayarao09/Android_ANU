@@ -6,7 +6,9 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.Matrix
 import android.graphics.Rect
+import android.graphics.RectF
 import android.text.InputType
 import android.util.Log
 import androidx.core.graphics.scale
@@ -83,42 +85,62 @@ object ScreenHandoff : ScreenSource {
         val app = structure.activityComponent?.packageName?.let { name ->
             runCatching { appContext.packageManager.let { it.getApplicationLabel(it.getApplicationInfo(name, 0)).toString() } }.getOrNull()
         } ?: "this app"
-        val jpeg = withContext(Dispatchers.Default) { jpeg(masked(structure, screenshot)) }
-        return ScreenLook.Ready(Screen(app, held.atMillis, jpeg))
+        val (picture, codes) = withContext(Dispatchers.Default) { masked(structure, screenshot) }
+        return ScreenLook.Ready(Screen(app, held.atMillis, jpeg(picture), secrets = codes))
     }
 
     /**
      * [screenshot] with its secrets blacked out, found from the screen's own text: every text that holds a code when the
-     * screen speaks of one (as `OneTimeCodes` masks messages), and every password field.
+     * screen speaks of one (as `OneTimeCodes` masks messages), and every password field. Also the codes themselves, for
+     * masking the answer if one comes back anyway; they stay in memory and never reach a model.
      */
-    internal fun masked(structure: AssistStructure, screenshot: Bitmap): Bitmap {
+    internal fun masked(structure: AssistStructure, screenshot: Bitmap): Pair<Bitmap, List<String>> {
         val texts = mutableListOf<Pair<String, Rect>>()
         val secrets = mutableListOf<Rect>()
         for (i in 0 until structure.windowNodeCount) {
             val window = structure.getWindowNodeAt(i)
-            walk(window.rootViewNode, window.left, window.top, texts, secrets)
+            walk(window.rootViewNode, Matrix().apply { setTranslate(window.left.toFloat(), window.top.toFloat()) }, texts, secrets)
         }
         val verification = OneTimeCodes.looksLikeVerification(texts.joinToString("\n") { it.first })
-        val hidden = secrets + if (verification) texts.filter { OneTimeCodes.containsCode(it.first) }.map { it.second } else emptyList()
-        // Counts only, never what the screen says.
-        if (BuildConfig.DEBUG) Log.d("Anu", "Screen: ${texts.size} texts, ${hidden.size} masked, ${screenshot.width}x${screenshot.height}")
+        val coded = if (verification) texts.filter { OneTimeCodes.containsCode(it.first) } else emptyList()
+        val hidden = secrets + coded.map { it.second }
+        // Counts and places only, never what the screen says.
+        if (BuildConfig.DEBUG) {
+            Log.d("Anu", "Screen: ${texts.size} texts, ${hidden.size} masked, ${screenshot.width}x${screenshot.height}")
+            val windows = (0 until structure.windowNodeCount).map { structure.getWindowNodeAt(it) }.joinToString { "${it.left},${it.top} ${it.width}x${it.height}" }
+            Log.d("Anu", "Screen: windows $windows; masked ${hidden.joinToString { it.toShortString() }}")
+        }
         val out = screenshot.copy(Bitmap.Config.ARGB_8888, true)
         if (hidden.isNotEmpty()) {
             val canvas = Canvas(out)
             val paint = Paint().apply { color = Color.BLACK }
             for (rect in hidden) canvas.drawRect(Rect(rect.left - PAD, rect.top - PAD, rect.right + PAD, rect.bottom + PAD), paint)
         }
-        return out
+        return out to coded.flatMap { OneTimeCodes.codes(it.first) }.distinct()
     }
 
-    /** Each node's place on the screen: its parent's content origin plus its own offset. */
-    private fun walk(node: AssistStructure.ViewNode, parentX: Int, parentY: Int, texts: MutableList<Pair<String, Rect>>, secrets: MutableList<Rect>) {
-        val x = parentX + node.left
-        val y = parentY + node.top
-        val rect = Rect(x, y, x + node.width, y + node.height)
+    /**
+     * Each node's place on the screen, as Android draws it: its parent's content, moved to the node's position, then by
+     * the node's own transformation (a translation such as a collapsing app bar's, or a scale), less its scroll for
+     * its children. Ignoring the transformation put a mask 612 px below a code in the Files app, so it was missed.
+     */
+    private fun walk(
+        node: AssistStructure.ViewNode,
+        parent: Matrix,
+        texts: MutableList<Pair<String, Rect>>,
+        secrets: MutableList<Rect>,
+    ) {
+        val matrix = Matrix(parent).apply {
+            preTranslate(node.left.toFloat(), node.top.toFloat())
+            node.transformation?.let { preConcat(it) }
+        }
+        val box = RectF(0f, 0f, node.width.toFloat(), node.height.toFloat())
+        matrix.mapRect(box)
+        val rect = Rect().also { box.roundOut(it) }
         node.text?.toString()?.takeIf { it.isNotBlank() }?.let { texts += it to rect }
         if (password(node)) secrets += rect
-        for (i in 0 until node.childCount) walk(node.getChildAt(i), x - node.scrollX, y - node.scrollY, texts, secrets)
+        val inner = Matrix(matrix).apply { preTranslate(-node.scrollX.toFloat(), -node.scrollY.toFloat()) }
+        for (i in 0 until node.childCount) walk(node.getChildAt(i), inner, texts, secrets)
     }
 
     private fun password(node: AssistStructure.ViewNode): Boolean {
