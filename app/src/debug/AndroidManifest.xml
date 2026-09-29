@@ -1,5 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <!-- Debug builds may reach the Mac's test servers over plain HTTP (see the config). -->
-    <application android:networkSecurityConfig="@xml/network_security_config" />
+    <application android:networkSecurityConfig="@xml/network_security_config">
+        <!-- Debug builds only: adb summons the assistant with a question, as "Hey Anu" does. DUMP keeps other apps out. -->
+        <receiver
+            android:name=".DebugAsk"
+            android:exported="true"
+            android:permission="android.permission.DUMP" />
+    </application>
 </manifest>

@@ -28,6 +28,9 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.channels.ProducerScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.flow
@@ -86,10 +89,12 @@ class LiteRtLmBrain(
             val calls = mutableListOf<ToolCall>()
             val sent = AtomicLong()
             val first = AtomicLong()
+            val heard = AtomicLong(System.nanoTime())
             // Text arrives one decoded token at a time, so counting the pieces estimates what was written.
             var pieces = 0
             val callback = object : MessageCallback {
                 override fun onMessage(message: Message) {
+                    heard.set(System.nanoTime())
                     if (first.compareAndSet(0, System.nanoTime()) && rereading) onReading?.invoke(false)
                     // The reasoning comes in its own channel, apart from the answer (G4, ADR-077).
                     message.channels[THOUGHT]?.takeIf(String::isNotEmpty)?.let { trySend(BrainEvent.TextDelta(it, thought = true)) }
@@ -136,6 +141,7 @@ class LiteRtLmBrain(
                 finished.complete(false)
                 throw t
             }
+            watch(heard, finished) { runCatching { active.conversation.cancelProcess() } }
             awaitClose {
                 if (!finished.isCompleted) runCatching { active.conversation.cancelProcess() }
             }
@@ -218,9 +224,11 @@ class LiteRtLmBrain(
             open = conversation
             val sent = AtomicLong()
             val first = AtomicLong()
+            val heard = AtomicLong(System.nanoTime())
             var pieces = 0
             val callback = object : MessageCallback {
                 override fun onMessage(message: Message) {
+                    heard.set(System.nanoTime())
                     first.compareAndSet(0, System.nanoTime())
                     if (message.text().isNotEmpty()) pieces++
                     trySend(Piece.Part(message))
@@ -246,6 +254,7 @@ class LiteRtLmBrain(
                 finished.complete(false)
                 throw t
             }
+            watch(heard, finished) { runCatching { conversation.cancelProcess() } }
             awaitClose {
                 if (!finished.isCompleted) runCatching { conversation.cancelProcess() }
             }
@@ -262,6 +271,25 @@ class LiteRtLmBrain(
             }
         }
     }.flowOn(dispatcher)
+
+    /**
+     * Ends a turn whose runtime has gone quiet. On the emulator, LiteRT-LM timed out a task inside itself and then never
+     * called back, so the answer waited forever. Every piece of the answer resets the clock; [STALL_MS] of silence
+     * cancels the runtime's work and fails the turn. The conversation isn't closed here: [release] closes it only once
+     * the runtime confirms, never mid-work (I7).
+     */
+    private fun <T> ProducerScope<T>.watch(heard: AtomicLong, finished: CompletableDeferred<Boolean>, cancel: () -> Unit) {
+        launch {
+            while (!finished.isCompleted) {
+                delay(STALL_CHECK_MS)
+                if (!finished.isCompleted && System.nanoTime() - heard.get() > STALL_MS * 1_000_000) {
+                    cancel()
+                    close(ModelStalled())
+                    return@launch
+                }
+            }
+        }
+    }
 
     /** Frees the cached conversation, for example before the residency policy unloads the model. */
     suspend fun reset() = generation.withLock {
@@ -371,6 +399,13 @@ class LiteRtLmBrain(
     private companion object {
         const val CANCEL_GRACE_MS = 2_000L
 
+        /**
+         * How long the runtime may say nothing before the turn fails. Well past a whole window's reading on a phone's
+         * CPU (about 70 s for 4,096 tokens), and past LiteRT-LM's own two-minute task deadline, which it can miss silently.
+         */
+        const val STALL_MS = 180_000L
+        const val STALL_CHECK_MS = 5_000L
+
         /** The channel Gemma 4 thinks in, as the thinking probe found (ADR-077). */
         const val THOUGHT = "thought"
 
@@ -388,3 +423,6 @@ class LiteRtLmBrain(
         const val TRANSCRIPT_TOKENS = 384
     }
 }
+
+/** The runtime went quiet in the middle of a turn, so the turn was given up (see [LiteRtLmBrain]). */
+class ModelStalled : IllegalStateException("the model stopped responding, so this turn was stopped. Try again")

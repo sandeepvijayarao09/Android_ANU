@@ -40,10 +40,17 @@ class AnuVoiceInteractionService : VoiceInteractionService() {
         /** True while Anu is the phone's assistant, so it can open itself over other apps. */
         val active: Boolean get() = current != null
 
-        /** Opens the assistant overlay over whatever is on screen, with what followed "Hey Anu", if anything. */
+        /**
+         * Opens the assistant overlay over whatever is on screen, with what followed "Hey Anu", if anything. It asks
+         * Android for the screen as the power button does, so "Hey Anu, what's this?" can use it (EXP-2, ADR-083);
+         * the screen is still read only because the question asks about it.
+         */
         fun show(query: String?): Boolean {
             val service = current ?: return false
-            service.showSession(Bundle().apply { query?.let { putString(EXTRA_QUERY, it) } }, 0)
+            service.showSession(
+                Bundle().apply { query?.let { putString(EXTRA_QUERY, it) } },
+                VoiceInteractionSession.SHOW_WITH_ASSIST or VoiceInteractionSession.SHOW_WITH_SCREENSHOT,
+            )
             return true
         }
     }

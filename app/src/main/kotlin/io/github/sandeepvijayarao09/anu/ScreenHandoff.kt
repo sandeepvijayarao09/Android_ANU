@@ -8,6 +8,7 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Rect
 import android.text.InputType
+import android.util.Log
 import androidx.core.graphics.scale
 import io.github.sandeepvijayarao09.anu.core.model.Screen
 import io.github.sandeepvijayarao09.anu.core.security.OneTimeCodes
@@ -99,6 +100,8 @@ object ScreenHandoff : ScreenSource {
         }
         val verification = OneTimeCodes.looksLikeVerification(texts.joinToString("\n") { it.first })
         val hidden = secrets + if (verification) texts.filter { OneTimeCodes.containsCode(it.first) }.map { it.second } else emptyList()
+        // Counts only, never what the screen says.
+        if (BuildConfig.DEBUG) Log.d("Anu", "Screen: ${texts.size} texts, ${hidden.size} masked, ${screenshot.width}x${screenshot.height}")
         val out = screenshot.copy(Bitmap.Config.ARGB_8888, true)
         if (hidden.isNotEmpty()) {
             val canvas = Canvas(out)
