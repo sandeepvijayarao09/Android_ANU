@@ -19,7 +19,7 @@ object Tokens {
 
     fun of(message: ChatMessage): Int = PER_MESSAGE + when (message) {
         // A photo reads as a fixed budget of vision tokens (G2).
-        is ChatMessage.User -> of(message.modelText) + message.photos.size * PHOTO_TOKENS
+        is ChatMessage.User -> of(message.modelText) + (message.photos.size + if (message.screen?.image != null) 1 else 0) * PHOTO_TOKENS
         is ChatMessage.Model -> of(message.text) + message.toolCalls.sumOf { json(it.name) + json(it.arguments.toString()) }
         is ChatMessage.Tool -> message.results.sumOf { json(it.toolName) + json(it.result.toString()) }
     }

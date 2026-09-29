@@ -33,6 +33,7 @@ Most assistants either know nothing about you or send everything about you to a 
 - "Reply to Maya, say yes, and suggest Thursday afternoon." Anu reads the thread, checks your calendar against your preferences (it knows you avoid meetings before 10), and drafts the reply in the tone you use with Maya. You approve it, and it sends.
 - "What's my day?" A short brief covers meetings with context, emails that need you, and anything you promised to do.
 - You select text in any app, tap **Anu → More formal**, and the rewrite replaces your selection.
+- Over a long email in any app, you hold the power button and ask "what's this about?". Anu says "Reading Gmail", reads the screen on the phone, and answers. It never looks unless you ask.
 - You tap **+** and pick a photo of a sign, or share one into Anu from your gallery, and ask what it says. Gemma reads it on the phone; the photo never goes to the cloud.
 - Walking to the car, you tap **+ → Voice note** and say "Call Maya on Thursday morning, and add oat milk to the groceries list." Gemma writes it down on the phone, and Anu proposes the Thursday call as an event for you to approve and lists the oat milk. The recording itself is never kept.
 - A group chat has 40 unread messages. Anu summarizes it from the notification and suggests a reply. It sends only when you tap to approve.
@@ -65,6 +66,7 @@ Most assistants either know nothing about you or send everything about you to a 
 - Photos: ask about a photo you pick or share into Anu. Gemma reads it on the phone, and it's kept with its message in Anu's encrypted store.
 - Voice notes: record one of up to 5 minutes, or share a recording into Anu. Gemma writes it down on the phone, and Anu proposes the events and other things it asks for, each approved. Only its words are kept; a shared recording is only summarized unless you ask for more, and memory never learns from it.
 - Voice: a Talk page with an orb that reacts to your voice, Anu as the phone's assistant over any app, and opt-in "Hey Anu" while the screen is on. Speech is recognized on the phone.
+- Questions about the screen: over any app, "what's this?" or a tap on "Use this screen" lets Anu read the screen on the phone, with codes and password fields blacked out first. It never reads the screen unless you ask, and the picture is never kept.
 - More connectors:
   - services you add as MCP servers, such as notes or tasks;
   - stores that support the Universal Commerce Protocol (UCP): search, and checkouts you approve.
@@ -82,7 +84,6 @@ Most assistants either know nothing about you or send everything about you to a 
 - Outlook / Microsoft 365.
 - Filling passwords into other apps (autofill).
 - Paying inside Anu, such as UCP payment handlers or AP2 mandates.
-- Reading the screen when you call Anu over another app.
 - Listening for "Hey Anu" while the screen is off.
 
 ## How we'll know it works

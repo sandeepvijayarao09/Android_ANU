@@ -610,6 +610,40 @@ class ChatSessionTest {
     }
 
     @Test
+    fun `a screen goes to the model with its picture this turn only, and the saved chat keeps just its app`() = runTest {
+        val create = FakeCreateEvent()
+        val gate = RecordingGate()
+        val chat = ChatSession(
+            agent(mapOf(Tier.BASE to base, Tier.PRO to base, Tier.CLOUD to cloud), ToolBroker(listOf(create), gate)),
+            toolsFor = { listOf(create.name) },
+        )
+        val screen = io.github.sandeepvijayarao09.anu.core.model.Screen("Messages", atMillis = 5, image = byteArrayOf(7, 7))
+        base.enqueue(Step.Reply("Maya invites you to lunch on Friday."))
+        val first = chat.send("What's this?", device, screen = screen).toList()
+        val routed = (first.first { it is AgentEvent.Routed } as AgentEvent.Routed).decision
+        assertTrue(routed.reasons.contains("a screen is in view: on-device only"))
+        val seen = base.requests.single().transcript.last() as ChatMessage.User
+        assertEquals(listOf<Byte>(7, 7), seen.screen?.image?.toList())
+        val saved = (chat.history().first() as ChatMessage.User).screen!!
+        assertEquals("Messages", saved.app)
+        assertEquals("the picture is never saved", null, saved.image)
+
+        base.enqueue(Step.Reply(listOf(""), toolCalls = listOf(addLunch)), Step.Reply("Added."))
+        chat.send("Add it to my calendar", device).toList()
+        assertEquals("Anu asks because this chat shows your screen, which can hold other people's words. Check this closely", gate.requests.single().reason)
+        assertTrue(Tier.CLOUD !in (chat.send("Thanks", device).toList().first { it is AgentEvent.Routed } as AgentEvent.Routed).decision.allowed)
+        assertTrue(cloud.requests.isEmpty())
+    }
+
+    @Test
+    fun `a code on a screen is masked in the answer about it`() = runTest {
+        val screen = io.github.sandeepvijayarao09.anu.core.model.Screen("Messages", atMillis = 5, image = byteArrayOf(1))
+        base.enqueue(Step.Reply(listOf("Your verification code is 482913.")))
+        val completed = session.send("What does it say?", onPhone, screen = screen).toList().last() as AgentEvent.Completed
+        assertEquals("Your verification code is ••••••.", completed.text)
+    }
+
+    @Test
     fun `a whole phone command runs with no model, and is saved as done on the phone`() = runTest {
         val timer = FakeTimer()
         val chat = ChatSession(agent(mapOf(Tier.BASE to base, Tier.PRO to pro), ToolBroker(listOf(timer), RecordingGate())), commands = PhoneCommands::match)

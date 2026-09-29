@@ -10,6 +10,7 @@ import io.github.sandeepvijayarao09.anu.core.agent.ApprovalDecision
 import io.github.sandeepvijayarao09.anu.core.agent.ApprovalRequest
 import io.github.sandeepvijayarao09.anu.core.agent.ToolOutcome
 import io.github.sandeepvijayarao09.anu.core.agent.ChatSession
+import io.github.sandeepvijayarao09.anu.core.agent.PointingWords
 import io.github.sandeepvijayarao09.anu.core.model.BrainId
 import io.github.sandeepvijayarao09.anu.core.model.BrainStatus
 import io.github.sandeepvijayarao09.anu.core.model.ChatMessage
@@ -71,6 +72,8 @@ data class Bubble(
     val voice: VoiceClip? = null,
     /** An answer waiting while its turn's voice note is written down. */
     val hearing: Boolean = false,
+    /** The app whose screen the user asked about in this turn (EXP-2, ADR-083). Its picture is never kept here. */
+    val screenApp: String? = null,
 )
 
 /**
@@ -138,6 +141,12 @@ data class ChatUiState(
     val recordingSeconds: Int? = null,
     /** Why a photo or a recording couldn't be used, or what happened to it, such as "This photo can't be read." */
     val attachmentNote: String? = null,
+    /** The assistant card was handed the screen below it, so it can offer "Use this screen" (EXP-2, ADR-083). */
+    val screenOffered: Boolean = false,
+    /** The user tapped "Use this screen" for the next question. */
+    val useScreen: Boolean = false,
+    /** The app whose screen is being read for the running answer, for the card's "Reading <app>" line. */
+    val readingApp: String? = null,
     /** The oldest action waiting for the user's approval (I2). */
     val approval: ApprovalRequest? = null,
     /** True once the chat is longer than the model's view, so older messages are left out (ADR-040). */
@@ -196,9 +205,13 @@ class ChatViewModel(
     private val recorder: VoiceRecorder? = null,
     /** Whether an installed model can write a voice note down (ADR-078). */
     private val hears: () -> Boolean = { false },
+    /** The screen under the assistant card (EXP-2, ADR-083). Only the card has one. */
+    private val screens: ScreenSource? = null,
 ) : ViewModel() {
 
-    private val mutable = MutableStateFlow(ChatUiState(voiceAvailable = speechIn?.available == true, cloudAllowed = device().cloudAllowed))
+    private val mutable = MutableStateFlow(
+        ChatUiState(voiceAvailable = speechIn?.available == true, cloudAllowed = device().cloudAllowed, screenOffered = screens?.offered() == true),
+    )
     val state: StateFlow<ChatUiState> = mutable.asStateFlow()
 
     private var running: Job? = null
@@ -255,6 +268,9 @@ class ChatViewModel(
     }
 
     fun removeAttachment() = mutable.update { it.copy(attachment = null) }
+
+    /** "Use this screen": the next question goes with the screen under the card, whatever its words (design review D13). */
+    fun toggleUseScreen() = mutable.update { it.copy(useScreen = !it.useScreen) }
 
     /** Whether a voice note could be written down now, for the "+" sheet (ADR-078). */
     fun canHear(): Boolean = hears()
@@ -357,9 +373,11 @@ class ChatViewModel(
         val photos = listOfNotNull(photo?.let { Photo(0, it) })
         val asked = nextId++
         val clip = voice?.let { VoiceClip(it.seconds, it.shared, it.interrupted, writing = true, recording = it) }
+        // A question from the card about the screen below it: pointing words, or "Use this screen" (EXP-2, D13).
+        val aboutScreen = screens != null && state.screenOffered && (state.useScreen || PointingWords.asks(trimmed))
         add(Bubble(asked, fromUser = true, text = trimmed, photos = photos, voice = clip))
-        mutable.update { it.copy(attachment = null, recording = null, attachmentNote = null) }
-        run(trimmed, photos = photos, recording = voice, asked = asked)
+        mutable.update { it.copy(attachment = null, recording = null, attachmentNote = null, useScreen = false) }
+        run(trimmed, photos = photos, recording = voice, asked = asked, aboutScreen = aboutScreen)
     }
 
     /** Starts listening once the saved conversation has loaded, for the assistant overlay (ADR-044). */
@@ -397,7 +415,7 @@ class ChatViewModel(
                 is ChatMessage.User -> {
                     asked = i
                     val voice = message.voiceNote?.let { VoiceClip(it.seconds, it.shared, it.interrupted, words = it.words) }
-                    out += Bubble(nextId++, fromUser = true, text = message.text, photos = message.photos, saved = true, voice = voice)
+                    out += Bubble(nextId++, fromUser = true, text = message.text, photos = message.photos, saved = true, voice = voice, screenApp = message.screen?.app)
                 }
                 is ChatMessage.Model -> if (message.toolCalls.isEmpty() && message.text.isNotEmpty()) {
                     val details = answers[asked]
@@ -557,15 +575,34 @@ class ChatViewModel(
         recording: Recording? = null,
         voiceNote: VoiceNote? = null,
         asked: Long? = null,
+        aboutScreen: Boolean = false,
     ) {
         val id = nextId++
         add(Bubble(id, fromUser = false, text = "", streaming = true))
         mutable.update { it.copy(busy = true) }
         running = viewModelScope.launch {
             try {
+                // The screen is read only now, when the user has asked about it; one that can't be read is said so,
+                // rather than answered without it (EXP-2, ADR-083).
+                val screen = if (aboutScreen) {
+                    when (val look = screens?.screen()) {
+                        is ScreenLook.Ready -> look.screen
+                        is ScreenLook.Unavailable -> {
+                            edit(id) { it.copy(text = look.reason, failed = true) }
+                            return@launch
+                        }
+                        null -> null
+                    }
+                } else {
+                    null
+                }
+                screen?.let { shown ->
+                    asked?.let { question -> edit(question) { it.copy(screenApp = shown.app) } }
+                    mutable.update { it.copy(readingApp = shown.app) }
+                }
                 session.send(
                     text, device(), pinned, cloudConsented, sharedFacts, replacingLast = replaces?.saved == true, photos = photos,
-                    recording = recording, voiceNote = voiceNote,
+                    recording = recording, voiceNote = voiceNote, screen = screen,
                 ).collect { reduce(id, text, it, replaces, asked) }
             } catch (e: CancellationException) {
                 edit(id) { it.copy(note = "Stopped", hearing = false) }
@@ -576,7 +613,7 @@ class ChatViewModel(
                 mutable.update { it.copy(failures = it.failures + 1) }
             } finally {
                 edit(id) { it.copy(streaming = false) }
-                mutable.update { it.copy(busy = false, cloudAllowed = device().cloudAllowed) }
+                mutable.update { it.copy(busy = false, cloudAllowed = device().cloudAllowed, readingApp = null) }
             }
         }
     }

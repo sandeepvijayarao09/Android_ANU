@@ -26,4 +26,7 @@ enum class UntrustedContent {
 
     /** A recording written down on the phone, a voice note or a shared one: it can hold other people's words (G3). */
     RECORDING,
+
+    /** The screen the user asked about from the assistant card: it can show other people's words (EXP-2). */
+    SCREEN,
 }

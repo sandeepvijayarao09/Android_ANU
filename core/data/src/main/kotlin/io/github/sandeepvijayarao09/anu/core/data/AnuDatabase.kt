@@ -33,6 +33,8 @@ data class MessageEntity(
      * recording itself is never saved. Null when it has none.
      */
     val voiceNoteJson: String? = null,
+    /** The screen a user message asked about (ADR-083), as JSON: its app and when. Never its picture. Null when none. */
+    val screenJson: String? = null,
 )
 
 /** A photo the user attached, kept in the encrypted database with its message (G2, ADR-075). A JPEG, 1,024 px at most. */
@@ -160,14 +162,16 @@ interface ToolResultDao {
         MemoryEventEntity::class, FactEntity::class, FactSourceEntity::class, RejectedFactEntity::class, ProfileVersionEntity::class,
         McpServerEntity::class, StoreEntity::class, FactVectorEntity::class, AnswerEntity::class, PhotoEntity::class,
     ],
-    version = 8,
+    version = 9,
     // v2 (Phase 2) adds tool_audit and tool_results; v3 (Phase 3) adds memory; v4 adds MCP servers and
     // stores (ADR-046, ADR-047); v5 adds fact vectors for search by meaning (ADR-055); v6 adds answers'
     // details (ADR-071); v7 adds photos and the messages' photo ids (ADR-075); v8 adds the messages' voice notes
-    // (ADR-078). Room derives each migration from the committed schemas.
+    // (ADR-078); v9 adds the screen a message asked about (ADR-083). Room derives each migration from the committed
+    // schemas.
     autoMigrations = [
         AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3), AutoMigration(from = 3, to = 4), AutoMigration(from = 4, to = 5),
         AutoMigration(from = 5, to = 6), AutoMigration(from = 6, to = 7), AutoMigration(from = 7, to = 8),
+        AutoMigration(from = 8, to = 9),
     ],
 )
 abstract class AnuDatabase : RoomDatabase() {

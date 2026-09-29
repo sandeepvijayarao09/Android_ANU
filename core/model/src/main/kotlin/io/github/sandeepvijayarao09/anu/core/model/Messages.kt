@@ -6,10 +6,16 @@ import kotlinx.serialization.json.JsonObject
 /** One turn of the transcript the agent runtime persists. The transcript is the truth (ADR-018). */
 sealed interface ChatMessage {
     /**
-     * The user's message, with any [photos] they attached (G2, ADR-075) and any [voiceNote], a recording written down
-     * on the phone (G3, EXP-3, ADR-078). Neither ever leaves the phone (MEDIA-1). Models read [modelText].
+     * The user's message, with any [photos] they attached (G2, ADR-075), any [voiceNote], a recording written down on
+     * the phone (G3, EXP-3, ADR-078), and any [screen] it asked about (EXP-2, ADR-083). None ever leaves the phone
+     * (MEDIA-1). Models read [modelText].
      */
-    data class User(val text: String, val photos: List<Photo> = emptyList(), val voiceNote: VoiceNote? = null) : ChatMessage
+    data class User(
+        val text: String,
+        val photos: List<Photo> = emptyList(),
+        val voiceNote: VoiceNote? = null,
+        val screen: Screen? = null,
+    ) : ChatMessage
 
     data class Model(val text: String, val toolCalls: List<ToolCall> = emptyList()) : ChatMessage
 
@@ -28,6 +34,20 @@ class Photo(val id: Long, val bytes: ByteArray? = null) {
     override fun hashCode(): Int = id.hashCode()
 
     override fun toString(): String = "Photo($id)"
+}
+
+/**
+ * The screen the user asked about from the assistant card (EXP-2, ADR-083): the [app] it showed, and its picture with
+ * any codes masked, while this turn has it. The picture is never saved: a saved message keeps only the app and when,
+ * so later turns know a screen was shown, stay on the phone and stay tainted. Two are the same when their app and
+ * time are.
+ */
+class Screen(val app: String, val atMillis: Long, val image: ByteArray? = null) {
+    override fun equals(other: Any?): Boolean = other is Screen && other.app == app && other.atMillis == atMillis
+
+    override fun hashCode(): Int = 31 * app.hashCode() + atMillis.hashCode()
+
+    override fun toString(): String = "Screen($app, $atMillis)"
 }
 
 /**

@@ -519,4 +519,61 @@ class ChatViewModelTest {
         assertEquals("Voice note · 0:17", voiceLabel(VoiceClip(17)))
         assertEquals("Shared recording · 1:02 · Stopped early", voiceLabel(VoiceClip(62, shared = true, interrupted = true)))
     }
+
+    private class FakeScreens(private val look: ScreenLook) : ScreenSource {
+        var asked = 0
+
+        override fun offered() = true
+
+        override suspend fun screen(): ScreenLook {
+            asked++
+            return look
+        }
+    }
+
+    private fun cardChat(screens: ScreenSource): ChatViewModel {
+        val brains = mapOf(Tier.BASE to base, Tier.PRO to pro)
+        val session = ChatSession(Agent(Router(), BrainProvider { brains[it] }, ToolBroker(emptyList(), ApprovalCenter())))
+        return ChatViewModel(session, device = { device }, screens = screens)
+    }
+
+    @Test
+    fun `a pointing question from the card reads the screen, and other questions don't`() {
+        val screens = FakeScreens(ScreenLook.Ready(io.github.sandeepvijayarao09.anu.core.model.Screen("Messages", 5, byteArrayOf(1))))
+        val card = cardChat(screens)
+        assertTrue(card.state.value.screenOffered)
+        base.enqueue(Step.Reply("It's 12:30."))
+        card.send("What time is it in Tokyo?")
+        assertEquals(0, screens.asked)
+
+        pro.enqueue(Step.Reply("Maya invites you to lunch."))
+        base.enqueue(Step.Reply("Maya invites you to lunch."))
+        card.send("What's this?")
+        assertEquals(1, screens.asked)
+        assertEquals("Messages", card.state.value.bubbles.last { it.fromUser }.screenApp)
+        assertNull("the reading line goes once the answer is done", card.state.value.readingApp)
+    }
+
+    @Test
+    fun `Use this screen sends the screen with any question, once`() {
+        val screens = FakeScreens(ScreenLook.Ready(io.github.sandeepvijayarao09.anu.core.model.Screen("Chrome", 5, byteArrayOf(1))))
+        val card = cardChat(screens)
+        card.toggleUseScreen()
+        assertTrue(card.state.value.useScreen)
+        base.enqueue(Step.Reply("A recipe for soup."))
+        pro.enqueue(Step.Reply("A recipe for soup."))
+        card.send("Is it vegetarian?")
+        assertEquals(1, screens.asked)
+        assertFalse(card.state.value.useScreen)
+    }
+
+    @Test
+    fun `a screen that can't be read is said so, and nothing is asked without it`() {
+        val card = cardChat(FakeScreens(ScreenLook.Unavailable("Anu can't see this screen.")))
+        card.send("What's this?")
+        val answer = card.state.value.bubbles.last()
+        assertEquals("Anu can't see this screen.", answer.text)
+        assertTrue(answer.failed)
+        assertTrue("no model was asked", base.requests.isEmpty() && pro.requests.isEmpty())
+    }
 }

@@ -38,7 +38,7 @@ class AssistantActivity : ComponentActivity() {
         val query = intent.getStringExtra(AnuVoiceInteractionService.EXTRA_QUERY)?.takeIf(String::isNotBlank)
         setContent {
             AnuTheme {
-                val chat = viewModel { ChatViewModel(graph.chat, graph.device::current, graph.approvals, graph.speechIn, graph.speechOut, facts = graph::factTexts, brainStatus = graph.onDevice.status, warm = graph::warmStart, recorder = graph.recorder, hears = graph.onDevice::available) }
+                val chat = viewModel { ChatViewModel(graph.chat, graph.device::current, graph.approvals, graph.speechIn, graph.speechOut, facts = graph::factTexts, brainStatus = graph.onDevice.status, warm = graph::warmStart, recorder = graph.recorder, hears = graph.onDevice::available, screens = ScreenHandoff) }
                 var micGranted by remember { mutableStateOf(checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) }
                 val askMic = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
                     micGranted = granted
@@ -62,5 +62,11 @@ class AssistantActivity : ComponentActivity() {
                 )
             }
         }
+    }
+
+    /** The screen below the card is dropped when the card closes (EXP-2, ADR-083). */
+    override fun onDestroy() {
+        if (isFinishing) ScreenHandoff.clear()
+        super.onDestroy()
     }
 }

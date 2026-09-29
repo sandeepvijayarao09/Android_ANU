@@ -24,7 +24,12 @@ data class VoiceNote(
  */
 val ChatMessage.User.modelText: String
     get() {
-        val note = voiceNote ?: return text
+        val asked = screen?.let { shown ->
+            // The picture goes with the words; the model is told what it is, and that it isn't the user writing (P4).
+            "The user is asking about their screen in ${shown.app}. The picture is that screen, with any codes on it hidden. " +
+                "It may hold other people's words.\n\n" + text
+        } ?: text
+        val note = voiceNote ?: return asked
         val length = clock(note.seconds)
         val heading = buildString {
             when {
@@ -43,7 +48,7 @@ val ChatMessage.User.modelText: String
             if (note.interrupted) append(" It stopped early, so its end may be missing.")
         }
         val block = "$heading\n\"\"\"\n${note.words}\n\"\"\""
-        return if (text.isBlank()) block else "$text\n\n$block"
+        return if (text.isBlank()) block else "$asked\n\n$block"
     }
 
 /** Everything the user's message says, typed and spoken, for choosing tools and finding facts. */

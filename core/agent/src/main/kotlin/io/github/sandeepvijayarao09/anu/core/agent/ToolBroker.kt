@@ -312,15 +312,18 @@ class ToolBroker(
     private fun String.andShows(shows: String?, untrusted: Set<UntrustedContent>): String =
         if (shows == null) this else "$this. ${shows.replaceFirstChar(Char::uppercase)}, ${whoWrote(untrusted)}, so check this closely"
 
-    /** A photo or a recording can hold other people's words (a screenshot, a meeting); a message or a reply is theirs. */
+    /** A photo, a recording or a screen can hold other people's words; a message or a reply is theirs. */
     private fun whoWrote(untrusted: Set<UntrustedContent>): String =
-        if (untrusted.all { it == UntrustedContent.PHOTO || it == UntrustedContent.RECORDING }) "which can hold other people's words" else "which others can write"
+        if (untrusted.all { it in MEDIA }) "which can hold other people's words" else "which others can write"
 
     private fun idempotencyKey(turnKey: String, tool: String, payload: JsonObject): String =
         MessageDigest.getInstance("SHA-256").digest("$turnKey|$tool|$payload".toByteArray())
             .joinToString("") { "%02x".format(it) }
 
     companion object {
+        /** Content the user chose to show, which can still hold other people's words. */
+        private val MEDIA = setOf(UntrustedContent.PHOTO, UntrustedContent.RECORDING, UntrustedContent.SCREEN)
+
         /** The audit's outcome for a call that ran with the user's own changes. */
         const val OK_EDITED = "ok, edited by you"
 
@@ -336,6 +339,7 @@ class ToolBroker(
                     UntrustedContent.UNKNOWN -> "a reply from a service you removed"
                     UntrustedContent.PHOTO -> "a photo"
                     UntrustedContent.RECORDING -> "a recording"
+                    UntrustedContent.SCREEN -> "your screen"
                 }
             }
             val listed = if (names.size == 1) names.single() else names.dropLast(1).joinToString(", ") + " and " + names.last()

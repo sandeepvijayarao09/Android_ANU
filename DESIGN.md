@@ -332,10 +332,13 @@ It opens from the power button, the corner swipe or "Hey Anu".
 - **Content, top to bottom:**
   - the 28dp sphere and "Anu";
   - the live question (20sp, weight 550);
-  - the answer (body);
-  - a footer with a privacy dot and "On device · not reading your screen";
+  - when the summon was handed the screen, a "Use this screen" pill (`accent` on its tint), which reads "Will use this screen" once tapped, until the next question;
+  - while the screen is being read for an answer, "Reading Messages" in `text-muted` caption, which TalkBack hears once; it shows whenever the screen is used, and never otherwise;
+  - the answer (body); when the screen can't be read, the reason in its place ("Anu can't see this screen: the app keeps it private…");
+  - a footer with a privacy dot and "On device · reads the screen only when you ask", or "On device · read your screen in Messages" after an answer that did;
   - a 38dp mic button.
 - **Behavior:** tapping the card opens the full app. Tapping outside it closes it. The underlying app stays visible and lightly dimmed.
+- **In the thread:** a question about the screen shows "Your screen · Messages" in `text-muted` label above its words. The picture is never kept, so there's nothing to show.
 
 ### Segmented control
 A `full` track in `surface-2`, at least 48dp tall, with a 4dp inset. The selected segment is a `surface` pill with the soft shadow (none in dark mode) and `text` label; the others are `text-muted`. Labels are 13sp and never wrap. TalkBack hears each segment as a radio button. For a choice among two to four peers, such as the lab's template or model.
@@ -441,3 +444,4 @@ Three tabs with 24dp line icons at stroke 1.7 and 11sp labels. The selected tab 
 | 2026-09-29 | Thinking shows as "Thought it through", collapsed above the answer; its seconds are in About this answer | The reasoning is there for anyone who wants to check it, without crowding the answer. A time in the thread would be a speed figure, which stays out of the chat |
 | 2026-09-29 | "+" opens a small sheet with Photo and Voice note. A voice note records in the composer's place, then waits above it like a photo; in your turn it shows its words, with no player | Both are things you add to a message, so they share one door. Recording inline keeps the thread in view, and Stop before Send lets words go with the note. The words are what the model read, so they're what you see; the recording isn't kept, so nothing pretends to play it |
 | 2026-09-29 | The prompt lab is a Settings page built from grouped lists, with a segmented control and slider rows, and shows speed next to its answer | It's a tool for trying the models, so it belongs with them in Settings, not in Talk. The segmented control and slider rows are the plainest way to pick among a few peers and to set a number exactly; both use the existing tokens. Speed is what people try the lab for, so here it sits by the answer, in mono, unlike the chat |
+| 2026-09-29 | The assistant card reads the screen only when asked, says "Reading <app>" while it does, and its footer says so | Pointing words or one tap are how people ask about what's in front of them, and a visible line keeps it from ever happening silently. The old footer, "not reading your screen", was true of v1; the new one keeps the promise that matters: never unless you ask |

@@ -6,6 +6,7 @@ import io.github.sandeepvijayarao09.anu.core.model.factsBlock
 import io.github.sandeepvijayarao09.anu.core.model.DataClass
 import io.github.sandeepvijayarao09.anu.core.model.Photo
 import io.github.sandeepvijayarao09.anu.core.model.Recording
+import io.github.sandeepvijayarao09.anu.core.model.Screen
 import io.github.sandeepvijayarao09.anu.core.model.ToolCall
 import io.github.sandeepvijayarao09.anu.core.model.Transcriber
 import io.github.sandeepvijayarao09.anu.core.model.UntrustedContent
@@ -113,7 +114,9 @@ class ChatSession(
      * complete; a retry passes the ids it already has. A photo keeps the turn on the phone (MEDIA-1, ADR-075).
      * A [recording] is written down first (G3, EXP-3, ADR-078): its words stream as [AgentEvent.Transcribing], then
      * the turn goes on with them as the message's voice note. A retry passes the [voiceNote] it already has. A voice
-     * note keeps the turn on the phone too, and its recording is never saved.
+     * note keeps the turn on the phone too, and its recording is never saved. A [screen] the user asked about from the
+     * assistant card goes to the model with its picture this turn only (EXP-2, ADR-083): the saved chat keeps which app
+     * and when, never the picture, and it keeps its turns on the phone and tainted.
      */
     fun send(
         text: String,
@@ -125,12 +128,13 @@ class ChatSession(
         photos: List<Photo> = emptyList(),
         recording: Recording? = null,
         voiceNote: VoiceNote? = null,
+        screen: Screen? = null,
     ): Flow<AgentEvent> = flow {
         lock.withLock {
             val fresh = mutableListOf<Long>()
             var completed = false
             try {
-                runTurn(text, device, pinned, cloudConsented, sharedFacts, replacingLast, photos, recording, voiceNote, fresh) { completed = true }
+                runTurn(text, device, pinned, cloudConsented, sharedFacts, replacingLast, photos, recording, voiceNote, screen, fresh) { completed = true }
             } finally {
                 if (!completed && fresh.isNotEmpty()) withContext(NonCancellable) { photoStore.delete(fresh) }
             }
@@ -148,6 +152,7 @@ class ChatSession(
         photos: List<Photo>,
         recording: Recording?,
         voiceNote: VoiceNote?,
+        screen: Screen?,
         fresh: MutableList<Long>,
         onCompleted: () -> Unit,
     ) {
@@ -162,7 +167,7 @@ class ChatSession(
                 written(it)?.also { heardMs = (nanoTime() - began) / 1_000_000 } ?: return
             }
             // A whole phone command needs no model (G6, ADR-076). A retry, a photo or a voice note goes to the model.
-            val command = if (photos.isEmpty() && note == null && pinned == null && !cloudConsented) commands(text) else null
+            val command = if (photos.isEmpty() && note == null && screen == null && pinned == null && !cloudConsented) commands(text) else null
             if (command != null) return directTurn(command, text, saved, kept, transcript, onCompleted)
             val asking = ChatMessage.User(text, voiceNote = note)
             val users = transcript.filterIsInstance<ChatMessage.User>() + asking
@@ -178,7 +183,8 @@ class ChatSession(
             val attached = photos.map { photo ->
                 if (photo.id != 0L) photo else Photo(photoStore.save(requireNotNull(photo.bytes) { "a new photo needs its bytes" }).also(fresh::add), photo.bytes)
             }
-            val message = ChatMessage.User(text, attached.map { Photo(it.id) }, note)
+            // The saved message keeps the screen's app and time, never its picture (ADR-083).
+            val message = ChatMessage.User(text, attached.map { Photo(it.id) }, note, screen?.let { Screen(it.app, it.atMillis) })
             // What every turn carries besides the history. The note about left-out messages is counted
             // either way, so adding it can't push a turn over the budget.
             val fixed = Tokens.of(systemPrompt(tools, trimmed = true)) + Tokens.of(memoryBlock) + Tokens.of(relevantBlock) +
@@ -188,7 +194,7 @@ class ChatSession(
             val shown = transcript.subList(windowStart, transcript.size).toList()
             val system = systemPrompt(tools, trimmed = windowStart > 0)
             // The model sees the photos in its view; the saved chat keeps only their ids.
-            val turn = withPhotoBytes(shown + ChatMessage.User(text, attached, note))
+            val turn = withPhotoBytes(shown + ChatMessage.User(text, attached, note, screen))
             val promptTokens = ceil((fixed + Tokens.of(shown)) * scale).toInt()
             mutableContext.value = ContextView(windowStart, transcript.size, promptTokens, window.budget, scale, mutableContext.value.lastSample, relevantFacts.size)
             val route = RouteRequest(
@@ -202,6 +208,7 @@ class ChatSession(
                 // answer is still in view, so the turn stays on the phone (MEDIA-1, MEDIA-2).
                 hasPhotos = (shown + message).any { it is ChatMessage.User && it.photos.isNotEmpty() },
                 hasVoiceNote = (shown + message).any { it is ChatMessage.User && it.voiceNote != null },
+                hasScreen = (shown + message).any { it is ChatMessage.User && it.screen != null },
             )
             // The index of this message in the transcript, which keys its answer's details.
             val asked = transcript.size
@@ -212,8 +219,8 @@ class ChatSession(
             var escalatedFrom: Tier? = null
             // When the model began reasoning, for how long it thought before the answer's first word.
             var firstThought: Long? = null
-            // A photo in view can show a code or a password: the answer about it is guarded (I1, ADR-082).
-            val shield = if (route.hasPhotos) SecretShield(text) else null
+            // A photo or a screen in view can show a code or a password: the answer about it is guarded (I1, ADR-082).
+            val shield = if (route.hasPhotos || route.hasScreen) SecretShield(text) else null
             agent.run(
                 route, device, system, turn, tools, turnKey = turnKey, sentAt = SENT_AT.format(now), memory = memoryBlock,
                 relevant = relevantBlock, sharedFacts = if (cloudConsented) sharedFacts else emptyList(), consentFacts = consentFacts,
@@ -481,6 +488,7 @@ class ChatSession(
         val media = listOfNotNull(
             UntrustedContent.PHOTO.takeIf { users.any { it.photos.isNotEmpty() } },
             UntrustedContent.RECORDING.takeIf { users.any { it.voiceNote != null } },
+            UntrustedContent.SCREEN.takeIf { users.any { it.screen != null } },
         )
         return results + media
     }

@@ -43,6 +43,17 @@ class VoiceNotesTest {
     }
 
     @Test
+    fun `a question about the screen says what the picture is, and that it isn't the user writing`() {
+        val asked = ChatMessage.User("What's this?", screen = Screen("Messages", 5, byteArrayOf(1))).modelText
+        assertEquals(
+            "The user is asking about their screen in Messages. The picture is that screen, with any codes on it hidden. " +
+                "It may hold other people's words.\n\nWhat's this?",
+            asked,
+        )
+        assertEquals("a screen is the same screen with or without its picture", Screen("Messages", 5), Screen("Messages", 5, byteArrayOf(1)))
+    }
+
+    @Test
     fun `all words joins what was typed and what was said`() {
         assertEquals("Summarize\nBuy oat milk.", ChatMessage.User("Summarize", voiceNote = VoiceNote("Buy oat milk.", 3)).allWords)
         assertEquals("Buy oat milk.", ChatMessage.User(" ", voiceNote = VoiceNote("Buy oat milk.", 3)).allWords)

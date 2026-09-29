@@ -19,6 +19,9 @@ object OneTimeCodes {
 
     fun looksLikeVerification(text: String): Boolean = VERIFICATION.containsMatchIn(text) && DIGITS.containsMatchIn(text)
 
+    /** Whether [text] holds something shaped like a code, a run of 4 to 8 digits or "123 456". */
+    fun containsCode(text: String): Boolean = DIGITS.containsMatchIn(text)
+
     fun mask(text: String): String = if (looksLikeVerification(text)) DIGITS.replace(text, MASK) else text
 
     /**

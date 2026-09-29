@@ -22,6 +22,7 @@ class AnuApp : Application() {
     override fun onCreate() {
         super.onCreate()
         graph = AppGraph(this)
+        ScreenHandoff.install(this)
         // Off the main thread: this also opens the database, and it gives the memory tools their facts. Then facts
         // without a vector for the installed search model get one, as after that model is installed or replaced
         // (ADR-062). The model loads only if a fact is missing its vector.

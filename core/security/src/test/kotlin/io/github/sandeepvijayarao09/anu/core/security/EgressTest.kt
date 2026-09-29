@@ -105,6 +105,16 @@ class EgressTest {
     }
 
     @Test
+    fun `a screen is refused at the gate, even without its picture`() = runTest {
+        val request = io.github.sandeepvijayarao09.anu.core.model.BrainRequest(
+            transcript = listOf(io.github.sandeepvijayarao09.anu.core.model.ChatMessage.User("What's this?", screen = io.github.sandeepvijayarao09.anu.core.model.Screen("Messages", 5))),
+        )
+        val refused = runCatching { gate.prepare(request, "generativelanguage.googleapis.com") }
+        assertEquals("Screens never leave the phone (MEDIA-1)", refused.exceptionOrNull()?.message)
+        assertTrue(ledger.entries.value.isEmpty())
+    }
+
+    @Test
     fun `a voice note is refused at the gate, before any ledger entry, even in an older message`() = runTest {
         val note = io.github.sandeepvijayarao09.anu.core.model.VoiceNote("Call Maya on Thursday.", seconds = 17)
         val request = io.github.sandeepvijayarao09.anu.core.model.BrainRequest(

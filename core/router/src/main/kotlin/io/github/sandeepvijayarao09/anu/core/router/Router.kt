@@ -62,6 +62,7 @@ class Router(
             // Consent can't open this: a photo is never sent (MEDIA-1).
             request.hasPhotos -> "a photo is in view: on-device only"
             request.hasVoiceNote -> "a voice note is in view: on-device only"
+            request.hasScreen -> "a screen is in view: on-device only"
             else -> null
         }
         if (cloudBlock != null && allowed.remove(Tier.CLOUD)) reasons += cloudBlock

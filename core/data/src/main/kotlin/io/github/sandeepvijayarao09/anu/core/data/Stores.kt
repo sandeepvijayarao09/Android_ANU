@@ -9,6 +9,7 @@ import io.github.sandeepvijayarao09.anu.core.agent.TranscriptStore
 import io.github.sandeepvijayarao09.anu.core.model.ChatMessage
 import io.github.sandeepvijayarao09.anu.core.model.DataClass
 import io.github.sandeepvijayarao09.anu.core.model.Photo
+import io.github.sandeepvijayarao09.anu.core.model.Screen
 import io.github.sandeepvijayarao09.anu.core.model.ToolCall
 import io.github.sandeepvijayarao09.anu.core.model.ToolResult
 import io.github.sandeepvijayarao09.anu.core.model.UntrustedContent
@@ -36,6 +37,7 @@ import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.long
 import kotlinx.serialization.json.put
 import java.time.Instant
 
@@ -150,6 +152,12 @@ internal object MessageCodec {
                     if (note.interrupted) put("interrupted", true)
                 }.toString()
             },
+            screenJson = message.screen?.let { screen ->
+                buildJsonObject {
+                    put("app", screen.app)
+                    put("atMillis", screen.atMillis)
+                }.toString()
+            },
         )
         is ChatMessage.Model -> MessageEntity(
             conversationId, seq, "model", message.text,
@@ -196,6 +204,10 @@ internal object MessageCodec {
                     shared = note["shared"]?.jsonPrimitive?.boolean ?: false,
                     interrupted = note["interrupted"]?.jsonPrimitive?.boolean ?: false,
                 )
+            },
+            row.screenJson?.let { json ->
+                val screen = Json.parseToJsonElement(json).jsonObject
+                Screen(screen.getValue("app").jsonPrimitive.content, screen.getValue("atMillis").jsonPrimitive.long)
             },
         )
         "model" -> ChatMessage.Model(

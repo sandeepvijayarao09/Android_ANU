@@ -1,5 +1,7 @@
 package io.github.sandeepvijayarao09.anu.feature.home
 
+import androidx.compose.ui.semantics.selected
+import io.github.sandeepvijayarao09.anu.core.ui.AnuPill
 import io.github.sandeepvijayarao09.anu.core.model.Recording
 import io.github.sandeepvijayarao09.anu.core.model.clock
 import io.github.sandeepvijayarao09.anu.core.ui.AnuSheet
@@ -335,6 +337,10 @@ private fun YourTurn(bubble: Bubble, loadPhoto: suspend (Long) -> ByteArray?) {
     Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(6.dp)) {
         bubble.photos.forEach { photo -> PhotoView(photo, loadPhoto) }
         bubble.voice?.let { clip -> VoiceClipView(clip) }
+        // A question about the screen keeps only which app it was; the picture is never kept (ADR-083).
+        bubble.screenApp?.let { app ->
+            Text("Your screen · $app", style = AnuTheme.type.label.copy(fontWeight = FontWeight.Normal), color = colors.textMuted)
+        }
         if (bubble.text.isNotEmpty()) {
             Text(
                 bubble.text,
@@ -727,6 +733,17 @@ fun AssistantCard(
         question?.let {
             Text(it, Modifier.padding(top = 12.dp), style = AnuTheme.type.title.copy(fontSize = 20.sp, lineHeight = 26.sp), color = if (state.listening && state.heard.isEmpty()) colors.textFaint else colors.text)
         }
+        // The screen is read only when asked, and the card says so while it is (EXP-2, design review D13).
+        state.readingApp?.let { app ->
+            Text("Reading $app", Modifier.padding(top = 6.dp).semantics { liveRegion = LiveRegionMode.Polite }, style = AnuTheme.type.caption, color = colors.textMuted)
+        }
+        if (state.screenOffered && state.readingApp == null && !state.busy) {
+            AnuPill(
+                if (state.useScreen) "Will use this screen" else "Use this screen",
+                onClick = viewModel::toggleUseScreen,
+                modifier = Modifier.padding(top = 10.dp).semantics { selected = state.useScreen },
+            )
+        }
         if (!state.listening && answer != null) {
             Column(Modifier.padding(top = 8.dp).heightIn(max = 220.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 val shown = answer.text.ifEmpty { answer.note ?: if (answer.streaming) "…" else "" }
@@ -739,8 +756,13 @@ fun AssistantCard(
         Row(Modifier.fillMaxWidth().padding(top = 16.dp), verticalAlignment = Alignment.CenterVertically) {
             PrivacyDot(away = cloud, size = 6.dp)
             Spacer(Modifier.width(6.dp))
+            val readScreen = state.bubbles.lastOrNull { it.fromUser }?.screenApp
             Text(
-                if (cloud) "Gemini (cloud) · not reading your screen" else "On device · not reading your screen",
+                when {
+                    cloud -> "Gemini (cloud)"
+                    readScreen != null -> "On device · read your screen in $readScreen"
+                    else -> "On device · reads the screen only when you ask"
+                },
                 Modifier.weight(1f),
                 style = AnuTheme.type.caption,
                 color = colors.textMuted,

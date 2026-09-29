@@ -1,8 +1,14 @@
 package io.github.sandeepvijayarao09.anu
 
+import android.app.assist.AssistStructure
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.os.SystemClock
+import android.util.Log
 import android.service.voice.VoiceInteractionService
 import android.service.voice.VoiceInteractionSession
 import android.service.voice.VoiceInteractionSessionService
@@ -48,16 +54,83 @@ class AnuSessionService : VoiceInteractionSessionService() {
 }
 
 /**
- * The session has no window of its own: it opens [AssistantActivity] as the assistant. Screen content
- * the system may offer (assist data) is ignored; Anu never reads the screen in v1 (ADR-044).
+ * The session has no window of its own: it opens [AssistantActivity] as the assistant. What Android offers of the
+ * screen below, its text structure and screenshot, goes to [ScreenHandoff] in memory, for the card to use only if the
+ * user asks about the screen (EXP-2, ADR-083). The session stays shown until both arrive, or [HANDOFF_WAIT_MS] pass,
+ * because Android offers them only to a session that's showing (A5); debug builds log when each part arrives and its
+ * size, never its content.
  */
 class AnuSession(context: Context) : VoiceInteractionSession(context) {
+    private val handler = Handler(Looper.getMainLooper())
+    private val hideLater = Runnable { hide() }
+    private var shownAt = 0L
+    private var assisted = false
+    private var screenshotted = false
+
+    override fun onCreate() {
+        super.onCreate()
+        // The card is the activity; the session needs no window, so nothing of it can cover the card.
+        setUiEnabled(false)
+    }
+
     override fun onShow(args: Bundle?, showFlags: Int) {
         super.onShow(args, showFlags)
+        shownAt = SystemClock.elapsedRealtime()
+        assisted = false
+        screenshotted = false
+        ScreenHandoff.begin(System.currentTimeMillis())
         val intent = Intent(context, AssistantActivity::class.java)
         args?.getString(AnuVoiceInteractionService.EXTRA_QUERY)?.let { intent.putExtra(AnuVoiceInteractionService.EXTRA_QUERY, it) }
         startAssistantActivity(intent)
-        hide()
+        if (BuildConfig.DEBUG) {
+            Log.d("Anu", "Assistant: shown, text ${showFlags and SHOW_WITH_ASSIST != 0}, screenshot ${showFlags and SHOW_WITH_SCREENSHOT != 0}")
+        }
+        handler.postDelayed(hideLater, HANDOFF_WAIT_MS)
+    }
+
+    override fun onHandleAssist(state: AssistState) {
+        super.onHandleAssist(state)
+        ScreenHandoff.structure(state.assistStructure)
+        if (BuildConfig.DEBUG) {
+            val structure = state.assistStructure
+            val windows = structure?.windowNodeCount ?: 0
+            val texts = (0 until windows).sumOf { count(structure!!.getWindowNodeAt(it).rootViewNode) }
+            Log.d("Anu", "Assistant: screen text after ${SystemClock.elapsedRealtime() - shownAt} ms, $windows windows, $texts text nodes, focused ${state.isFocused}")
+        }
+        assisted = true
+        hideWhenHandedOver()
+    }
+
+    override fun onHandleScreenshot(screenshot: Bitmap?) {
+        super.onHandleScreenshot(screenshot)
+        ScreenHandoff.screenshot(screenshot)
+        if (BuildConfig.DEBUG) {
+            val size = screenshot?.let { "${it.width}x${it.height}" } ?: "none"
+            Log.d("Anu", "Assistant: screenshot after ${SystemClock.elapsedRealtime() - shownAt} ms, $size")
+        }
+        screenshotted = true
+        hideWhenHandedOver()
+    }
+
+    override fun onHide() {
+        handler.removeCallbacks(hideLater)
+        super.onHide()
+    }
+
+    private fun hideWhenHandedOver() {
+        if (assisted && screenshotted) {
+            handler.removeCallbacks(hideLater)
+            hide()
+        }
+    }
+
+    /** How many nodes under [node] show text. Counts only. */
+    private fun count(node: AssistStructure.ViewNode): Int =
+        (if (!node.text.isNullOrEmpty()) 1 else 0) + (0 until node.childCount).sumOf { count(node.getChildAt(it)) }
+
+    private companion object {
+        /** How long the session waits for the screen before it hides anyway. */
+        const val HANDOFF_WAIT_MS = 2_000L
     }
 }
 

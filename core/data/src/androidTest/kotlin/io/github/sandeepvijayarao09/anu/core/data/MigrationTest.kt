@@ -108,4 +108,19 @@ class MigrationTest {
             }
         }
     }
+
+    @Test
+    fun v8ToV9KeepsEverythingAndAddsScreens() {
+        helper.createDatabase("migration-test-9", 8).use { db ->
+            db.execSQL("INSERT INTO messages (conversationId, seq, role, text, toolCallsJson, toolResultsJson, createdAtMillis, photosJson, voiceNoteJson) VALUES ('main', 0, 'user', 'hello', NULL, NULL, 1, NULL, '{\"words\":\"Buy oat milk.\",\"seconds\":3}')")
+        }
+        helper.runMigrationsAndValidate("migration-test-9", 9, true).use { db ->
+            db.query("SELECT text, voiceNoteJson, screenJson FROM messages").use { c ->
+                c.moveToFirst()
+                assertEquals("hello", c.getString(0))
+                assertEquals("{\"words\":\"Buy oat milk.\",\"seconds\":3}", c.getString(1))
+                assertEquals(true, c.isNull(2))
+            }
+        }
+    }
 }
