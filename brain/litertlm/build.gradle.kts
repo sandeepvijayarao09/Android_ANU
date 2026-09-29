@@ -32,6 +32,10 @@ dependencies {
 
     // Memory's extraction eval runs core:memory's extractor on the real model.
     androidTestImplementation(project(":core:memory"))
+    // The voice note eval runs a real chat turn with the real calendar and alarm tools, every approval refused.
+    androidTestImplementation(project(":core:agent"))
+    androidTestImplementation(project(":connector:calendar"))
+    androidTestImplementation(project(":connector:phone"))
     androidTestImplementation(libs.androidx.test.runner)
     androidTestImplementation(libs.androidx.test.ext.junit)
     androidTestImplementation(libs.kotlinx.coroutines.test)
