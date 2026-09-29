@@ -27,6 +27,7 @@ Docs describe what exists, not what we hope for. Use these statuses: Planned →
 ## Invariants that must never break (ARCHITECTURE §2)
 
 - Secrets never enter model context, logs, memory or crash reports. Code and models use `SecretRef` handles. Only the vault's HTTP injector attaches values, and only for bound hosts.
+  - Pictures (ADR-082): a photo the user attaches may show a code or password to the on-device model, but answers about it are masked before they're shown or saved. A screen's codes are masked before any model sees it.
 - `WRITE_EXTERNAL` and `DESTRUCTIVE` tools run only through the Tool Broker, after an approval of the exact payload.
 - Personal data leaves the device only through the egress pipeline, and every egress writes a ledger entry.
 - Chat templates and tool formats come from the runtime. Never hand-build them.

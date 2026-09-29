@@ -212,82 +212,86 @@ class ChatSession(
             var escalatedFrom: Tier? = null
             // When the model began reasoning, for how long it thought before the answer's first word.
             var firstThought: Long? = null
+            // A photo in view can show a code or a password: the answer about it is guarded (I1, ADR-082).
+            val shield = if (route.hasPhotos) SecretShield(text) else null
             agent.run(
                 route, device, system, turn, tools, turnKey = turnKey, sentAt = SENT_AT.format(now), memory = memoryBlock,
                 relevant = relevantBlock, sharedFacts = if (cloudConsented) sharedFacts else emptyList(), consentFacts = consentFacts,
                 inView = untrustedIn(shown + message),
                 thinking = thinking(),
-            ).collect { event ->
-                when (event) {
-                    is AgentEvent.TextDelta -> if (firstWord == null && event.text.isNotEmpty()) firstWord = nanoTime()
+            ).collect { raw ->
+                when (raw) {
+                    is AgentEvent.TextDelta -> if (firstWord == null && raw.text.isNotEmpty()) firstWord = nanoTime()
                     is AgentEvent.Thinking -> if (firstThought == null) firstThought = nanoTime()
                     is AgentEvent.ToolStarted, is AgentEvent.Discarded -> firstWord = null
                     is AgentEvent.Escalated -> {
                         firstWord = null
                         // A tier with no model installed never tried, so it isn't named as having answered.
-                        if (escalatedFrom == null && !event.reason.startsWith(NO_BRAIN)) escalatedFrom = event.from
+                        if (escalatedFrom == null && !raw.reason.startsWith(NO_BRAIN)) escalatedFrom = raw.from
                     }
                     else -> Unit
                 }
-                var out = event
-                if (event is AgentEvent.Completed) {
-                    val now = nanoTime()
-                    val cloud = event.tier == Tier.CLOUD
-                    val details = AnswerDetails(
-                        tier = event.tier,
-                        backend = event.usage?.backend,
-                        escalatedFrom = escalatedFrom,
-                        // The cloud sees only the facts the user chose to share on the consent sheet (ADR-054).
-                        factIds = (if (cloud) relevantFacts.filter { cloudConsented && it.text in sharedFacts } else relevantFacts).mapNotNull { it.id },
-                        summaryShown = !cloud && !memoryBlock.isNullOrBlank(),
-                        actions = event.actions,
-                        firstWordMs = ((firstWord ?: now) - started) / 1_000_000,
-                        totalMs = (now - started) / 1_000_000 + (heardMs ?: 0),
-                        read = event.usage?.inputTokens,
-                        readMs = event.usage?.readMs,
-                        written = event.usage?.outputTokens,
-                        writeMs = event.usage?.writeMs,
-                        counted = event.usage?.counted ?: false,
-                        atMillis = millis(),
-                        guard = event.decision?.takeIf { it.guarded }?.guard,
-                        // Counted pieces can run a token or two short of the limit.
-                        cut = event.decision?.maxOutputTokens?.let { limit -> (event.usage?.outputTokens ?: 0) >= limit * 95 / 100 } ?: false,
-                        thoughtMs = firstThought?.let { thought -> ((firstWord ?: now) - thought) / 1_000_000 },
-                        heardMs = heardMs,
-                    )
-                    out = event.copy(details = details)
-                    event.tokens?.let { sample ->
-                        tokens.observe(sample)
-                        if (sample.onDevice) mutableContext.value = mutableContext.value.copy(lastSample = sample)
-                    }
-                    val exchange = listOf(message) + event.added
-                    if (kept < saved.size) {
-                        // A retry reuses its photos; any the old exchange had and the new one doesn't are let go.
-                        val dropped = saved.subList(kept, saved.size).filterIsInstance<ChatMessage.User>().flatMap { it.photos }.map { it.id } -
-                            message.photos.map { it.id }.toSet()
-                        store.truncate(kept)
-                        answers.truncate(kept)
-                        photoStore.delete(dropped)
-                        while (saved.size > kept) saved.removeAt(saved.lastIndex)
-                    }
-                    store.append(exchange)
-                    saved += exchange
-                    answers.save(asked, details)
-                    onCompleted()
-                    // Memory commands are carried out by the memory tools. Learning from them again made a
-                    // duplicate of a remembered fact on the emulator, and could re-learn a forgotten one.
-                    // Only the typed words are offered: a voice note is learned from only when the user asks,
-                    // through the memory tools, and a shared one never (EXP-3). Memory must never break the chat.
-                    if (skill != Skill.MEMORY && text.isNotBlank()) {
-                        try {
-                            onTurnCompleted(text, turnKey)
-                        } catch (e: CancellationException) {
-                            throw e
-                        } catch (_: Exception) {
+                for (event in shield?.pass(raw) ?: listOf(raw)) {
+                    var out = event
+                    if (event is AgentEvent.Completed) {
+                        val now = nanoTime()
+                        val cloud = event.tier == Tier.CLOUD
+                        val details = AnswerDetails(
+                            tier = event.tier,
+                            backend = event.usage?.backend,
+                            escalatedFrom = escalatedFrom,
+                            // The cloud sees only the facts the user chose to share on the consent sheet (ADR-054).
+                            factIds = (if (cloud) relevantFacts.filter { cloudConsented && it.text in sharedFacts } else relevantFacts).mapNotNull { it.id },
+                            summaryShown = !cloud && !memoryBlock.isNullOrBlank(),
+                            actions = event.actions,
+                            firstWordMs = ((firstWord ?: now) - started) / 1_000_000,
+                            totalMs = (now - started) / 1_000_000 + (heardMs ?: 0),
+                            read = event.usage?.inputTokens,
+                            readMs = event.usage?.readMs,
+                            written = event.usage?.outputTokens,
+                            writeMs = event.usage?.writeMs,
+                            counted = event.usage?.counted ?: false,
+                            atMillis = millis(),
+                            guard = event.decision?.takeIf { it.guarded }?.guard,
+                            // Counted pieces can run a token or two short of the limit.
+                            cut = event.decision?.maxOutputTokens?.let { limit -> (event.usage?.outputTokens ?: 0) >= limit * 95 / 100 } ?: false,
+                            thoughtMs = firstThought?.let { thought -> ((firstWord ?: now) - thought) / 1_000_000 },
+                            heardMs = heardMs,
+                        )
+                        out = event.copy(details = details)
+                        event.tokens?.let { sample ->
+                            tokens.observe(sample)
+                            if (sample.onDevice) mutableContext.value = mutableContext.value.copy(lastSample = sample)
+                        }
+                        val exchange = listOf(message) + event.added
+                        if (kept < saved.size) {
+                            // A retry reuses its photos; any the old exchange had and the new one doesn't are let go.
+                            val dropped = saved.subList(kept, saved.size).filterIsInstance<ChatMessage.User>().flatMap { it.photos }.map { it.id } -
+                                message.photos.map { it.id }.toSet()
+                            store.truncate(kept)
+                            answers.truncate(kept)
+                            photoStore.delete(dropped)
+                            while (saved.size > kept) saved.removeAt(saved.lastIndex)
+                        }
+                        store.append(exchange)
+                        saved += exchange
+                        answers.save(asked, details)
+                        onCompleted()
+                        // Memory commands are carried out by the memory tools. Learning from them again made a
+                        // duplicate of a remembered fact on the emulator, and could re-learn a forgotten one.
+                        // Only the typed words are offered: a voice note is learned from only when the user asks,
+                        // through the memory tools, and a shared one never (EXP-3). Memory must never break the chat.
+                        if (skill != Skill.MEMORY && text.isNotBlank()) {
+                            try {
+                                onTurnCompleted(text, turnKey)
+                            } catch (e: CancellationException) {
+                                throw e
+                            } catch (_: Exception) {
+                            }
                         }
                     }
+                    emit(out)
                 }
-                emit(out)
             }
         }
     }

@@ -591,6 +591,25 @@ class ChatSessionTest {
     }
 
     @Test
+    fun `a code a photo showed is never streamed, and the answer shown and saved is masked`() = runTest {
+        val chat = ChatSession(agent(mapOf(Tier.BASE to base, Tier.PRO to base)), photoStore = InMemoryPhotoStore())
+        base.enqueue(Step.Reply(listOf("It's a text from your bank. ", "Your verification code is 48", "2 913", ". Don't share it.")))
+        val events = chat.send("What does this say?", onPhone, photos = listOf(io.github.sandeepvijayarao09.anu.core.model.Photo(0, sign))).toList()
+        val streamed = events.filterIsInstance<AgentEvent.TextDelta>().joinToString("") { it.text }
+        assertEquals("the words before the code still stream", "It's a text from your bank. Your verification code is ", streamed)
+        val completed = events.last() as AgentEvent.Completed
+        assertEquals("It's a text from your bank. Your verification code is ••••••. Don't share it.", completed.text)
+        assertEquals(completed.text, (chat.history().last() as ChatMessage.Model).text)
+    }
+
+    @Test
+    fun `without a photo in view, answers aren't touched`() = runTest {
+        base.enqueue(Step.Reply(listOf("Your code is 482913.")))
+        val completed = session.send("Read me the code 482913", onPhone).toList().last() as AgentEvent.Completed
+        assertEquals("Your code is 482913.", completed.text)
+    }
+
+    @Test
     fun `a whole phone command runs with no model, and is saved as done on the phone`() = runTest {
         val timer = FakeTimer()
         val chat = ChatSession(agent(mapOf(Tier.BASE to base, Tier.PRO to pro), ToolBroker(listOf(timer), RecordingGate())), commands = PhoneCommands::match)

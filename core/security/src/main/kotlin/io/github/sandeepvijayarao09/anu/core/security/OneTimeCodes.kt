@@ -20,4 +20,11 @@ object OneTimeCodes {
     fun looksLikeVerification(text: String): Boolean = VERIFICATION.containsMatchIn(text) && DIGITS.containsMatchIn(text)
 
     fun mask(text: String): String = if (looksLikeVerification(text)) DIGITS.replace(text, MASK) else text
+
+    /**
+     * Like [mask], also counting [context] as part of the message: an answer can give a code without saying "code",
+     * when the question asked for one ("What's the code?" "It's 482913.").
+     */
+    fun mask(text: String, context: String): String =
+        if (VERIFICATION.containsMatchIn("$context\n$text") && DIGITS.containsMatchIn(text)) DIGITS.replace(text, MASK) else text
 }
