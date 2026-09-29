@@ -42,8 +42,15 @@ class ComplexityScorer(val budgets: TierBudgets = TierBudgets()) {
         val actions = ACTIONS.count { it.containsMatchIn(text) }
         if (actions >= 2) add(2, "$actions actions")
         if (CHAIN.containsMatchIn(text)) add(1, "chained steps")
-        if (REASONING.containsMatchIn(text)) add(1, "reasoning")
-        if (LONG_FORM.containsMatchIn(text)) add(1, "long-form output")
+        // Reasoning: 2 for the first cue, 1 for each more, at most 4 (ADR-084). Explaining, advising, comparing and
+        // planning are where Base's answers fell short on the router eval.
+        val cues = REASONING.count { it.containsMatchIn(text) }
+        if (cues > 0) add(minOf(4, cues + 1), "reasoning ($cues)")
+        if (DURATION.containsMatchIn(text) && WHEN.containsMatchIn(text)) add(2, "time arithmetic")
+        if (SUMMARY.containsMatchIn(text)) add(2, "summary")
+        // Long-form output: 3 for each strong sign, at most 6, so an essay or a detailed report can reach the cloud.
+        val long = LONG_FORM.count { it.containsMatchIn(text) }
+        if (long > 0) add(minOf(6, long * 3), "long-form output ($long)")
         if (SHORT_TASK.containsMatchIn(text)) add(-1, "short task")
 
         // Cloud needs a high score on purpose: on-device is the default (P1).
@@ -73,11 +80,26 @@ class ComplexityScorer(val budgets: TierBudgets = TierBudgets()) {
     private companion object {
         val ACTIONS = listOf(
             "find", "schedul", "book", "email", "send", "repl", "invit", "summar", "draft", "remind", "compar",
-            "move", "cancel",
+            "move", "cancel", "suggest",
         ).map { Regex("\\b$it") }
         val CHAIN = Regex("\\b(and then|then|after that|afterwards)\\b")
-        val REASONING = Regex("\\b(why|compar\\w*|pros and cons|trade-?offs?|plan(ning)?|analy[sz]\\w*|calculat\\w*|step by step|explain how)\\b")
-        val LONG_FORM = Regex("\\b(essay|report|proposal|article|cover letter|detailed|in depth)\\b")
+
+        /** Each a separate cue, counted once. */
+        val REASONING = listOf(
+            "why", "compar\\w*", "pros and cons", "trade-?offs?", "plan(ning)?", "analy[sz]\\w*", "calculat\\w*", "step by step",
+            "explain\\w*", "difference between", "how (does|can|should) ", "ways to", "tips (for|to|on)", "what should i",
+        ).map { Regex("\\b$it\\b") }
+
+        /** A length of time, with a question about when, as in "takes 2 hours 35 minutes. When does it arrive?" */
+        val DURATION = Regex("\\b\\d+\\s*(hours?|hrs?|minutes?|mins?)\\b")
+        val WHEN = Regex("\\b(when (does|do|will|is|am|are)|what time)\\b")
+        val SUMMARY = Regex("\\bsummar(y|ies|i[sz]e\\w*)\\b")
+
+        /** Strong signs of a long answer, each counted once. */
+        val LONG_FORM = listOf(
+            "essay", "report", "proposal", "article", "cover letter", "detailed", "in[- ]depth",
+            "in detail", "comprehensive", "research", "with sources", "\\d[\\d,]{2,}[- ]words?",
+        ).map { Regex("\\b$it\\b") }
         val SHORT_TASK = Regex("\\b(one line|one sentence|short|quick|briefly|fix (the )?grammar|proofread|translate|rewrite)\\b")
     }
 }

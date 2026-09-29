@@ -294,9 +294,9 @@ class ChatViewModelTest {
     fun `retry with Pro replaces the last answer`() {
         base.enqueue(Step.Reply("short"))
         pro.enqueue(Step.Reply("thorough"))
-        viewModel.send("Explain tides")
+        viewModel.send("Tell me about tides")
         viewModel.retryWithPro()
-        assertEquals(listOf("Explain tides", "thorough"), bubbles.map { it.text })
+        assertEquals(listOf("Tell me about tides", "thorough"), bubbles.map { it.text })
         assertEquals(Tier.PRO, bubbles.last().tier)
     }
 

@@ -17,11 +17,11 @@ class RouterEvalTest {
         assertTrue("$split: ${score.skillRight} skills right, floor $skills", score.skillRight >= skills)
     }
 
-    /** Floors from the first run, 2026-09-29: 37 of 60 tiers, 55 of 60 skills. */
+    /** First run 37 of 60 tiers, 55 of 60 skills; raised after ADR-084's tuning on this split, 2026-09-29. */
     @Test
-    fun `the dev split`() = check("dev", tiers = 37, skills = 55)
+    fun `the dev split`() = check("dev", tiers = 52, skills = 56)
 
-    /** Floors from the first run, 2026-09-29: 23 of 40 tiers, 36 of 40 skills. Never used to tune the router. */
+    /** First run 23 of 40 tiers, 36 of 40 skills; after ADR-084, which never looked at it, 33 and 36. */
     @Test
-    fun `the held-out split`() = check("heldout", tiers = 23, skills = 36)
+    fun `the held-out split`() = check("heldout", tiers = 33, skills = 36)
 }

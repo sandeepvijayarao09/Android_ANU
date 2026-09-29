@@ -230,6 +230,17 @@ class RouterTest {
     }
 
     @Test
+    fun `explanations, advice and time arithmetic go to Pro, and a detailed report to the cloud (ADR-084)`() {
+        assertEquals(Tier.PRO, route(request("Explain how a heat pump works in simple terms.")).tier)
+        assertEquals(Tier.PRO, route(request("What are three ways to lower my electricity bill?")).tier)
+        assertEquals(Tier.PRO, route(request("The bus leaves at 8:10 and takes 45 minutes. When will I get there?")).tier)
+        assertEquals(Tier.BASE, route(request("What's the capital of Portugal?")).tier)
+        val report = route(request("Write a detailed report comparing four phones, with sources."))
+        assertEquals(Tier.CLOUD, report.tier)
+        assertTrue(report.reasons.any { it.startsWith("long-form output (3)") })
+    }
+
+    @Test
     fun `nothing available is reported, not guessed`() {
         val result = router.route(request("hi"), DeviceState(online = false, availableTiers = setOf(Tier.CLOUD)))
         assertTrue(result is RouteResult.Unavailable)

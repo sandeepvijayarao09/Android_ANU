@@ -93,11 +93,11 @@ class ChatSessionTest {
     fun `retry with Pro replaces the last exchange`() = runTest {
         base.enqueue(Step.Reply("meh"))
         pro.enqueue(Step.Reply("better"))
-        session.send("Explain tides", device).toList()
+        session.send("Tell me about tides", device).toList()
         val text = session.takeBackLast()!!
         val events = session.send(text, device, pinned = Tier.PRO).toList()
         assertEquals(Tier.PRO, (events.last() as AgentEvent.Completed).tier)
-        assertEquals(listOf(ChatMessage.User("Explain tides"), ChatMessage.Model("better")), session.history())
+        assertEquals(listOf(ChatMessage.User("Tell me about tides"), ChatMessage.Model("better")), session.history())
     }
 
     @Test
@@ -489,15 +489,15 @@ class ChatSessionTest {
     @Test
     fun `a retry replaces the last exchange only once its answer is complete`() = runTest {
         base.enqueue(Step.Reply("meh"))
-        session.send("Explain tides", onPhone).toList()
+        session.send("Tell me about tides", onPhone).toList()
         pro.enqueue(Step.Fail(IllegalStateException("out of memory")))
-        val failed = session.send("Explain tides", onPhone.copy(availableTiers = setOf(Tier.PRO)), pinned = Tier.PRO, replacingLast = true).toList()
+        val failed = session.send("Tell me about tides", onPhone.copy(availableTiers = setOf(Tier.PRO)), pinned = Tier.PRO, replacingLast = true).toList()
         assertTrue(failed.last() is AgentEvent.Failed)
-        assertEquals("a failed retry loses nothing", listOf(ChatMessage.User("Explain tides"), ChatMessage.Model("meh")), session.history())
+        assertEquals("a failed retry loses nothing", listOf(ChatMessage.User("Tell me about tides"), ChatMessage.Model("meh")), session.history())
 
         pro.enqueue(Step.Reply("better"))
-        session.send("Explain tides", onPhone, pinned = Tier.PRO, replacingLast = true).toList()
-        assertEquals(listOf(ChatMessage.User("Explain tides"), ChatMessage.Model("better")), session.history())
+        session.send("Tell me about tides", onPhone, pinned = Tier.PRO, replacingLast = true).toList()
+        assertEquals(listOf(ChatMessage.User("Tell me about tides"), ChatMessage.Model("better")), session.history())
         assertEquals("the model never saw the answer it replaces", 1, pro.requests.last().transcript.size)
         assertEquals(setOf(0), session.answerDetails().keys)
     }

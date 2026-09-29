@@ -61,7 +61,7 @@ object SkillDetector {
      */
     private val SHOPPING = Regex(
         "\\b(buy|buying|purchase|shop for|shopping|add (it |this |that |them )?to (my )?cart|checkout|" +
-            "order (a|an|some|me|more|another)|in stock|price of|how much (is|are|does|do)|cheapest)\\b",
+            "order (a|an|some|me|more|another)|in stock|price of|how much (is|are|does|do)|cheapest|in my stores?)\\b",
         RegexOption.IGNORE_CASE,
     )
 
