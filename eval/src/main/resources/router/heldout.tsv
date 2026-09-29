@@ -1,0 +1,42 @@
+# Router eval, held-out split (TODO-2): written separately from the dev split, in other words, and never used to
+# tune the router. Same labels: the lightest tier that can do each request well, and the skill it needs.
+BASE	CHAT	hey
+BASE	CHAT	How do you say thank you in Japanese?
+BASE	CHAT	What's 15% of 80?
+BASE	CHAT	Who wrote Pride and Prejudice?
+BASE	CHAT	Make this sound friendlier: Send me the file.
+PRO	CHAT	My flight lands at 11:50 pm and the drive home takes 1 hour 25 minutes. What time will I get home?
+PRO	CHAT	Explain why the sky is blue to a ten-year-old.
+PRO	CHAT	Give me a weekly meal plan for a vegetarian on a budget.
+CLOUD	CHAT	Write a detailed 2,000-word short story about a lighthouse keeper, with three chapters.
+CLOUD	CHAT	Analyze the trade-offs between microservices and a monolith in depth, step by step, for a startup.
+BASE	SCHEDULING	Do I have anything at 3?
+PRO	SCHEDULING	Set up a call with Jordan next Monday afternoon.
+PRO	SCHEDULING	Reschedule tomorrow's standup to Wednesday.
+PRO	SCHEDULING	When am I free this week for coffee with Maya?
+BASE	EMAIL	Anything important in my inbox?
+PRO	EMAIL	Draft an email to the team about Friday's offsite.
+PRO	EMAIL	Summarize the latest newsletter from the school.
+BASE	MESSAGES	Did Priya message me back?
+BASE	MESSAGES	Text Maya that I'm here.
+PRO	MESSAGES	Read my unread chats and suggest replies.
+BASE	MEMORY	Remember my dog's name is Biscuit.
+BASE	MEMORY	Do you remember where I work?
+BASE	MEMORY	Forget my old address.
+PRO	SHOPPING	Buy more coffee beans from my usual store.
+BASE	SHOPPING	Is the red jacket in stock?
+BASE	PHONE	Start a 3 minute timer and turn on the torch.
+BASE	PHONE	Set an alarm for 7:15 tomorrow.
+PRO	CHAT	What's the best way to learn to cook if I have 20 minutes a day?
+CLOUD	CHAT	Write a comprehensive grant proposal for a community garden, including budget, timeline and evaluation plan.
+BASE	CHAT	What's the opposite of generous?
+PRO	CHAT	Help me plan a birthday party for eight kids on a Saturday afternoon.
+BASE	CHAT	Is it "affect" or "effect" here: the weather will affect our plans?
+PRO	EMAIL	Find the invoice from the plumber and tell me the total.
+PRO	SCHEDULING	Add dinner with Priya on the 14th at 7 and invite her.
+BASE	CHAT	Tell me something interesting about octopuses.
+PRO	CHAT	Why is my sourdough not rising, and how can I fix it?
+CLOUD	CHAT	Write a detailed technical report comparing four database systems for a large company.
+BASE	MESSAGES	Any texts from Jordan?
+PRO	MESSAGES	Reply to the landlord's text that Tuesday at 5 works.
+BASE	CHAT	Thanks!

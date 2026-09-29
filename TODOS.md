@@ -8,6 +8,8 @@ Gallery (`/plan-ceo-review`, 2026-09-28).
 
 ### Router eval set before routing changes
 
+**Done 2026-09-29:** the `eval` module and `RouterEvalTest` (ARCHITECTURE §15). Kept here for its context.
+
 **What:** Build the router eval set that ARCHITECTURE §15 calls for: made-up requests labelled with the right tier,
 a held-out split, and tier accuracy with under- and over-routing.
 

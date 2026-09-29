@@ -1,0 +1,63 @@
+# Router eval, dev split (TODO-2): the lightest tier that can do each request well, and the skill it needs.
+# BASE: no tools or one simple read, short answers. PRO: writes, dates, several steps, summaries, medium writing.
+# CLOUD: long-form writing or deep analysis. Made-up people only. Written 2026-09-29, before the router was run on it.
+BASE	CHAT	Hi Anu, how are you?
+BASE	CHAT	What's the capital of Portugal?
+BASE	CHAT	How many teaspoons are in a tablespoon?
+BASE	CHAT	Translate "good morning" into Spanish.
+BASE	CHAT	Give me a synonym for happy.
+BASE	CHAT	Thanks, that's all for now.
+BASE	CHAT	What does RSVP stand for?
+BASE	CHAT	Fix the grammar: me and Jordan goes to the park.
+BASE	CHAT	Tell me a short joke about cats.
+BASE	CHAT	Is 17 a prime number?
+PRO	CHAT	A train leaves at 9:40 and takes 2 hours 35 minutes. When does it arrive?
+PRO	CHAT	Explain how a heat pump works in simple terms.
+PRO	CHAT	Compare renting and buying a car for someone who drives 5,000 miles a year.
+PRO	CHAT	Plan a three-day packing list for a rainy trip to Seattle.
+PRO	CHAT	Why does bread go stale faster in the fridge?
+CLOUD	CHAT	Write a detailed 1,500-word essay on the history of lighthouses and their role in maritime trade.
+CLOUD	CHAT	Write a detailed business proposal for a neighborhood bike repair shop, with a budget, risks and a launch plan.
+CLOUD	CHAT	Analyze the pros and cons of three retirement strategies in depth and explain the trade-offs step by step.
+CLOUD	CHAT	Draft a cover letter and a detailed report comparing five laptops for a design team.
+BASE	SCHEDULING	What's on my calendar today?
+PRO	SCHEDULING	Schedule lunch with Maya on Friday at 1 pm.
+PRO	SCHEDULING	Find a free hour for a meeting with Jordan next week.
+PRO	SCHEDULING	Move my dentist appointment to Thursday afternoon.
+BASE	SCHEDULING	Am I busy tomorrow morning?
+PRO	SCHEDULING	Book a meeting with maya.chen@example.com and Jordan on Tuesday at 10 and send them an invite.
+PRO	EMAIL	Summarize my unread emails.
+PRO	EMAIL	Draft a reply to Maya's email saying Thursday works.
+BASE	EMAIL	Did I get an email from Jordan today?
+PRO	EMAIL	Find the email with the flight confirmation and tell me the departure time.
+PRO	EMAIL	Email Priya the agenda for Monday's meeting.
+BASE	MESSAGES	Any new messages?
+BASE	MESSAGES	What did Maya text me?
+PRO	MESSAGES	Summarize the family group chat.
+BASE	MESSAGES	Text Jordan I'm running 10 minutes late.
+PRO	MESSAGES	Reply to Maya's WhatsApp that 7 works and suggest the Italian place.
+BASE	MEMORY	Remember that my sister's name is Priya.
+BASE	MEMORY	What do you know about me?
+BASE	MEMORY	Forget that I like jazz.
+BASE	MEMORY	Remember I'm allergic to peanuts.
+PRO	SHOPPING	Find running shoes under $150 in my stores.
+PRO	SHOPPING	Buy the blue ones in size 10.
+BASE	SHOPPING	How much is the oat milk at my grocery store?
+BASE	PHONE	Set a timer for the pasta, about eleven minutes please.
+BASE	PHONE	Wake me at 6:30 and turn the flashlight off.
+BASE	PHONE	Turn on do not disturb until I'm back.
+BASE	CHAT	Convert 5 kilometers to miles.
+BASE	CHAT	What's a good name for a goldfish?
+BASE	CHAT	Shorten this: I wanted to let you know that I will be arriving a little bit later than we planned.
+PRO	CHAT	Help me write a polite message declining a wedding invitation.
+PRO	CHAT	What are three ways to lower my electricity bill in winter?
+PRO	SCHEDULING	What does my week look like, and where can I fit a two-hour workout?
+PRO	EMAIL	Summarize the thread with the landlord and list what I still owe.
+CLOUD	CHAT	Write an in-depth research report on the causes of the 2008 financial crisis with sources.
+CLOUD	CHAT	Compare the economic policies of three countries in detail and explain the trade-offs.
+PRO	CHAT	Rewrite this paragraph to sound more confident: I think maybe we could possibly try the new design if it's okay.
+BASE	CHAT	What time zone is Tokyo in?
+BASE	CHAT	Spell "necessary".
+PRO	MESSAGES	Check my texts and tell me if anyone asked about Saturday.
+PRO	CHAT	Explain the difference between a Roth and a traditional IRA.
+BASE	CHAT	Good night!

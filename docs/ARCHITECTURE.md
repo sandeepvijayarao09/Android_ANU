@@ -1,6 +1,6 @@
 # Anu for Android: Architecture
 
-Version 1.38.0 · Draft · 2026-09-29
+Version 1.38.1 · Draft · 2026-09-29
 Status: proposed. OD-1 to OD-4 were resolved on 2026-09-25 (§16).
 Product intent lives in [VISION.md](VISION.md).
 
@@ -918,7 +918,7 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
   - Egress without a ledger entry is checked for.
   - Deletion cascades are verified. For memory, JVM and Robolectric tests check that every fact keeps a source (I4) and that forgetting a source removes or restores what came from it (I5).
 - **Evals** (`eval/`), each with a separately authored held-out split:
-  - **Router:** tier accuracy, how often it under- or over-routes, and latency.
+  - **Router:** tier accuracy, how often it under- or over-routes, and latency. **Built** (`eval`, `RouterEvalTest`, run in CI): 60 made-up requests in the dev split and 40 in a held-out split written apart, each labelled with the lightest tier that can do it well and the skill it needs. The first run (2026-09-29): tiers right 37 of 60 (62%) and 23 of 40 (57%), almost all misses under-routed, explanations, time arithmetic and summaries going to Base and nothing to Cloud, not even a 1,500-word essay; skills right 55 of 60 and 36 of 40; about 16 to 110 µs a decision. Those are the floors: a routing change that does worse fails CI.
   - **Tools:** state-based scoring (the final state of the fake accounts), with **real** approval handling. Approvals are never auto-approved in safety evals.
   - **Memory:** extraction precision and recall; profile correctness. A first device check runs the extractor on E4B with made-up statements (`MemoryExtractionTest` in `brain:litertlm`); the held-out eval is still to build.
   - **Prompt injection:** a red-team suite of hostile emails and messages.
@@ -1328,7 +1328,7 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 | Warm start and named waits (ADR-074) | 5 | Implemented. On the Anu emulator: opening Talk loaded E4B in 2.6 s before any message, and after a restart the answer said "Catching up on this chat…" while the chat was read again. A router test for the warm model and 2 view-model tests for the wait line. The pass bar (median first word against a loaded model's, per backend) and the read-ahead probe (ENG-11) are still to run |
 | `core:security`: PII detection, redaction, `EgressGate`, ledger interface | 1 | Implemented, with 9 unit tests. The ledger is persisted by `core:data` |
 | `brain:gemini` | 1 | Implemented, with 6 unit tests against a fake server. Not verified against the live API (S8) |
-| Router v1: `core:router` stages A and B, escalation, and skill detection; prompt budgets from the on-device context; the heat and battery guard (ADR-072) | 1 | Implemented, with 25 unit tests (7 for the guard, including ENG-5's Retry contract). The guard checked on the Anu emulator at 10% battery. Not yet Verified: there's no router eval set yet (§15), and the 10-turn heat test waits for the Pixel |
+| Router v1: `core:router` stages A and B, escalation, and skill detection; prompt budgets from the on-device context; the heat and battery guard (ADR-072) | 1 | Implemented, with 25 unit tests (7 for the guard, including ENG-5's Retry contract). The guard checked on the Anu emulator at 10% battery. Not Verified: the router eval (§15) now exists, and on its first run 62% of the dev split and 57% of the held-out split landed on the right tier; the 10-turn heat test waits for the Pixel |
 | Cascade (Stage C: validate, repair, escalate, consent stop) in `core:agent` | 1 | Implemented, with 9 unit tests using `ScriptedBrain` |
 | Direct tier (deterministic handlers) | 2 | Planned. Needs connectors |
 | `core:vault`: store, Keystore protector, `SecretInjector` | 1 | Implemented. 10 JVM tests, plus 2 device tests with the real Keystore on the Anu emulator. The device tests found and fixed a hidden screen-lock error. Recovery passphrase Planned |
@@ -1371,6 +1371,8 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 | Hardening, release readiness | 5 | Planned |
 
 ### Changelog
+
+- **1.38.1** (2026-09-29): the router eval exists (`eval` module, TODO-2), with its first results and floors in §15.
 
 - **1.38.0** (2026-09-29): questions about the screen (ADR-083, amends ADR-044). VISION's v1 scope gains them.
   - The assistant session waits up to 2 s for Android's screen hand-off, then hides; the screen stays in memory until the card closes.
