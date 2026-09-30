@@ -1,5 +1,6 @@
 package io.github.sandeepvijayarao09.anu.core.memory
 
+import io.github.sandeepvijayarao09.anu.core.agent.ActionClaims
 import io.github.sandeepvijayarao09.anu.core.agent.ApprovalDecision
 import io.github.sandeepvijayarao09.anu.core.agent.ApprovalGate
 import io.github.sandeepvijayarao09.anu.core.agent.ApprovalRequest
@@ -54,6 +55,7 @@ class MemoryToolsTest {
     @Test
     fun `remember keeps the user's statement at once, and refuses secrets before running`() = runTest {
         val tool = RememberTool(memory)
+        assertEquals("the claim check knows it by name (ADR-089)", ActionClaims.REMEMBER_TOOL, tool.name)
         val input = RememberInput(what = "manager", value = "Maya Chen", section = ProfileSection.PEOPLE)
         assertEquals(RiskTier.WRITE_PRIVATE, tool.risk(input))
         assertEquals("Remember that your manager is Maya Chen", tool.describe(input))

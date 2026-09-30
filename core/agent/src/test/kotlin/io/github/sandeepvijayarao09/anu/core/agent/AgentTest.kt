@@ -134,6 +134,96 @@ class AgentTest {
         assertEquals(AgentEvent.Failed(listOf("stopped after 2 steps")), events.last())
     }
 
+    private val remember = FakeRemember()
+    private val notes = FakeRemoteLookup()
+    private val rememberRoute = RouteRequest("Remember that I buy oat milk every week", Skill.MEMORY, setOf(DataClass.PERSONAL), promptTokens = 100)
+    private val searchNotes = ToolCall("mcp_notes_search", buildJsonObject { put("query", "oat milk") })
+    private val oatMilk = ToolCall(ActionClaims.REMEMBER_TOOL, buildJsonObject { put("what", "buys_weekly"); put("value", "oat milk") })
+
+    private suspend fun remembering(gate: ApprovalGate, tiers: Set<Tier> = setOf(Tier.PRO)) =
+        Agent(Router(), BrainProvider { mapOf(Tier.BASE to base, Tier.PRO to pro)[it] }, ToolBroker(listOf(remember, notes), gate))
+            .run(
+                rememberRoute, DeviceState(online = true, availableTiers = tiers), "You are Anu.",
+                listOf(ChatMessage.User(rememberRoute.text)), listOf(remember.name, notes.name), "t1",
+            ).toList()
+
+    @Test
+    fun `a declined memory_remember is never answered with "I've noted"`() = runTest {
+        // Reading the notes service taints the run, so remembering asks the user (§7.1), who says no.
+        pro.enqueue(
+            Step.Reply(listOf(""), toolCalls = listOf(searchNotes)),
+            Step.Reply(listOf(""), toolCalls = listOf(oatMilk)),
+            Step.Reply("I've noted that you typically buy oat milk every week. Is there anything else you'd like me to do with your notes or plans?"),
+            Step.Reply("Okay, I won't remember that."),
+        )
+        val gate = RecordingGate(ApprovalDecision.Denied())
+        val events = remembering(gate)
+        assertEquals(ActionClaims.REMEMBER_TOOL, gate.requests.single().toolName)
+        assertTrue(remember.remembered.isEmpty())
+        assertTrue(events.contains(AgentEvent.Discarded(Tier.PRO, ActionClaims.Claim.MEMORY.why)))
+        assertTrue(pro.requests[3].system!!.contains("${ActionClaims.NOTHING_REMEMBERED_NOTE} ${ActionClaims.REMEMBER_HINT}"))
+        assertEquals("the repair is greedy", Sampling.Precise, pro.requests[3].sampling)
+        val done = events.last() as AgentEvent.Completed
+        assertEquals("Okay, I won't remember that.", done.text)
+        assertFalse(done.unverifiedClaim)
+        assertEquals(ActionRecord.Status.NOT_DONE, done.actions.single { it.tool == ActionClaims.REMEMBER_TOOL }.status)
+    }
+
+    @Test
+    fun `a memory claim that survives repair and escalation is shown with the memory warning`() = runTest {
+        base.enqueue(
+            Step.Reply(listOf(""), toolCalls = listOf(searchNotes)),
+            Step.Reply(listOf(""), toolCalls = listOf(oatMilk)),
+            Step.Reply("I've noted that you buy oat milk every week."),
+            Step.Reply("Noted!"),
+        )
+        pro.enqueue(Step.Reply("Got it, I'll keep that in mind."))
+        val events = remembering(RecordingGate(ApprovalDecision.Denied()), tiers = setOf(Tier.BASE, Tier.PRO))
+        assertTrue(events.contains(AgentEvent.Escalated(Tier.BASE, Tier.PRO, ActionClaims.Claim.MEMORY.why)))
+        assertTrue("the stronger tier is told too", pro.requests.single().system!!.contains(ActionClaims.NOTHING_REMEMBERED_NOTE))
+        val done = events.last() as AgentEvent.Completed
+        assertTrue(done.unverifiedClaim)
+        assertEquals("Got it, I'll keep that in mind.\n\n${ActionClaims.NOT_REMEMBERED_WARNING}", done.text)
+        assertEquals(done.text, (done.added.last() as ChatMessage.Model).text) // the transcript keeps the truth too
+        assertTrue(remember.remembered.isEmpty())
+    }
+
+    @Test
+    fun `a memory_remember that ran backs "I've noted"`() = runTest {
+        pro.enqueue(Step.Reply(listOf(""), toolCalls = listOf(oatMilk)), Step.Reply("I've noted that you buy oat milk every week."))
+        val events = remembering(RecordingGate())
+        assertTrue(events.none { it is AgentEvent.Discarded })
+        assertEquals("I've noted that you buy oat milk every week.", (events.last() as AgentEvent.Completed).text)
+        assertEquals(listOf(RememberInput("buys_weekly", "oat milk")), remember.remembered)
+    }
+
+    @Test
+    fun `"Noted!" with nothing saved is repaired, and a save made then backs the answer`() = runTest {
+        pro.enqueue(
+            Step.Reply("Noted! I'll remember that."),
+            Step.Reply(listOf(""), toolCalls = listOf(oatMilk)),
+            Step.Reply("I've noted that you buy oat milk every week."),
+        )
+        val events = remembering(RecordingGate())
+        assertEquals(1, events.count { it is AgentEvent.Discarded })
+        val done = events.last() as AgentEvent.Completed
+        assertEquals("I've noted that you buy oat milk every week.", done.text)
+        assertFalse(done.unverifiedClaim)
+        assertEquals(1, remember.remembered.size)
+    }
+
+    @Test
+    fun `a plain chat that says "noted" is repaired too, without being told to call a tool it doesn't have`() = runTest {
+        // As on the emulator: no memory tool is offered, and E4B answered "I've noted that you are vegetarian".
+        val chat = RouteRequest("By the way, I'm vegetarian, so please keep that in mind", Skill.CHAT, setOf(DataClass.PERSONAL), promptTokens = 100)
+        pro.enqueue(Step.Reply("I've noted that you are vegetarian."), Step.Reply("Thanks for telling me! How about a mushroom risotto tonight?"))
+        val events = agent.run(chat, DeviceState(online = true, availableTiers = setOf(Tier.PRO)), "You are Anu.", listOf(ChatMessage.User(chat.text)), emptyList(), "t1").toList()
+        val repair = pro.requests[1].system!!
+        assertTrue(repair.contains(ActionClaims.NOTHING_REMEMBERED_NOTE))
+        assertFalse(repair.contains(ActionClaims.REMEMBER_HINT))
+        assertEquals("Thanks for telling me! How about a mushroom risotto tonight?", (events.last() as AgentEvent.Completed).text)
+    }
+
     @Test
     fun `escalating into the cloud with personal data stops for consent`() = runTest {
         base.enqueue(Step.Fail(IllegalStateException("boom")))

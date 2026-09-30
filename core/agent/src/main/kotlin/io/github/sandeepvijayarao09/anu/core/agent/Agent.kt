@@ -78,10 +78,11 @@ sealed interface AgentEvent {
 
     /**
      * [added] holds every message this run produced, including tool turns, in transcript order.
-     * [actions] is what really happened. [unverifiedClaim] is true when the answer still claims an action
-     * that didn't happen, after repair and escalation. The text then carries a warning. [tokens] compares
-     * the estimate of the final request and answer with the runtime's count (ADR-041). [usage] is how the
-     * final step ran. [details] is what "About this answer" shows, added by [ChatSession] (ADR-071).
+     * [actions] is what really happened. [unverifiedClaim] is true when the answer still claims an action, or
+     * a save to memory, that didn't happen, after repair and escalation. The text then carries a warning.
+     * [tokens] compares the estimate of the final request and answer with the runtime's count (ADR-041).
+     * [usage] is how the final step ran. [details] is what "About this answer" shows, added by [ChatSession]
+     * (ADR-071).
      */
     data class Completed(
         val tier: Tier,
@@ -222,6 +223,8 @@ class Agent(
         var announced: Tier? = null
         val actions = mutableListOf<ActionRecord>()
         var claimRepaired = false
+        // Every kind of claim the run has had to repair, so a stronger tier gets all their notes.
+        val claimed = mutableSetOf<ActionClaims.Claim>()
         var systemNote: String? = null
 
         suspend fun FlowCollector<AgentEvent>.escalate(why: String): Boolean {
@@ -331,15 +334,17 @@ class Agent(
                     text.setLength(0)
                     text.append(cleaned)
                 }
-                // An answer may only claim what the broker recorded (ADR-027).
-                val wroteSomething = actions.any { it.wrote && it.status == ActionRecord.Status.DONE }
-                if (!wroteSomething && ActionClaims.claimsAction(text.toString())) {
-                    val why = "claimed an action that didn't happen"
+                // An answer may only claim what the broker recorded (ADR-027): an action needs a write, and
+                // memory needs a memory_remember that ran (ADR-089). Both get one repair, then escalate.
+                val unbacked = ActionClaims.unbacked(text.toString(), actions)
+                if (unbacked.isNotEmpty()) {
+                    val why = unbacked.joinToString("; ") { it.why }
                     emit(AgentEvent.Discarded(decision.tier, why))
+                    claimed += unbacked
+                    systemNote = ActionClaims.note(claimed, canRemember = specs.any { it.name == ActionClaims.REMEMBER_TOOL })
                     if (!claimRepaired) {
                         claimRepaired = true
                         repaired = true
-                        systemNote = ActionClaims.NOTHING_DONE_NOTE
                         continue
                     }
                     val next = router.escalate(route, decision, why)
@@ -348,7 +353,7 @@ class Agent(
                         decision = next
                         continue
                     }
-                    val warned = "$text\n\n${ActionClaims.NOT_DONE_WARNING}"
+                    val warned = "$text\n\n${ActionClaims.warning(unbacked)}"
                     added += ChatMessage.Model(warned)
                     return@flow emit(
                         AgentEvent.Completed(

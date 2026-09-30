@@ -104,7 +104,7 @@ class ChatSessionTest {
     fun `a new session over the same store continues the saved conversation`() = runTest {
         val store = InMemoryTranscriptStore()
         val agent = agent(mapOf(Tier.BASE to base))
-        base.enqueue(Step.Reply("Noted."), Step.Reply("You said to buy milk."))
+        base.enqueue(Step.Reply("Okay."), Step.Reply("You said to buy milk."))
         ChatSession(agent, store).send("Remember to buy milk", device).toList()
 
         val reopened = ChatSession(agent, store)
@@ -166,7 +166,7 @@ class ChatSessionTest {
             memory = { block },
             onTurnCompleted = { text, key -> offered += text to key },
         )
-        base.enqueue(Step.Reply("Hi!"), Step.Reply("Sure."), Step.Reply("Noted."))
+        base.enqueue(Step.Reply("Hi!"), Step.Reply("Sure."), Step.Reply("Try a risotto."))
         chat.send("Hello", device).toList()
         chat.send("And now?", device).toList()
         block = "- diet: vegan" // corrected in the Memory tab
@@ -224,7 +224,7 @@ class ChatSessionTest {
     fun `memory commands are not offered to memory again`() = runTest {
         val offered = mutableListOf<String>()
         val chat = ChatSession(agent(mapOf(Tier.BASE to base)), onTurnCompleted = { text, _ -> offered += text })
-        base.enqueue(Step.Reply("Noted."), Step.Reply("Done."), Step.Reply("Nice."))
+        base.enqueue(Step.Reply("Okay."), Step.Reply("Done."), Step.Reply("Nice."))
         chat.send("Remember that I prefer mornings", device).toList()
         chat.send("Forget that I'm vegan", device).toList()
         chat.send("I just adopted a cat called Miso, and she is very curious about everything in the flat", device).toList()
@@ -781,7 +781,7 @@ class ChatSessionTest {
     fun `a retry sends the words it already has, without writing the recording down again`() = runTest {
         val transcriber = FakeTranscriber(listOf("Buy oat milk."))
         val chat = ChatSession(agent(mapOf(Tier.BASE to base, Tier.PRO to base)), transcriber = transcriber)
-        base.enqueue(Step.Reply("Noted."))
+        base.enqueue(Step.Reply("Okay."))
         chat.send("", onPhone, voiceNote = VoiceNote("Buy oat milk.", 3)).toList()
         assertTrue(transcriber.heard.isEmpty())
         assertEquals(VoiceNote("Buy oat milk.", 3), (chat.history().first() as ChatMessage.User).voiceNote)
@@ -832,7 +832,7 @@ class ChatSessionTest {
             toolsFor = { skill -> skills += skill; emptyList() },
             transcriber = FakeTranscriber(listOf("Remember that my sister's birthday is May 3.")),
         )
-        base.enqueue(Step.Reply("Noted."), Step.Reply("Summary."))
+        base.enqueue(Step.Reply("Okay."), Step.Reply("Summary."))
         chat.send("", onPhone, recording = note).toList()
         assertEquals(Skill.MEMORY, skills.last())
         val shared = ChatSession(

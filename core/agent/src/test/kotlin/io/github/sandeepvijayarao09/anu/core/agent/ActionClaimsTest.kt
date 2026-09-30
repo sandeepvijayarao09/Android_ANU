@@ -44,6 +44,63 @@ class ActionClaimsTest {
         ).forEach { assertFalse(it, ActionClaims.claimsAction(it)) }
     }
 
+    @Test
+    fun `saying something was noted or will be remembered is a memory claim, other uses of the words are not`() {
+        listOf(
+            // E4B's answer on the emulator after the user declined memory_remember.
+            "I've noted that you typically buy oat milk every week. Is there anything else you'd like me to do with your notes or plans?",
+            "I’ll remember that you buy oat milk every week.",
+            "I've made a note of it.",
+            "Noted!",
+            "**Noted.** Anything else?",
+            "Okay, noted.",
+            "Duly noted.",
+            "Thanks for telling me. Noted that you buy oat milk weekly.",
+            "Got it, I'll keep that in mind.",
+            "I'll keep in mind that you're vegan.",
+            "I will remember your preference for mornings.",
+            "I've saved that to your memory.",
+            "I've added a new fact to your Memory tab.",
+            "That's been noted.",
+            "Your preference has been noted.",
+            "I've booked lunch with Maya on Friday and noted that she's vegetarian.",
+            "I'll add it to your calendar and keep in mind that you prefer mornings.",
+        ).forEach { assertTrue(it, ActionClaims.claimsMemory(it)) }
+        listOf(
+            "As you noted, the store closes at 5.",
+            "As I've noted before, Friday is busy.",
+            "Maya noted that the meeting moved to Friday.",
+            "The email just says \"Noted, thanks.\"",
+            "The noted chef opened a new place.",
+            "Shall I remember that you buy oat milk every week?",
+            "I can remember that for you if you like.",
+            "Okay, I won't remember that.",
+            "I remember that you're vegetarian, so here's a mushroom risotto.",
+            "I don't have that in memory yet.",
+            "Keep in mind that the store closes at 5.",
+            "Please note that the meeting moved.",
+            "I've added the event and noted the address in its description.",
+            "Got it!",
+        ).forEach { assertFalse(it, ActionClaims.claimsMemory(it)) }
+    }
+
+    @Test
+    fun `a memory claim needs memory_remember to have run, while any write backs an action claim`() {
+        val declined = ActionRecord(ActionClaims.REMEMBER_TOOL, "Remember buys: oat milk", ActionRecord.Status.NOT_DONE, false, "declined")
+        val remembered = declined.copy(status = ActionRecord.Status.DONE, wrote = true, reason = null)
+        val scheduled = ActionRecord("calendar_create_event", "Create \"Lunch\"", ActionRecord.Status.DONE, wrote = true)
+        val memory = setOf(ActionClaims.Claim.MEMORY)
+
+        assertEquals(memory, ActionClaims.unbacked("I've noted that you buy oat milk every week.", listOf(declined)))
+        assertEquals(emptySet<ActionClaims.Claim>(), ActionClaims.unbacked("I've noted that you buy oat milk every week.", listOf(remembered)))
+        assertEquals("a calendar write doesn't back memory", memory, ActionClaims.unbacked("I've booked lunch and noted that Maya is vegetarian.", listOf(scheduled)))
+        val both = ActionClaims.unbacked("I've booked lunch and noted that Maya is vegetarian.", emptyList())
+        assertEquals(setOf(ActionClaims.Claim.ACTION, ActionClaims.Claim.MEMORY), both)
+        assertEquals("Note from Anu: nothing was actually created or sent, and nothing was saved to memory.", ActionClaims.warning(both))
+        assertEquals("${ActionClaims.NOTHING_DONE_NOTE} ${ActionClaims.NOTHING_REMEMBERED_NOTE}", ActionClaims.note(both, canRemember = false))
+        assertEquals("the tool is named only when it's offered", "${ActionClaims.NOTHING_REMEMBERED_NOTE} ${ActionClaims.REMEMBER_HINT}", ActionClaims.note(memory, canRemember = true))
+    }
+
     private val base = ScriptedBrain(BrainId.BASE)
     private val pro = ScriptedBrain(BrainId.PRO)
     private val create = FakeCreateEvent()
