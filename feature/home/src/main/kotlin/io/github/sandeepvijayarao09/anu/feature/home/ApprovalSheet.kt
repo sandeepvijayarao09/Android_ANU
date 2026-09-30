@@ -50,6 +50,7 @@ import io.github.sandeepvijayarao09.anu.core.ui.AnuIcons
 import io.github.sandeepvijayarao09.anu.core.ui.AnuShapes
 import io.github.sandeepvijayarao09.anu.core.ui.AnuTheme
 import io.github.sandeepvijayarao09.anu.core.ui.AnuSwitch
+import io.github.sandeepvijayarao09.anu.core.ui.FinishOpening
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.ui.semantics.Role
 import io.github.sandeepvijayarao09.anu.core.ui.AnuTextField
@@ -145,6 +146,8 @@ private fun ApprovalSheet(request: ApprovalRequest, onApprove: (String) -> Unit,
     }
     // A decision is required: swiping the sheet away or tapping outside is not one.
     val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true, confirmValueChange = { it != SheetValue.Hidden })
+    // The keyboard hides as the sheet takes focus, and the opening can end hidden; a turn would wait on it forever.
+    FinishOpening(sheet, required = true)
     ModalBottomSheet(
         onDismissRequest = {},
         sheetState = sheet,
@@ -248,6 +251,7 @@ private fun CloudConsentSheet(facts: List<String>, onApprove: (shareFacts: Boole
     val haptics = LocalHapticFeedback.current
     var share by remember { mutableStateOf(true) }
     val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    FinishOpening(sheet)
     ModalBottomSheet(onDismissRequest = onDecline, sheetState = sheet, shape = AnuShapes.sheet, containerColor = colors.surface, scrimColor = colors.scrim) {
         Column(Modifier.fillMaxWidth().navigationBarsPadding().verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, bottom = 16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {

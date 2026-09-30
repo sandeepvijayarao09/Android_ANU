@@ -11,10 +11,14 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.SheetState
+import androidx.compose.material3.SheetValue
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
@@ -32,12 +36,37 @@ fun AnuSheet(onDismiss: () -> Unit, content: @Composable ColumnScope.(close: () 
     val state = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
     val close: () -> Unit = { scope.launch { state.hide() }.invokeOnCompletion { onDismiss() } }
+    FinishOpening(state)
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = state, shape = AnuShapes.sheet, containerColor = colors.surface, scrimColor = colors.scrim) {
         Column(
             Modifier.fillMaxWidth().navigationBarsPadding().imePadding().verticalScroll(rememberScrollState())
                 .padding(start = AnuSpacing.xl, end = AnuSpacing.xl, bottom = AnuSpacing.lg),
         ) {
             content(close)
+        }
+    }
+}
+
+/**
+ * Opens [state] again when an opening ends with the sheet still hidden (ADR-086). Material's sheet sets its
+ * value only if the opening ends on one of its anchors as they are then. When the sheet's size changes in the
+ * last frames of opening, as when the keyboard hides because the sheet took focus, the opening ends where an
+ * anchor used to be: the sheet stays Hidden, with no scrim, and nothing opens it again. Nothing may close a
+ * [required] sheet, such as an approval, so it opens again after any move that leaves it hidden.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun FinishOpening(state: SheetState, required: Boolean = false) {
+    LaunchedEffect(state, required) {
+        // Whether the running animation is meant to leave the sheet open.
+        var opening = false
+        snapshotFlow { state.isAnimationRunning to state.targetValue }.collect { (animating, target) ->
+            if (animating) {
+                opening = required || target != SheetValue.Hidden
+            } else {
+                if (opening && !state.isVisible && state.hasExpandedState) launch { state.show() }
+                opening = false
+            }
         }
     }
 }
