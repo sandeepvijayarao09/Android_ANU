@@ -55,6 +55,7 @@ import io.github.sandeepvijayarao09.anu.core.ui.GroupDivider
 import io.github.sandeepvijayarao09.anu.core.ui.GroupFooter
 import io.github.sandeepvijayarao09.anu.core.ui.GroupRow
 import io.github.sandeepvijayarao09.anu.core.ui.SectionHeader
+import io.github.sandeepvijayarao09.anu.core.ui.markdown
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -260,7 +261,7 @@ internal fun LabPage(lab: LabViewModel, sentToday: Int, onOpenPrivacy: () -> Uni
                 if (state.template.options.isNotEmpty()) {
                     AnuSegmented(state.template.options, state.template.options.indexOf(state.option).coerceAtLeast(0), onSelect = { lab.chooseOption(state.template.options[it]) })
                 }
-                AnuTextField(state.instruction, lab::setInstruction, label = "Instruction", placeholder = "Optional, such as \"Answer like a pirate\"", singleLine = false, minLines = 2)
+                AnuTextField(state.instruction, lab::setInstruction, label = "Instruction", placeholder = "Optional, such as \"Answer in one paragraph\"", singleLine = false, minLines = 2)
                 AnuTextField(state.prompt, lab::setPrompt, label = "Prompt", placeholder = "What to send the model", singleLine = false, minLines = 4)
             }
         }
@@ -319,7 +320,7 @@ internal fun LabPage(lab: LabViewModel, sentToday: Int, onOpenPrivacy: () -> Uni
     }
 }
 
-/** The answer: the reasoning collapsed above it, then the words, whether it was stopped, the speed and Copy. */
+/** The answer: the reasoning collapsed above it, then the words, whether it was stopped, the speed and Copy. Both render Markdown. */
 @Composable
 private fun LabOutput(state: LabState) {
     val colors = AnuTheme.colors
@@ -338,7 +339,7 @@ private fun LabOutput(state: LabState) {
                 }
                 if (reasoning) {
                     Text(
-                        state.thought.trim(),
+                        markdown(state.thought.trim()),
                         Modifier.fillMaxWidth().clip(AnuShapes.md).background(colors.surface2).padding(horizontal = 12.dp, vertical = 10.dp),
                         style = AnuTheme.type.callout,
                         color = colors.textMuted,
@@ -348,7 +349,8 @@ private fun LabOutput(state: LabState) {
             when {
                 state.error != null -> Text(state.error, style = AnuTheme.type.body, color = colors.errorText)
                 state.output.isNotEmpty() -> SelectionContainer {
-                    Text(state.output.trim(), Modifier.fillMaxWidth(), style = AnuTheme.type.body, color = colors.text)
+                    // Shown as the chat shows answers; Copy copies what the model wrote (ADR-090).
+                    Text(markdown(state.output.trim()), Modifier.fillMaxWidth(), style = AnuTheme.type.body, color = colors.text)
                 }
                 else -> Text(state.waiting ?: "…", Modifier.semantics { liveRegion = LiveRegionMode.Polite }, style = AnuTheme.type.callout, color = colors.textMuted)
             }

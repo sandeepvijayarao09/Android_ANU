@@ -1,4 +1,4 @@
-package io.github.sandeepvijayarao09.anu.feature.home
+package io.github.sandeepvijayarao09.anu.core.ui
 
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle

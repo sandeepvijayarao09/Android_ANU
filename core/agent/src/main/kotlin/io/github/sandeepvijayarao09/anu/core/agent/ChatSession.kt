@@ -367,7 +367,7 @@ class ChatSession(
         }
         val said = words.toString().trim()
         if (said.isEmpty()) {
-            emit(AgentEvent.Failed(listOf(NOTHING_SAID), retry = false))
+            emit(AgentEvent.NothingToAnswer(NOTHING_SAID))
             return null
         }
         return VoiceNote(said, recording.seconds, recording.shared, recording.interrupted).also { emit(AgentEvent.Transcribed(it)) }

@@ -515,6 +515,8 @@ class ChatViewModelTest {
         silent.attachRecording(Recording(byteArrayOf(1), seconds = 3))
         silent.send("")
         assertEquals(ChatSession.NOTHING_SAID, silent.state.value.bubbles.last().text)
+        assertTrue("a note, not a failure", silent.state.value.bubbles.last().quiet && !silent.state.value.bubbles.last().failed)
+        assertEquals("the sphere doesn't grey", 0, silent.state.value.failures)
         assertNull(silent.state.value.recording)
         assertEquals("the turn shows it wasn't written down", VoiceClip(seconds = 3), silent.state.value.bubbles.first().voice)
     }

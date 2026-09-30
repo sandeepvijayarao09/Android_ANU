@@ -763,11 +763,10 @@ class ChatSessionTest {
     }
 
     @Test
-    fun `a recording with no words ends the turn with nothing saved, and says a retry can't help`() = runTest {
+    fun `a recording with no words ends the turn with a note, not a failure, and nothing saved`() = runTest {
         val chat = ChatSession(agent(mapOf(Tier.BASE to base)), transcriber = FakeTranscriber(listOf("  ")))
-        val failed = chat.send("", onPhone, recording = note).toList().last() as AgentEvent.Failed
-        assertEquals(listOf(ChatSession.NOTHING_SAID), failed.reasons)
-        assertEquals(false, failed.retry)
+        val ended = chat.send("", onPhone, recording = note).toList().last() as AgentEvent.NothingToAnswer
+        assertEquals(ChatSession.NOTHING_SAID, ended.note)
         assertTrue(chat.history().isEmpty())
         assertTrue("no model answered", base.requests.isEmpty())
     }
@@ -777,12 +776,10 @@ class ChatSessionTest {
         val deaf = ChatSession(agent(mapOf(Tier.BASE to base)), transcriber = FakeTranscriber(emptyList(), hears = false))
         val refused = deaf.send("", onPhone, recording = note).toList().last() as AgentEvent.Failed
         assertEquals(listOf(ChatSession.CANT_HEAR), refused.reasons)
-        assertEquals("once a model is installed, the same recording can be sent again", true, refused.retry)
 
         val broken = ChatSession(agent(mapOf(Tier.BASE to base)), transcriber = FakeTranscriber(emptyList(), IllegalStateException("decoder")))
         val failed = broken.send("", onPhone, recording = note).toList().last() as AgentEvent.Failed
         assertEquals(listOf(ChatSession.COULDNT_HEAR), failed.reasons)
-        assertEquals(true, failed.retry)
         assertTrue(broken.history().isEmpty())
     }
 

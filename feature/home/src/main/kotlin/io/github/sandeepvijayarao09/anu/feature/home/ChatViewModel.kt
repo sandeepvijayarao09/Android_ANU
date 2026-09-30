@@ -53,6 +53,8 @@ data class Bubble(
     val note: String? = null,
     val streaming: Boolean = false,
     val failed: Boolean = false,
+    /** A note from Anu instead of an answer, such as "Nothing was said in this recording.": shown quietly, not as a failure (ADR-090). */
+    val quiet: Boolean = false,
     /** What really happened, from the Tool Broker's record, never from the model's words (ADR-027). */
     val actions: List<Receipt> = emptyList(),
     /** Links a tool offered, such as a store's checkout page. Shown as buttons; only the user opens them (ADR-047). */
@@ -696,8 +698,15 @@ class ChatViewModel(
             }
             is AgentEvent.Failed -> {
                 edit(id) { it.copy(text = friendly(event.reasons), failed = true, note = null, hearing = false) }
-                if (event.retry) giveBackRecording(asked) else notWrittenDown(asked)
+                giveBackRecording(asked)
                 mutable.update { it.copy(failures = it.failures + 1) }
+                spokenUpTo = 0
+                speakProgress(id, final = true)
+            }
+            // Nothing to answer isn't a failure: a quiet note, and the sphere doesn't grey (ADR-090).
+            is AgentEvent.NothingToAnswer -> {
+                edit(id) { it.copy(text = event.note, quiet = true, note = null, hearing = false) }
+                notWrittenDown(asked)
                 spokenUpTo = 0
                 speakProgress(id, final = true)
             }

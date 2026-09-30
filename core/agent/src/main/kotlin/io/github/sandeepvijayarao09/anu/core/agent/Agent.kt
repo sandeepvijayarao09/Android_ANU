@@ -105,8 +105,13 @@ sealed interface AgentEvent {
     /** The voice note is written down: the turn goes on with [note], which a retry can send again as it is. */
     data class Transcribed(val note: VoiceNote) : AgentEvent
 
-    /** [retry] is false when trying again can't help, as when a recording held no words. */
-    data class Failed(val reasons: List<String>, val retry: Boolean = true) : AgentEvent
+    data class Failed(val reasons: List<String>) : AgentEvent
+
+    /**
+     * The turn ended with nothing to answer, which isn't a failure: [note] says why, as for a recording with no words
+     * (ADR-090). It's shown as a note, and nothing is saved.
+     */
+    data class NothingToAnswer(val note: String) : AgentEvent
 }
 
 /** [reason] as the end of a sentence: tools give their reasons without a full stop ("this phone has no flashlight"). */

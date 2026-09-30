@@ -91,6 +91,7 @@ import io.github.sandeepvijayarao09.anu.core.ui.PrivacyIndicator
 import io.github.sandeepvijayarao09.anu.core.ui.Sphere
 import io.github.sandeepvijayarao09.anu.core.ui.SphereState
 import io.github.sandeepvijayarao09.anu.core.ui.anuCard
+import io.github.sandeepvijayarao09.anu.core.ui.markdown
 import java.time.LocalTime
 
 private fun VoicePhase.sphere(): SphereState = when (this) {
@@ -414,8 +415,13 @@ internal fun AnuTurn(
                         .pointerInput(onAbout) { detectTapGestures(onLongPress = { onAbout() }) }
                         .semantics { customActions = listOf(CustomAccessibilityAction("About this answer") { onAbout(); true }) }
                 },
-                style = AnuTheme.type.body,
-                color = if (bubble.failed) colors.errorText else colors.text,
+                // A note such as "Nothing was said in this recording." isn't a failure (ADR-090).
+                style = if (bubble.quiet) AnuTheme.type.callout else AnuTheme.type.body,
+                color = when {
+                    bubble.failed -> colors.errorText
+                    bubble.quiet -> colors.textMuted
+                    else -> colors.text
+                },
             )
             // TalkBack hears each new wait line once (design review D10).
             bubble.streaming -> Text(bubble.note ?: "…", Modifier.semantics { liveRegion = LiveRegionMode.Polite }, style = AnuTheme.type.callout, color = colors.textMuted)
@@ -465,7 +471,7 @@ private fun Reasoning(thought: String) {
     }
     if (open) {
         Text(
-            thought.trim(),
+            markdown(thought.trim()),
             Modifier.fillMaxWidth().clip(AnuShapes.md).background(colors.surface2).padding(horizontal = 12.dp, vertical = 10.dp),
             style = AnuTheme.type.callout,
             color = colors.textMuted,
@@ -753,7 +759,15 @@ fun AssistantCard(
         if (!state.listening && answer != null) {
             Column(Modifier.padding(top = 8.dp).heightIn(max = 220.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 val shown = answer.text.ifEmpty { answer.note ?: if (answer.streaming) "…" else "" }
-                Text(markdown(shown), style = AnuTheme.type.body, color = if (answer.failed) colors.errorText else colors.text)
+                Text(
+                    markdown(shown),
+                    style = if (answer.quiet) AnuTheme.type.callout else AnuTheme.type.body,
+                    color = when {
+                        answer.failed -> colors.errorText
+                        answer.quiet -> colors.textMuted
+                        else -> colors.text
+                    },
+                )
                 answer.actions.forEach { ReceiptRow(it) }
                 LinkButtons(answer.links)
             }

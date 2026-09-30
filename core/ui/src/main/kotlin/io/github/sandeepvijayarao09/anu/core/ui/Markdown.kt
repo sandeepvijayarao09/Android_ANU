@@ -1,4 +1,4 @@
-package io.github.sandeepvijayarao09.anu.feature.home
+package io.github.sandeepvijayarao09.anu.core.ui
 
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
@@ -10,10 +10,11 @@ import androidx.compose.ui.text.withStyle
 
 /**
  * The small Markdown subset models actually write in chat: **bold**, *italic* or _italic_, `code`,
- * `#` headings, and `-`/`*` bullets. Links are shown as plain text on purpose. A chat bubble never
- * becomes a tap target for a URL a model produced (P4).
+ * `#` headings, and `-`/`*` bullets, for answers and their reasoning, in the chat and the prompt lab (ADR-090).
+ * Links are shown as plain text on purpose. A chat bubble never becomes a tap target for a URL a model
+ * produced (P4).
  */
-internal fun markdown(text: String): AnnotatedString = buildAnnotatedString {
+fun markdown(text: String): AnnotatedString = buildAnnotatedString {
     text.lines().forEachIndexed { index, line ->
         if (index > 0) append('\n')
         val heading = HEADING.matchEntire(line)
