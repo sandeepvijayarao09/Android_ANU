@@ -17,5 +17,15 @@ jobs:
       - uses: gradle/actions/setup-gradle@v6
       # Unit tests for every module, plus both flavors (ADR-012). Building a play variant also runs the
       # check that its manifest has no SMS permission. Device tests need an emulator and, for the real
-      # model, a pushed model file, so they run locally (see CLAUDE.md); here they are only compiled.
-      - run: ./gradlew test assemblePersonalDebug assemblePlayDebug :brain:litertlm:assembleDebugAndroidTest :connector:messages:assembleDebugAndroidTest :core:data:assembleDebugAndroidTest :feature:home:assembleDebugAndroidTest
+      # model, a pushed model file, so they run locally (see CLAUDE.md); here every module's are compiled.
+      - run: >-
+          ./gradlew test assemblePersonalDebug assemblePlayDebug
+          :brain:embedding:assembleDebugAndroidTest
+          :brain:litertlm:assembleDebugAndroidTest
+          :brain:nano:assembleDebugAndroidTest
+          :connector:calendar:assembleDebugAndroidTest
+          :connector:contacts:assembleDebugAndroidTest
+          :connector:messages:assembleDebugAndroidTest
+          :core:data:assembleDebugAndroidTest
+          :core:vault:assembleDebugAndroidTest
+          :feature:home:assembleDebugAndroidTest
