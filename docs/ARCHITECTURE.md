@@ -1,6 +1,6 @@
 # Anu for Android: Architecture
 
-Version 1.44.0 · Draft · 2026-09-29
+Version 1.44.1 · Draft · 2026-09-30
 Status: proposed. OD-1 to OD-4 were resolved on 2026-09-25 (§16).
 Product intent lives in [VISION.md](VISION.md).
 
@@ -1345,7 +1345,7 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 | Component | Phase | Status |
 |---|---|---|
 | Project scaffold: Gradle 9.6, AGP 9.4.1, Kotlin 2.4.20; `app` with `personal` and `play` flavors | 0 | Implemented. Both flavors build |
-| CI workflow (`.github/workflows/ci.yml`), including the Play SMS-permission check | 0 | Implemented, not yet run (the repo hasn't been pushed). The SMS check runs locally |
+| CI workflow (`.github/workflows/ci.yml`), including the Play SMS-permission check | 0 | Implemented, and runs on every push to main and on pull requests: unit tests for every module and both flavors, where building a play variant checks that its manifest has no SMS permission. It compiles the device tests of `brain:litertlm`, `connector:messages`, `core:data` and `feature:home`, which run locally. It passed for the push of 2026-09-30 (`d67ee6d`) |
 | Spike S1 (runtime on device) | 0 | In progress. Run 2 on the Anu emulator passed: contract, tools, schema, cancel, memory. On the reference phone (Pixel 10 Pro), E4B's CPU build passes all 6 tests at 6–7 tokens/s, and its GPU build writes garbage (ADR-059). E2B's CPU build is faster (9–9.5 tokens/s) but missed "I'm vegan" in extraction. The Tensor G5 NPU build can't run with LiteRT-LM 0.17.1. Speculative decoding gives no gain on the phone's CPU (ADR-069). E4B's generic file answered correctly on the phone's GPU in a first run, reading prompts about 4× faster; the run is to repeat on an idle phone with the contract and extraction tests. Peak RAM and context limits are still to measure |
 | Spike S2 (model delivery) | 0 | Partly done: ungated, and per-backend files found |
 | Spike S3 (on-device embeddings) | 0 | Verified on the Anu emulator and the reference phone (Pixel 10 Pro). Its eval (`S3EmbeddingTest`) passes on both: 11 of 12 facts found, 3 wrong in 11 messages, and no small talk with facts. A search takes about 0.19–0.23 s on the emulator and 0.47 s on the phone, on one CPU thread, with the 256-token file (ADR-062) |
@@ -1411,6 +1411,8 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 | Hardening, release readiness | 5 | Planned |
 
 ### Changelog
+
+- **1.44.1** (2026-09-30): CI also compiles `feature:home`'s device test (`ApprovalSheetImeTest`, ADR-086), and the CI row in the component status says what CI runs.
 
 - **1.44.0** (2026-09-29): answers can't claim to remember what wasn't saved (ADR-089).
   - "I've noted…", "I've made a note", "I'll remember…", "I'll keep that in mind" and "Noted!" need a `memory_remember` that ran in the same turn. Otherwise the answer is repaired once, then escalated, then shown with "Note from Anu: nothing was saved to memory."
