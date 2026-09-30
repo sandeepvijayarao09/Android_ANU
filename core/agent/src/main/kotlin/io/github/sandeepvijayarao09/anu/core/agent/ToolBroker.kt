@@ -210,7 +210,7 @@ class ToolBroker(
         while (reason != null) {
             val request = ApprovalRequest(
                 key, tool.name, current.summary, current.payload, current.risk, reason, current.destination, run.untrusted,
-                tool.editable, edited, problem,
+                tool.editable, edited, problem, current.rows,
             )
             when (val decision = withTimeoutOrNull(approvalTimeoutMillis) { approvals.request(request) }) {
                 null -> {
@@ -272,8 +272,15 @@ class ToolBroker(
         return ToolOutcome.Ok(result, current.summary, wrote = current.risk != RiskTier.READ, destination = current.destination)
     }
 
-    /** A call's input after validation, what the tool says about it, and the payload the user sees. */
-    private class Assessed<I : Any>(val input: I, val risk: RiskTier, val summary: String, val destination: String?, val payload: JsonObject)
+    /** A call's input after validation, what the tool says about it, and the payload the user sees, in the tool's words when it has them. */
+    private class Assessed<I : Any>(
+        val input: I,
+        val risk: RiskTier,
+        val summary: String,
+        val destination: String?,
+        val payload: JsonObject,
+        val rows: List<PayloadRow>?,
+    )
 
     /**
      * Decodes and checks arguments (I6), then asks the tool about them. Tools may reject input while
@@ -283,7 +290,11 @@ class ToolBroker(
     private fun <I : Any> assess(tool: Tool<I, *>, arguments: JsonObject): Assessed<I> {
         val input = json.decodeFromJsonElement(tool.input, arguments)
         // The payload the user approves is re-encoded from the validated input, not the raw arguments.
-        return Assessed(input, tool.risk(input), tool.describe(input), tool.sendsTo(input), json.encodeToJsonElement(tool.input, input) as JsonObject)
+        // Arguments run in order, so a tool's rows come after its description, as [Tool.rows] promises.
+        return Assessed(
+            input, tool.risk(input), tool.describe(input), tool.sendsTo(input), json.encodeToJsonElement(tool.input, input) as JsonObject,
+            tool.rows(input),
+        )
     }
 
     /**

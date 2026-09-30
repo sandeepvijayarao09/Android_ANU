@@ -18,8 +18,11 @@ data class QueryInput(val query: String)
 @Serializable
 data class ItemsOutput(val items: List<String>)
 
-/** Writes privately without attendees and externally with them, like the real calendar tool (§9). */
-class FakeCreateEvent : Tool<EventInput, EventOutput> {
+/**
+ * Writes privately without attendees and externally with them, like the real calendar tool (§9).
+ * [writeRows] stands in for a tool that lists its payload in its own words ([Tool.rows]).
+ */
+class FakeCreateEvent(private val writeRows: ((EventInput) -> List<PayloadRow>)? = null) : Tool<EventInput, EventOutput> {
     val created = mutableListOf<EventInput>()
     override val name = "calendar_create_event"
     override val description = "Create a calendar event"
@@ -31,6 +34,7 @@ class FakeCreateEvent : Tool<EventInput, EventOutput> {
     override fun describe(input: EventInput) = "Create \"${input.title}\"" +
         if (input.attendees.isEmpty()) "" else " and invite ${input.attendees.joinToString()}"
     override val editable = listOf(EditableField("title", "Title", EditableField.Kind.LINE), EditableField("attendees", "Invite", EditableField.Kind.LIST))
+    override fun rows(input: EventInput) = writeRows?.invoke(input)
     override suspend fun invoke(input: EventInput, context: ToolContext): EventOutput {
         created += input
         return EventOutput("event-${created.size}")

@@ -205,7 +205,7 @@ private fun ApprovalSheet(request: ApprovalRequest, onApprove: (String) -> Unit,
                 ) {
                     if (request.edited) Text("Edited by you", Modifier.padding(top = 10.dp), style = AnuTheme.type.label, color = colors.textMuted)
                     Text(request.summary, Modifier.padding(vertical = 10.dp), style = AnuTheme.type.bodyStrong, color = colors.text)
-                    payloadRows(request.payload).forEach { (label, value) ->
+                    sheetRows(request).forEach { (label, value) ->
                         HorizontalDivider(thickness = 0.5.dp, color = colors.separator)
                         if (label == null) {
                             Text(value, Modifier.padding(vertical = 10.dp), style = AnuTheme.type.body, color = colors.text)
@@ -300,6 +300,13 @@ private fun CloudConsentSheet(facts: List<String>, onApprove: (shareFacts: Boole
         }
     }
 }
+
+/**
+ * What the sheet lists under the summary: the tool's own rows when it writes them, such as a memory's
+ * "Fact" and "Kept in" (ADR-088), and otherwise every field of the payload.
+ */
+internal fun sheetRows(request: ApprovalRequest): List<Pair<String?, String>> =
+    request.rows?.map { it.label to it.value } ?: payloadRows(request.payload)
 
 /**
  * The payload as rows: a label and its value, or a paragraph for long text such as an email body.

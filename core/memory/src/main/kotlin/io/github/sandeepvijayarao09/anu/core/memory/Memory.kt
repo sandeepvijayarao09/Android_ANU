@@ -40,16 +40,19 @@ enum class FactOrigin { USER_STATED, INFERRED }
 
 enum class FactStatus { ACTIVE, SUPERSEDED }
 
-/** The living profile's sections (§8.1). The serial names are what the extraction model writes. */
+/**
+ * The living profile's sections (§8.1). The serial names are what the extraction model writes. [title]
+ * heads the profile the model reads; [shortName] is what people see, in the Memory tab and on approvals.
+ */
 @Serializable
-enum class ProfileSection(val title: String) {
-    @SerialName("identity") IDENTITY("Identity and roles"),
-    @SerialName("people") PEOPLE("People and relationships"),
-    @SerialName("work") WORK("Work and projects"),
-    @SerialName("routines") ROUTINES("Routines and schedule"),
-    @SerialName("preferences") PREFERENCES("Preferences"),
-    @SerialName("goals") GOALS("Goals and commitments"),
-    @SerialName("places") PLACES("Places"),
+enum class ProfileSection(val title: String, val shortName: String) {
+    @SerialName("identity") IDENTITY("Identity and roles", "About you"),
+    @SerialName("people") PEOPLE("People and relationships", "People"),
+    @SerialName("work") WORK("Work and projects", "Work"),
+    @SerialName("routines") ROUTINES("Routines and schedule", "Routines"),
+    @SerialName("preferences") PREFERENCES("Preferences", "Preferences"),
+    @SerialName("goals") GOALS("Goals and commitments", "Goals"),
+    @SerialName("places") PLACES("Places", "Places"),
 }
 
 /** One thing Anu knows (§8.1). Every fact has at least one source event (I4). */

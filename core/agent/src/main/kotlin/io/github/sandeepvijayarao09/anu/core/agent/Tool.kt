@@ -66,6 +66,14 @@ interface Tool<I : Any, O : Any> {
     fun describe(input: I): String
 
     /**
+     * The payload as the approval sheet lists it, for tools whose fields aren't in the user's words, such
+     * as a memory's snake_case relation (ADR-088). Written from the validated input, like [describe], never
+     * by the model, and it shows every value that will be used (I2). The broker calls it after [describe].
+     * Null: the sheet lists every field under its key.
+     */
+    fun rows(input: I): List<PayloadRow>? = null
+
+    /**
      * Fields the user may change on the approval sheet (§7.2), such as an email's subject and message.
      * The broker checks the edited payload like the model's own arguments, then asks again with exactly
      * what will run (I2). Identifiers, times and anything that picks a target stay out. Empty: no Edit.

@@ -5,6 +5,7 @@ import io.github.sandeepvijayarao09.anu.core.memory.FactOrigin
 import io.github.sandeepvijayarao09.anu.core.memory.FactStatus
 import io.github.sandeepvijayarao09.anu.core.memory.ProfileSection
 import io.github.sandeepvijayarao09.anu.core.memory.USER
+import io.github.sandeepvijayarao09.anu.core.memory.sentenceCase
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -53,6 +54,14 @@ class FactWordsTest {
         )
         assertEquals(FactWords("Mornings", "Prefers meeting time"), factWords(USER, "prefers_meeting_time", "mornings"))
         assertEquals(FactWords("Maya likes sushi", null), factWords("Maya", "likes", "sushi"))
+    }
+
+    @Test
+    fun `the verb said again in its plain form reads once, and another verb in the value keeps the relation`() {
+        // What E4B kept on the emulator for "Remember that I buy oat milk every week".
+        assertEquals(FactWords("Buys oat milk every week", null), factWords(USER, "buys_at", "buy oat milk every week"))
+        assertEquals(FactWords("Raj buys oat milk every week", null), factWords("Raj", "buys_at", "buy oat milk every week"))
+        assertEquals(FactWords("Wants to visit Japan", null), factWords(USER, "wants_to", "visit Japan"))
     }
 
     @Test

@@ -93,6 +93,21 @@ class ToolBrokerTest {
     }
 
     @Test
+    fun `a tool's own rows reach the sheet, and an edit gets new ones from the new input`() = runTest {
+        broker().execute(event("Standup", "raj@example.com"), run())
+        assertEquals("a tool without rows leaves the sheet to list every field", null, gate.requests.single().rows)
+
+        val labeled = FakeCreateEvent { listOf(PayloadRow("Title", it.title), PayloadRow("Invite", it.attendees.joinToString())) }
+        val scripted = ScriptedGate({ it.change("title", kotlinx.serialization.json.JsonPrimitive("Design review, moved")) }, { ApprovalDecision.Approved })
+        ToolBroker(listOf(labeled), scripted).execute(event("Design review", "maya@example.com"), run())
+        val (first, second) = scripted.requests
+        assertEquals(listOf(PayloadRow("Title", "Design review"), PayloadRow("Invite", "maya@example.com")), first.rows)
+        assertEquals(listOf(PayloadRow("Title", "Design review, moved"), PayloadRow("Invite", "maya@example.com")), second.rows)
+        assertEquals("the approval is still of the exact payload", "Design review, moved", second.payload["title"]!!.jsonPrimitive.content)
+        assertEquals(listOf(EventInput("Design review, moved", listOf("maya@example.com"))), labeled.created)
+    }
+
+    @Test
     fun `an invalid edit keeps asking, with the problem, and runs nothing`() = runTest {
         val gate = ScriptedGate({ it.change("title", kotlinx.serialization.json.JsonPrimitive(42)) }, { ApprovalDecision.Denied("never mind") })
         val outcome = broker(gate).execute(event("Standup", "raj@example.com"), run())

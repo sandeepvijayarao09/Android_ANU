@@ -107,7 +107,7 @@ fun MemoryScreen(viewModel: MemoryViewModel, sentToday: Int, onOpenPrivacy: () -
                 if (facts.isNotEmpty()) {
                     item(key = section.name) {
                         Column {
-                            SectionHeader(sectionName(section))
+                            SectionHeader(section.shortName)
                             Group {
                                 facts.forEachIndexed { index, fact ->
                                     if (index > 0) GroupDivider()

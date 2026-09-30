@@ -1,5 +1,6 @@
 package io.github.sandeepvijayarao09.anu.core.memory
 
+import io.github.sandeepvijayarao09.anu.core.agent.PayloadRow
 import io.github.sandeepvijayarao09.anu.core.agent.RiskTier
 import io.github.sandeepvijayarao09.anu.core.agent.Tool
 import io.github.sandeepvijayarao09.anu.core.agent.ToolContext
@@ -46,7 +47,17 @@ class RememberTool(private val memory: MemoryPipeline) : Tool<RememberInput, Rem
         require(MemoryFilters.safeToKeep("${input.what} ${input.value}")) {
             "Anu doesn't keep passwords, codes, or card, bank or ID numbers in memory. Tell the user so."
         }
-        return "Remember " + factText(Normalize.subject(input.about), Normalize.predicate(input.what), input.value.trim())
+        return "Remember " + factClause(Normalize.subject(input.about), Normalize.predicate(input.what), input.value.trim())
+    }
+
+    /**
+     * The fact as it will be kept, in words: "Fact: You buy oat milk every week", "Kept in: Routines", and
+     * "Sensitive" only when it is (ADR-088). The subject and relation are normalized as the pipeline stores them.
+     */
+    override fun rows(input: RememberInput) = buildList {
+        add(PayloadRow("Fact", factSentence(Normalize.subject(input.about), Normalize.predicate(input.what), input.value.trim())))
+        add(PayloadRow("Kept in", input.section.shortName))
+        if (input.sensitive) add(PayloadRow("Sensitive", "Yes"))
     }
 
     override suspend fun invoke(input: RememberInput, context: ToolContext): RememberOutput {
@@ -137,8 +148,12 @@ class ForgetMemoryTool(private val memory: MemoryPipeline) : Tool<ForgetInput, F
         val facts = resolve(input)
         require(facts.isNotEmpty()) { "Nothing in memory matches that. Call memory_search to find the facts and their ids." }
         approved[input] = facts
-        return "Forget " + facts.joinToString("; ") { it.text }
+        return "Forget " + facts.joinToString("; ") { factClause(it.subject, it.predicate, it.value) }
     }
+
+    /** Each fact that will be deleted, in words, instead of ids and a search (ADR-088). The broker asks after [describe]. */
+    override fun rows(input: ForgetInput) =
+        (approved[input] ?: resolve(input)).map { PayloadRow("Fact", factSentence(it.subject, it.predicate, it.value)) }
 
     override suspend fun invoke(input: ForgetInput, context: ToolContext): ForgetOutput {
         val facts = approved.remove(input) ?: resolve(input)

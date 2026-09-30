@@ -31,10 +31,15 @@ data class ApprovalRequest(
     val edited: Boolean = false,
     /** Why the user's last change wasn't accepted, such as "\"maya@\" is not an email address". */
     val problem: String? = null,
+    /** The payload as the tool lists it in words ([Tool.rows]). Null: the sheet lists every field under its key. */
+    val rows: List<PayloadRow>? = null,
 ) {
     /** The model could see content from other people, so the sheet asks for a closer read. */
     val tainted: Boolean get() = untrusted.isNotEmpty()
 }
+
+/** One line of a payload in words, as the approval sheet shows it: "Kept in" and "Routines". */
+data class PayloadRow(val label: String, val value: String)
 
 sealed interface ApprovalDecision {
     data object Approved : ApprovalDecision
