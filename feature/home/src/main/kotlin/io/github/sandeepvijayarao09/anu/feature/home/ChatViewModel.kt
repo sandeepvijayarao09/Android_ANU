@@ -315,6 +315,14 @@ class ChatViewModel(
         recording?.cancel()
     }
 
+    /**
+     * Anu left the screen: a voice note ends there, kept and marked as stopped early. Android keeps the microphone
+     * open in the background for an app with a foreground service, such as "Hey Anu"'s, so Anu doesn't wait for it to.
+     */
+    fun leftAnu() {
+        if (recording?.isActive == true) recorder?.cutShort()
+    }
+
     private fun recorded(voice: Recording) {
         val note = when {
             voice.seconds == 0 -> "Nothing was recorded."

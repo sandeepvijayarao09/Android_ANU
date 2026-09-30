@@ -30,18 +30,20 @@ import kotlin.math.sqrt
 
 /**
  * Records voice notes with [AudioRecord] (G3, ADR-078): mono 16-bit PCM at 16 kHz, the rate speech models expect,
- * in memory only, never in a file. The voice-recognition source leaves out the processing meant for calls. When
- * Android silences Anu's microphone, because a call started or the user left the app, the recording ends there and
- * is marked as cut short.
+ * in memory only, never in a file. The voice-recognition source leaves out the processing meant for calls. When the
+ * user leaves Anu ([cutShort]), or Android silences its microphone because a call started, the recording ends there
+ * and is marked as cut short.
  */
 class AndroidVoiceRecorder(private val context: Context) : VoiceRecorder {
 
     @Volatile private var finishing = false
+    @Volatile private var cut = false
 
     // RECORD_AUDIO is checked by the screen before it records; without it, AudioRecord fails to initialize.
     @Suppress("MissingPermission")
     override fun record(maxSeconds: Int): Flow<RecordingEvent> = flow {
         finishing = false
+        cut = false
         val rate = Wav.SPEECH_RATE
         val chunk = rate / 10 * 2
         val size = max(AudioRecord.getMinBufferSize(rate, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT), chunk * 4)
@@ -69,7 +71,7 @@ class AndroidVoiceRecorder(private val context: Context) : VoiceRecorder {
                 emit(RecordingEvent.Error(MIC_UNAVAILABLE))
                 return@flow
             }
-            while (!finishing && pcm.size() < limit) {
+            while (!finishing && !cut && pcm.size() < limit) {
                 currentCoroutineContext().ensureActive()
                 val read = recorder.read(buffer, 0, minOf(buffer.size, limit - pcm.size()))
                 if (read < 0) {
@@ -83,6 +85,7 @@ class AndroidVoiceRecorder(private val context: Context) : VoiceRecorder {
                     break
                 }
             }
+            if (cut) interrupted = true
         } finally {
             audio.unregisterAudioRecordingCallback(watch)
             runCatching { recorder.stop() }
@@ -94,6 +97,10 @@ class AndroidVoiceRecorder(private val context: Context) : VoiceRecorder {
 
     override fun finish() {
         finishing = true
+    }
+
+    override fun cutShort() {
+        cut = true
     }
 
     private companion object {

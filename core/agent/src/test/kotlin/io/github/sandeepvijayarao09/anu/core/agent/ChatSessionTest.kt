@@ -672,6 +672,15 @@ class ChatSessionTest {
     }
 
     @Test
+    fun `a phone command that fails says so in a whole sentence, and its receipt says so too`() = runTest {
+        val timer = FakeTimer(failure = "no clock app on this phone can do that")
+        val chat = ChatSession(agent(mapOf(Tier.BASE to base), ToolBroker(listOf(timer), RecordingGate())), commands = PhoneCommands::match)
+        val completed = chat.send("Set a timer for 10 minutes", onPhone).toList().last() as AgentEvent.Completed
+        assertEquals("That didn't work: no clock app on this phone can do that.", completed.text)
+        assertEquals(ActionRecord.Status.FAILED, completed.actions.single().status)
+    }
+
+    @Test
     fun `a phone command runs without asking even in a chat that shows an email, since the words are the user's own`() = runTest {
         val timer = FakeTimer()
         val gate = RecordingGate()

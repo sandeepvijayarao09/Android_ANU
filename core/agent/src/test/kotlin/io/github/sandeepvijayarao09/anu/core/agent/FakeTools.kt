@@ -154,8 +154,8 @@ data class SecondsInput(val seconds: Int)
 @Serializable
 data class SaidOutput(val said: String)
 
-/** A phone control like the clock's timer (G6): it changes only the user's own phone, and says what it did. */
-class FakeTimer : Tool<SecondsInput, SaidOutput> {
+/** A phone control like the clock's timer (G6): it changes only the user's own phone, and says what it did, or fails with [failure]. */
+class FakeTimer(private val failure: String? = null) : Tool<SecondsInput, SaidOutput> {
     val set = mutableListOf<Int>()
     override val name = "phone_set_timer"
     override val description = "Start a timer"
@@ -166,6 +166,7 @@ class FakeTimer : Tool<SecondsInput, SaidOutput> {
     override fun risk(input: SecondsInput) = RiskTier.WRITE_PRIVATE
     override fun describe(input: SecondsInput) = "Set a timer for ${input.seconds / 60} minutes"
     override suspend fun invoke(input: SecondsInput, context: ToolContext): SaidOutput {
+        failure?.let { error(it) }
         set += input.seconds
         return SaidOutput("Timer set for ${input.seconds / 60} minutes.")
     }

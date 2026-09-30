@@ -66,6 +66,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.foundation.Image
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -76,6 +77,8 @@ import kotlinx.coroutines.withContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.sandeepvijayarao09.anu.core.router.Guard
 import io.github.sandeepvijayarao09.anu.core.router.Tier
@@ -121,6 +124,9 @@ fun TalkScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val colors = AnuTheme.colors
+    val activity = LocalActivity.current
+    // Leaving Anu ends a voice note (ADR-078); rotating or a theme change only rebuilds the screen.
+    LifecycleEventEffect(Lifecycle.Event.ON_STOP) { if (activity?.isChangingConfigurations != true) viewModel.leftAnu() }
     var input by rememberSaveable { mutableStateOf("") }
     val typing = remember { FocusRequester() }
     val talk = { if (micGranted) viewModel.toggleListening() else onRequestMic(viewModel::toggleListening) }

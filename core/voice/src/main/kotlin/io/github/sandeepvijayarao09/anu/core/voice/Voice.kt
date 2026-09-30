@@ -39,7 +39,7 @@ sealed interface RecordingEvent {
     /** How loud it is now, from 0 to 1, for the sphere and the level bars, and how long it has run. */
     data class Level(val value: Float, val seconds: Int) : RecordingEvent
 
-    /** The recording, ended by [VoiceRecorder.finish], by its time limit, or cut short ([Recording.interrupted]). */
+    /** The recording, ended by [VoiceRecorder.finish], by its time limit, or cut short ([Recording.interrupted], [VoiceRecorder.cutShort]). */
     data class Finished(val recording: Recording) : RecordingEvent
 
     /** It couldn't record, such as when another app holds the microphone. */
@@ -49,13 +49,16 @@ sealed interface RecordingEvent {
 /** Records voice notes on the phone, as mono 16 kHz WAV, kept in memory only (G3, ADR-078). */
 interface VoiceRecorder {
     /**
-     * Cold: collecting starts recording, up to [maxSeconds]. It ends with [RecordingEvent.Finished] after [finish],
-     * at the limit, or when the microphone is taken away (a call, or leaving the app). Cancelling throws it away.
+     * Cold: collecting starts recording, up to [maxSeconds]. It ends with [RecordingEvent.Finished] after [finish] or
+     * [cutShort], at the limit, or when Android takes the microphone away, as for a call. Cancelling throws it away.
      */
     fun record(maxSeconds: Int): Flow<RecordingEvent>
 
     /** Ends the recording now, keeping what was recorded. */
     fun finish()
+
+    /** Ends the recording now, keeping what was recorded, marked as cut short: the user left Anu. */
+    fun cutShort()
 }
 
 /** Text to speech. Sentences are queued as they arrive, so Anu starts talking before the answer is finished. */

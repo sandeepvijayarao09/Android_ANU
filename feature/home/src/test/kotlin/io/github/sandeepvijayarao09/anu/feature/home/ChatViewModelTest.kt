@@ -399,6 +399,7 @@ class ChatViewModelTest {
     /** A recorder that records [seconds] of made-up audio, then finishes, cut short when [interrupted]; or fails with [error]. */
     private class FakeRecorder(private val seconds: Int = 4, private val interrupted: Boolean = false, private val error: String? = null) : VoiceRecorder {
         var finishes = 0
+        private var cut = false
         private val stop = kotlinx.coroutines.CompletableDeferred<Unit>()
 
         override fun record(maxSeconds: Int): kotlinx.coroutines.flow.Flow<RecordingEvent> = kotlinx.coroutines.flow.flow {
@@ -408,11 +409,16 @@ class ChatViewModelTest {
             }
             emit(RecordingEvent.Level(0.5f, seconds))
             if (!interrupted) stop.await()
-            emit(RecordingEvent.Finished(Recording(byteArrayOf(1, 2), seconds, interrupted = interrupted)))
+            emit(RecordingEvent.Finished(Recording(byteArrayOf(1, 2), seconds, interrupted = interrupted || cut)))
         }
 
         override fun finish() {
             finishes++
+            stop.complete(Unit)
+        }
+
+        override fun cutShort() {
+            cut = true
             stop.complete(Unit)
         }
     }
@@ -480,6 +486,21 @@ class ChatViewModelTest {
         busy.startRecording()
         assertNull(busy.state.value.recording)
         assertEquals("The microphone is in use by another app.", busy.state.value.attachmentNote)
+    }
+
+    @Test
+    fun `leaving Anu ends a voice note there, kept and marked stopped early`() {
+        val recorder = FakeRecorder(seconds = 9)
+        val chat = voiceChat(recorder, FakeTranscriber(emptyList()))
+        chat.leftAnu()
+        assertNull("nothing was recording", chat.state.value.recording)
+        chat.startRecording()
+        assertEquals(9, chat.state.value.recordingSeconds)
+        chat.leftAnu()
+        assertNull(chat.state.value.recordingSeconds)
+        assertEquals(true, chat.state.value.recording?.interrupted)
+        assertEquals("The recording stopped early. What was recorded is kept.", chat.state.value.attachmentNote)
+        assertEquals("Stop wasn't pressed", 0, recorder.finishes)
     }
 
     @Test

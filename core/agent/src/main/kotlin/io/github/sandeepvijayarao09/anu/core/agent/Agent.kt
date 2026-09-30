@@ -109,6 +109,9 @@ sealed interface AgentEvent {
     data class Failed(val reasons: List<String>, val retry: Boolean = true) : AgentEvent
 }
 
+/** [reason] as the end of a sentence: tools give their reasons without a full stop ("this phone has no flashlight"). */
+private fun sentence(reason: String): String = reason.trimEnd().let { if (it.endsWith('.') || it.endsWith('!') || it.endsWith('?')) it else "$it." }
+
 /**
  * The streaming tool loop (ARCHITECTURE §7.2, ADR-004). Each step:
  * 1. asks the routed brain;
@@ -170,8 +173,8 @@ class Agent(
         val text = when (outcome) {
             is ToolOutcome.Ok -> ((outcome.result as? JsonObject)?.get("said") as? JsonPrimitive)?.content ?: outcome.summary
             is ToolOutcome.Rejected -> "Not done."
-            is ToolOutcome.Failed -> "That didn't work: ${outcome.reason}"
-            is ToolOutcome.Invalid -> "That didn't work: ${outcome.reason}"
+            is ToolOutcome.Failed -> "That didn't work: ${sentence(outcome.reason)}"
+            is ToolOutcome.Invalid -> "That didn't work: ${sentence(outcome.reason)}"
         }
         val untrusted = if (outcome is ToolOutcome.Ok || outcome is ToolOutcome.Failed) broker.untrustedContent(call.name) else null
         val added = listOf(
