@@ -91,6 +91,9 @@ class ChatSession(
     /** Where the model's view started last turn. It stays put until the chat outgrows the window. */
     private var windowStart = 0
 
+    /** How far into the chat photos have been let go this session (MEDIA-3), so each is deleted once. Callers hold [lock]. */
+    private var photosLetGoTo = 0
+
     private val mutableContext = MutableStateFlow(ContextView(budget = window.budget))
 
     /** What the model was shown last turn (ADR-040). */
@@ -191,6 +194,7 @@ class ChatSession(
                 Tokens.ofTools(agent.toolSpecs(tools)) + Tokens.of(message)
             val scale = tokens.scale
             windowStart = window.start(transcript, windowStart, fixed, scale)
+            letGoOfPhotosBefore(transcript, windowStart)
             val shown = transcript.subList(windowStart, transcript.size).toList()
             val system = systemPrompt(tools, trimmed = windowStart > 0)
             // The model sees the photos in its view; the saved chat keeps only their ids.
@@ -519,6 +523,18 @@ class ChatSession(
     /** When the user sent it, and the dates of the days it names (ADR-085): "Tue 2026-09-29 12:31; tomorrow is Wed 2026-09-30". */
     private fun sentAt(now: ZonedDateTime, words: String): String =
         SENT_AT.format(now) + DayWords.hint(words, now.toLocalDate())?.let { "; $it" }.orEmpty()
+
+    /**
+     * A photo is kept while the model can still see it. Once its message leaves the window, which only moves forward,
+     * the model never sees it again, so it's deleted; the user's original stays where it came from, and the chat shows
+     * "Photo no longer kept" (MEDIA-3, ADR-091). Callers hold [lock].
+     */
+    private suspend fun letGoOfPhotosBefore(transcript: List<ChatMessage>, start: Int) {
+        if (start <= photosLetGoTo) return
+        val gone = transcript.subList(photosLetGoTo, start).filterIsInstance<ChatMessage.User>().flatMap { it.photos }.map { it.id }
+        if (gone.isNotEmpty()) photoStore.delete(gone)
+        photosLetGoTo = start
+    }
 
     /** Callers hold [lock]. */
     private suspend fun loaded(): MutableList<ChatMessage> = transcript ?: store.load().toMutableList().also { transcript = it }

@@ -203,6 +203,23 @@ class ChatSessionTest {
     }
 
     @Test
+    fun `a photo is kept while the model can see it, and let go once the window moves past it`() = runTest {
+        val photos = InMemoryPhotoStore()
+        val chat = ChatSession(agent(mapOf(Tier.BASE to base, Tier.PRO to base)), photoStore = photos, window = ContextWindow(budget = 1_000, refill = 0.6))
+        base.enqueue(Step.Reply("A harbor at dusk."))
+        chat.send("What's in this photo?", device, photos = listOf(io.github.sandeepvijayarao09.anu.core.model.Photo(0, byteArrayOf(7, 7)))).toList()
+        val id = (chat.history().first() as ChatMessage.User).photos.single().id
+        repeat(8) { base.enqueue(Step.Reply("r".repeat(350))) }
+        repeat(8) { i ->
+            chat.send("Message $i " + "x".repeat(340), device).toList()
+            val inView = chat.context.value.shownFrom == 0
+            assertEquals("kept exactly while its message is in view (turn $i)", inView, photos.load(listOf(id)).isNotEmpty())
+        }
+        assertTrue("the window moved past it", chat.context.value.shownFrom > 0)
+        assertEquals("the message still says it had a photo", listOf(id), (chat.history().first() as ChatMessage.User).photos.map { it.id })
+    }
+
+    @Test
     fun `each on-device turn teaches the calibration, and its scale sizes the window`() = runTest {
         val calibration = TokenCalibration()
         val chat = ChatSession(agent(mapOf(Tier.BASE to base)), tokens = calibration, window = ContextWindow(budget = 5_000))
