@@ -59,6 +59,25 @@ no built-in tool backs.
 **Priority:** P2
 **Depends on:** that branch landing on main.
 
+## Models
+
+### Read the chat ahead once a read can be stopped
+
+**What:** Let warm start also build the conversation for the chat's last skill with `prefillPrefaceOnInit`, through a
+default no-op `Brain.prepare(request)`, once a read-ahead can be stopped or takes about a second.
+
+**Why:** After a reload, the first message reads the whole chat again: 17 to 25 s on the emulator's CPU for 1,281
+tokens. Reading it ahead brought the first word to 1.6 s, 91 to 94% sooner (ARCHITECTURE spike log, ENG-11). It
+failed only the second gate: nothing can stop the read, so a message for another skill waited 16.2 s behind it.
+
+**Context:** Eng D13 approved reading ahead only if both gates pass. Revisit when LiteRT-LM can cancel creating a
+conversation, or when a phone reads a chat window in about a second: the Pixel's GPU read 255 to 284 tokens/s in S1,
+so the 2,560-token window would still take about 10 s. The probe is `ReadAheadProbeTest` in `brain:litertlm`.
+
+**Effort:** human M / CC S
+**Priority:** P3
+**Depends on:** a runtime that can stop a read, or a backend fast enough.
+
 ## Platforms
 
 ### Keep new core code iOS-ready
