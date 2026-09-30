@@ -7,6 +7,7 @@ import io.github.sandeepvijayarao09.anu.core.model.Sampling
 import io.github.sandeepvijayarao09.anu.core.model.ScriptedBrain
 import io.github.sandeepvijayarao09.anu.core.model.ScriptedBrain.Step
 import io.github.sandeepvijayarao09.anu.core.model.ToolCall
+import io.github.sandeepvijayarao09.anu.core.model.ToolResult
 import io.github.sandeepvijayarao09.anu.core.model.UntrustedContent
 import io.github.sandeepvijayarao09.anu.core.router.DeviceState
 import io.github.sandeepvijayarao09.anu.core.router.RouteRequest
@@ -16,9 +17,12 @@ import io.github.sandeepvijayarao09.anu.core.router.Tier
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonArray
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -149,5 +153,51 @@ class AgentTest {
         Agent(Router(), BrainProvider { mapOf(Tier.BASE to base)[it] }, broker)
             .run(route, device, "You are Anu.", listOf(ChatMessage.User("Hi")), emptyList(), "t2").toList()
         assertEquals(Sampling.Default, base.requests.last().sampling)
+    }
+
+    private val health = FakeHealthRecords()
+    private val lookup = ToolCall(health.name, buildJsonObject { put("query", "allergies") })
+    private val everyTier = DeviceState(online = true, availableTiers = Tier.entries.toSet())
+    private fun List<ChatMessage>.results() = filterIsInstance<ChatMessage.Tool>().single().results.single().result
+
+    @Test
+    fun `a sensitive result from the phone never goes to the cloud, even when the turn escalates with consent`() = runTest {
+        val agent = Agent(Router(), BrainProvider { mapOf(Tier.BASE to base, Tier.PRO to pro, Tier.CLOUD to cloud)[it] }, ToolBroker(listOf(health), gate))
+        base.enqueue(Step.Reply(listOf(""), toolCalls = listOf(lookup)), Step.Fail(IllegalStateException("out of memory")))
+        pro.enqueue(Step.Fail(IllegalStateException("out of memory")))
+        cloud.enqueue(Step.Reply("That stays on your phone."))
+
+        val events = agent.run(route.copy(cloudConsented = true), everyTier, "You are Anu.", history, listOf(health.name), "t1").toList()
+
+        val completed = events.last() as AgentEvent.Completed
+        assertEquals(Tier.CLOUD, completed.tier)
+        assertTrue("the phone's brains read it", "penicillin" in pro.requests.single().transcript.results().toString())
+        assertEquals(KEPT_ON_PHONE, cloud.requests.single().transcript.results())
+        assertEquals("the ledger names only what goes", setOf(DataClass.PERSONAL), cloud.requests.single().dataClasses)
+        assertTrue("the saved chat keeps it", "penicillin" in completed.added.results().toString())
+    }
+
+    @Test
+    fun `an earlier turn's sensitive result reaches the cloud only as a note that it stays on the phone`() = runTest {
+        val agent = Agent(Router(), BrainProvider { mapOf(Tier.PRO to pro, Tier.CLOUD to cloud)[it] }, ToolBroker(listOf(health), gate))
+        val earlier = listOf(
+            ChatMessage.User("Do I have any allergies?"),
+            ChatMessage.Model("", listOf(lookup)),
+            ChatMessage.Tool(listOf(ToolResult(health.name, buildJsonObject { putJsonArray("items") { add(JsonPrimitive("allergy: penicillin")) } }))),
+            ChatMessage.Model("I found one."),
+            ChatMessage.User("Plan a weekend in Kyoto"),
+        )
+        pro.enqueue(Step.Reply("Here's a plan."))
+        cloud.enqueue(Step.Reply("Here's a plan."))
+
+        // This turn offers no tools, and the result is still kept back: it goes by the tool that returned it.
+        for (tier in listOf(Tier.CLOUD, Tier.PRO)) {
+            agent.run(route.copy(text = "Plan a weekend in Kyoto", pinnedTier = tier, cloudConsented = true), everyTier, "You are Anu.", earlier, emptyList(), "t2").toList()
+        }
+
+        val sent = cloud.requests.single().transcript
+        assertFalse(sent.toString(), "penicillin" in sent.toString())
+        assertEquals(KEPT_ON_PHONE, sent.results())
+        assertTrue("the phone's brains still read it", "penicillin" in pro.requests.single().transcript.results().toString())
     }
 }

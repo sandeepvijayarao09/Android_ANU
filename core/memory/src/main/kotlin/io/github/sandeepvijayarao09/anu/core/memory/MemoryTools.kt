@@ -77,7 +77,9 @@ data class SearchMemoryOutput(val facts: List<MemoryFactOut>)
 
 /**
  * Looks up what Anu remembers. In v1 every fact comes from the user's own words, so results are
- * trusted. That changes when facts are learned from connectors (§8.2).
+ * trusted. That changes when facts are learned from connectors (§8.2). Results can hold sensitive facts,
+ * so it never runs for Gemini, and its results reach Gemini only as a note that they stay on the phone.
+ * Gemini sees only the facts the user left on the consent sheet (ADR-054, ADR-087).
  */
 class SearchMemoryTool(private val memory: MemoryPipeline) : Tool<SearchMemoryInput, SearchMemoryOutput> {
     override val name = "memory_search"
@@ -115,14 +117,15 @@ data class ForgetOutput(val forgotten: List<String>)
 
 /**
  * Deletes facts. That can't be undone, so the user always approves the exact list first (I2). The list
- * the user approved is the list deleted, even if memory changes in between.
+ * the user approved is the list deleted, even if memory changes in between. The result names the facts,
+ * which can be sensitive, so like [SearchMemoryTool] it stays on the phone (ADR-087).
  */
 class ForgetMemoryTool(private val memory: MemoryPipeline) : Tool<ForgetInput, ForgetOutput> {
     override val name = "memory_forget"
     override val description = "Delete facts the user wants forgotten, by id from memory_search, or by words. The user approves the exact list."
     override val input = ForgetInput.serializer()
     override val output = ForgetOutput.serializer()
-    override val dataClasses = setOf(DataClass.PERSONAL)
+    override val dataClasses = setOf(DataClass.PERSONAL, DataClass.SENSITIVE)
     override val untrustedContent: UntrustedContent? = null
 
     /** What each input resolved to when the user was asked, so exactly that is deleted. */

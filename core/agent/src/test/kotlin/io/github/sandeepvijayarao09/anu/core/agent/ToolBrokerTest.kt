@@ -234,11 +234,23 @@ class ToolBrokerTest {
     }
 
     @Test
-    fun `sensitive results stay on the phone unless the user consented to the cloud`() = runTest {
+    fun `sensitive results never go to the cloud, even after consent`() = runTest {
         val call = ToolCall("health_search", buildJsonObject { put("query", "allergies") })
         assertTrue(broker().execute(call, run(BrainLocation.CLOUD)) is ToolOutcome.Rejected)
-        assertTrue(broker().execute(call, run(BrainLocation.CLOUD, consented = true)) is ToolOutcome.Ok)
+        // Consent covers the message and the facts on the consent sheet, never what a tool returns (ADR-087).
+        val consented = broker().execute(call, run(BrainLocation.CLOUD, consented = true))
+        assertTrue(consented.toString(), consented is ToolOutcome.Rejected && "penicillin" !in consented.toResultJson().toString())
+        assertEquals("blocked: sensitive data for the cloud", audit.last().outcome)
         assertTrue(broker().execute(call, run(BrainLocation.ON_DEVICE)) is ToolOutcome.Ok)
+    }
+
+    @Test
+    fun `only tools that declare sensitive data count as returning it`() {
+        val broker = broker()
+        assertTrue(broker.returnsSensitive("health_search"))
+        assertEquals(false, broker.returnsSensitive("email_search"))
+        // A tool that's no longer there, such as a removed MCP server's, declared none.
+        assertEquals(false, broker.returnsSensitive("mcp_gone_search"))
     }
 
     @Test

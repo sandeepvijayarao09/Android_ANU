@@ -14,6 +14,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -71,6 +72,42 @@ class MemoryToolsTest {
         )
         assertEquals(3, tool.invoke(SearchMemoryInput(), ctx).facts.size)
         assertEquals("the user said so", tool.invoke(SearchMemoryInput("Raj"), ctx).facts.single().source)
+    }
+
+    @Test
+    fun `a sensitive fact never reaches the cloud through memory_search, even after consent`() = runTest {
+        memory.start()
+        memory.remember("user", "allergy", "penicillin", ProfileSection.IDENTITY, sensitive = true, ref = null)
+        memory.remember("user", "diet", "vegetarian", ProfileSection.PREFERENCES, sensitive = false, ref = null)
+        val broker = ToolBroker(listOf(SearchMemoryTool(memory)), ApprovalGate { ApprovalDecision.Approved })
+        // The user said yes to Gemini for the message and the facts on the consent sheet, never to what a tool returns.
+        val cloud = RunState("main:4", "main:4", BrainLocation.CLOUD, cloudConsented = true)
+
+        for (query in listOf("", "allergy")) {
+            val outcome = broker.execute(ToolCall("memory_search", buildJsonObject { put("query", query) }), cloud)
+            // What the broker returns is what Gemini reads in its next request.
+            assertFalse("\"$query\": $outcome", "penicillin" in outcome.toResultJson().toString())
+            assertTrue(outcome.toString(), outcome is ToolOutcome.Rejected)
+        }
+        // On the phone, the same search still finds it.
+        val onPhone = broker.execute(ToolCall("memory_search", buildJsonObject { put("query", "allergy") }), run())
+        assertTrue(onPhone.toString(), "penicillin" in onPhone.toResultJson().toString())
+    }
+
+    @Test
+    fun `forgetting from the cloud is refused before anyone is asked, since its result names the facts`() = runTest {
+        memory.start()
+        memory.remember("user", "allergy", "penicillin", ProfileSection.IDENTITY, sensitive = true, ref = null)
+        val asked = mutableListOf<String>()
+        val broker = ToolBroker(listOf(ForgetMemoryTool(memory)), ApprovalGate { asked += it.summary; ApprovalDecision.Approved })
+        val cloud = RunState("main:4", "main:4", BrainLocation.CLOUD, cloudConsented = true)
+
+        val outcome = broker.execute(ToolCall("memory_forget", buildJsonObject { put("query", "allergy") }), cloud)
+
+        assertTrue(outcome.toString(), outcome is ToolOutcome.Rejected)
+        assertFalse("penicillin" in outcome.toResultJson().toString())
+        assertTrue("nothing to approve", asked.isEmpty())
+        assertEquals(1, store.activeFacts().size)
     }
 
     @Test

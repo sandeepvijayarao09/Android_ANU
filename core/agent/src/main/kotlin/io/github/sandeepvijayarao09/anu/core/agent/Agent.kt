@@ -5,6 +5,7 @@ import io.github.sandeepvijayarao09.anu.core.model.BrainEvent
 import io.github.sandeepvijayarao09.anu.core.model.BrainLocation
 import io.github.sandeepvijayarao09.anu.core.model.BrainRequest
 import io.github.sandeepvijayarao09.anu.core.model.ChatMessage
+import io.github.sandeepvijayarao09.anu.core.model.DataClass
 import io.github.sandeepvijayarao09.anu.core.model.echoesFraming
 import io.github.sandeepvijayarao09.anu.core.model.Sampling
 import io.github.sandeepvijayarao09.anu.core.model.ToolCall
@@ -29,6 +30,9 @@ import kotlinx.serialization.json.JsonPrimitive
 
 /** How an escalation past a tier with no model installed is worded. That tier never tried. */
 internal const val NO_BRAIN = "no brain is wired"
+
+/** What a cloud brain reads in place of a tool result that can hold sensitive data (ADR-087). */
+internal val KEPT_ON_PHONE = ToolOutcome.Rejected("This result can hold sensitive data, which stays on this phone.").toResultJson()
 
 /** Limits for one agent run (§7.2). */
 data class Budgets(val maxSteps: Int = 8, val maxToolCalls: Int = 12)
@@ -138,6 +142,16 @@ class Agent(
     fun untrustedContent(toolName: String): UntrustedContent? = broker.untrustedContent(toolName)
 
     /**
+     * [messages] as the cloud may see them: each result that can hold sensitive data, such as memory's facts, is
+     * replaced with a note that it stays on the phone. Consent covers the message and the facts on the consent sheet,
+     * never what a tool returned (ADR-087). On-device brains and the saved chat keep the real results.
+     */
+    private fun withoutSensitiveResults(messages: List<ChatMessage>): List<ChatMessage> = messages.map { message ->
+        if (message !is ChatMessage.Tool) return@map message
+        message.copy(results = message.results.map { if (broker.returnsSensitive(it.toolName)) it.copy(result = KEPT_ON_PHONE) else it })
+    }
+
+    /**
      * A phone command with no model (G6, ADR-076): [call] runs through the broker like a model's call, with the same
      * risk tier, approval, taint ([inView]) and audit, and the answer is the tool's own words for what happened.
      */
@@ -191,6 +205,9 @@ class Agent(
         inView: Set<UntrustedContent> = emptySet(),
     ): Flow<AgentEvent> = flow {
         var route = route
+        // The data classes of the chat's own words, before any tool runs. A cloud request never carries sensitive
+        // results, so it doesn't count them for the Privacy Ledger (ADR-087).
+        val asked = route.dataClasses
         var decision = when (val result = router.route(route, device)) {
             is RouteResult.Unavailable -> return@flow emit(AgentEvent.Failed(result.reasons))
             is RouteResult.Routed -> result.decision
@@ -233,11 +250,14 @@ class Agent(
             if (++steps > budgets.maxSteps) return@flow emit(AgentEvent.Failed(listOf("stopped after ${budgets.maxSteps} steps")))
             state.brainLocation = brain.capabilities.location
 
+            val transcript = history + added
             val request = BrainRequest(
                 system = systemNote?.let { "$system\n\n$it" } ?: system,
-                transcript = history + added,
+                // A cloud brain never reads a result that can hold sensitive data, even one from a step on the phone
+                // before an escalation, or from an earlier turn still in view (ADR-087).
+                transcript = if (state.brainLocation == BrainLocation.CLOUD) withoutSensitiveResults(transcript) else transcript,
                 tools = specs,
-                dataClasses = route.dataClasses,
+                dataClasses = if (state.brainLocation == BrainLocation.CLOUD) asked + (state.dataClassesSeen - DataClass.SENSITIVE) else route.dataClasses,
                 purpose = route.skill.name.lowercase(),
                 // A turn that can act samples cooler (ADR-085). The tools already key the on-device conversation,
                 // so this rebuilds nothing more.

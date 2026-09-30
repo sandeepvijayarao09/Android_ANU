@@ -58,6 +58,10 @@ class RunState(
     /** Identifies the user turn. The same turn re-sent (for example after consent) reuses its idempotency keys. */
     val turnKey: String,
     var brainLocation: BrainLocation,
+    /**
+     * The user said yes to the cloud for this turn: to its message and the facts on the consent sheet. It never
+     * lets a tool's sensitive results go to the cloud (ADR-087).
+     */
     val cloudConsented: Boolean,
     inView: Set<UntrustedContent> = emptySet(),
 ) {
@@ -153,6 +157,13 @@ class ToolBroker(
         return tool.untrustedContent
     }
 
+    /**
+     * Whether a result from [toolName] can hold sensitive data (S2), such as memory's facts. Such a result never
+     * goes to the cloud, consent or not (ADR-087). Only Anu's own tools declare sensitive data, so a tool that's no
+     * longer there, such as a removed MCP server's, didn't.
+     */
+    fun returnsSensitive(toolName: String): Boolean = find(toolName)?.let { DataClass.SENSITIVE in it.dataClasses } == true
+
     /** Schemas of the named tools, so each skill offers only the tools it needs (§7.3). */
     fun specs(names: Collection<String>): List<ToolSpec> = names.map { name ->
         requireNotNull(find(name)) { "No tool named $name" }.spec()
@@ -175,7 +186,8 @@ class ToolBroker(
         suspend fun record(outcome: String, approved: Boolean?) =
             audit.record(ToolAuditEntry(run.runId, tool.name, current.risk, current.summary, outcome, approved, clock()))
 
-        if (run.brainLocation == BrainLocation.CLOUD && DataClass.SENSITIVE in tool.dataClasses && !run.cloudConsented) {
+        // Consent covers the message and the facts on the consent sheet, never what a tool returns (ADR-087).
+        if (run.brainLocation == BrainLocation.CLOUD && DataClass.SENSITIVE in tool.dataClasses) {
             record("blocked: sensitive data for the cloud", null)
             return ToolOutcome.Rejected("${tool.name} returns sensitive data, which stays on this phone", current.summary, destination = current.destination)
         }
