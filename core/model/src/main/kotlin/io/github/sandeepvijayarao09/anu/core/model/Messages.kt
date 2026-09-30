@@ -82,9 +82,10 @@ data class BrainRequest(
     /** Why this request is made, for example "chat" or "email". Shown in the Privacy Ledger. */
     val purpose: String = "chat",
     /**
-     * The user's local time when they sent the newest user message, for example "Fri 2026-09-25 14:46".
-     * Brains show it with that message (see [userText]) rather than in [system], so the system prompt
-     * stays the same all day and the on-device KV cache survives from one turn to the next (ADR-018).
+     * The user's local time when they sent the newest user message, for example "Fri 2026-09-25 14:46", then the
+     * dates of the days it names, such as "; tomorrow is Sat 2026-09-26" (ADR-085). Brains show it with that message
+     * (see [userText]) rather than in [system], so the system prompt stays the same all day and the on-device KV cache
+     * survives from one turn to the next (ADR-018).
      */
     val sentAt: String? = null,
     /**
@@ -119,6 +120,12 @@ data class Sampling(val temperature: Double, val topP: Double, val topK: Int, va
 
         /** Greedy decoding, for structured output and repair attempts (P6). */
         val Precise = Sampling(temperature = 0.0, topP = 1.0, topK = 1)
+
+        /**
+         * Cooler sampling for turns that offer tools, so whether and how to act doesn't swing from run to run
+         * (ADR-085). Not greedy, so a repair, which is, still writes something different.
+         */
+        val Acting = Sampling(temperature = 0.3, topP = 0.95, topK = 64)
     }
 }
 

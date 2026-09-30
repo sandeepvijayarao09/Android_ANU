@@ -373,9 +373,10 @@ class AppGraph(private val context: Context) {
         ) + if (Flavor.HAS_SMS) listOf("sms_search") else emptyList()
         Skill.MEMORY -> listOf("memory_remember", "memory_search", "memory_forget")
         Skill.SHOPPING -> listOf("shop_search", "shop_checkout")
-        // What a voice note of the user's own usually asks for: events, alarms and things to remember (EXP-3, ADR-078).
-        // Each one is proposed and approved; a shared recording gets none of these (P4).
-        Skill.VOICE_NOTE -> listOf("calendar_create_event", "calendar_find_free_slots", "contacts_find", "phone_set_alarm", "memory_remember")
+        // What a voice note of the user's own usually asks for: events and alarms (EXP-3, ADR-078). Each one is proposed and
+        // approved; a shared recording gets none of these (P4). Memory isn't here: the eval saw notes stored in it as
+        // lists, so only a note that starts by asking to remember gets memory's tools (ADR-085).
+        Skill.VOICE_NOTE -> listOf("calendar_create_event", "calendar_find_free_slots", "contacts_find", "phone_set_alarm")
         // More than one whole command: the model gets the phone's controls, each still run by the broker (G6).
         Skill.PHONE -> listOf("phone_set_timer", "phone_set_alarm", "phone_flashlight", "phone_do_not_disturb", "phone_open_settings")
         else -> emptyList()

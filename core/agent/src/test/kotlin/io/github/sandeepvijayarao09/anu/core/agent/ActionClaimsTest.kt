@@ -141,4 +141,20 @@ class ActionClaimsTest {
             ChatSession.dateTable(LocalDate.parse("2026-09-25")),
         )
     }
+
+    @Test
+    fun `a reminder or alarm said to be set, or a list said to be updated, is a claim`() {
+        listOf(
+            "I've set a reminder for Thursday morning at 9:00 AM to call Maya.",
+            "I have now set an alarm for 6:30.",
+            "Your list has been updated with: oat milk.",
+            "The reminder has been set for Friday.",
+        ).forEach { assertTrue(it, ActionClaims.claimsAction(it)) }
+        listOf(
+            "Shall I set an alarm for 6:30?",
+            "I can set a reminder for Thursday morning if you like.",
+            "Would you like me to set it for 9:00 AM?",
+            "For your list: oat milk.",
+        ).forEach { assertFalse(it, ActionClaims.claimsAction(it)) }
+    }
 }

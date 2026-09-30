@@ -25,6 +25,8 @@ class VoiceNotesTest {
     fun `a voice note alone asks for its tasks to be proposed, each approved`() {
         val alone = ChatMessage.User("", voiceNote = VoiceNote("Call Maya on Thursday.", seconds = 17)).modelText
         assertTrue(alone, alone.startsWith("The user recorded this voice note (0:17). It was written down on the phone. If it asks for things to be done, propose each with a tool"))
+        assertTrue(alone, "a reminder or a call to make becomes a calendar event for the user alone, with no attendees" in alone)
+        assertTrue(alone, "You can't keep lists: for items meant for one, such as groceries, end your answer with \"For your list:\"" in alone)
         assertTrue(alone, alone.endsWith("\"\"\"\nCall Maya on Thursday.\n\"\"\""))
     }
 

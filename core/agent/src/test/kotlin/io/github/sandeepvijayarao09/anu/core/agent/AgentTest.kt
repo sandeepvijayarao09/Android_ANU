@@ -138,4 +138,16 @@ class AgentTest {
         assertTrue(events.last() is AgentEvent.ConsentNeeded)
         assertTrue(cloud.requests.isEmpty())
     }
+
+    @Test
+    fun `a turn that can act samples cooler, and a plain chat keeps Gemma's defaults`() = runTest {
+        base.enqueue(Step.Reply(listOf(""), toolCalls = listOf(createDentist)), Step.Reply("Added."))
+        run()
+        assertEquals(listOf(Sampling.Acting, Sampling.Acting), base.requests.map { it.sampling })
+
+        base.enqueue(Step.Reply("Hello!"))
+        Agent(Router(), BrainProvider { mapOf(Tier.BASE to base)[it] }, broker)
+            .run(route, device, "You are Anu.", listOf(ChatMessage.User("Hi")), emptyList(), "t2").toList()
+        assertEquals(Sampling.Default, base.requests.last().sampling)
+    }
 }

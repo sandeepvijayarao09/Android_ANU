@@ -40,6 +40,25 @@ style; split by area first, and reconsider Hilt only if that isn't enough. Decis
 **Priority:** P2
 **Depends on:** None; best before stage 1.
 
+## Agent
+
+### Check each claim against the write that backs it
+
+**What:** Back each kind of claim only by its own kind of write: "added to your list" by a list tool's write, "I've
+scheduled" by a calendar write, and so on. Today any write in the run backs every claim.
+
+**Why:** The voice note eval (ADR-085) saw "Your list has been updated with: oat milk" beside a real calendar event.
+The event's write let the false claim about a list through, because Anu has no lists. The voice note's framing now
+asks for list items at the end of the answer, which fixed it in the eval, but only a check can be proven.
+
+**Context:** `ActionClaims` in `core:agent` (ARCHITECTURE §7.4, ADR-027). Branch `claude/admiring-aryabhata-345091`
+gives claims kinds, and backs memory claims only with `memory_remember`; a claim about a list could be a kind that
+no built-in tool backs.
+
+**Effort:** human S / CC S
+**Priority:** P2
+**Depends on:** that branch landing on main.
+
 ## Platforms
 
 ### Keep new core code iOS-ready

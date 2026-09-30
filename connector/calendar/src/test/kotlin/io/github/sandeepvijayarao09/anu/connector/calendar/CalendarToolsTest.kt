@@ -104,4 +104,26 @@ class CalendarToolsTest {
         assertEquals(at("2026-09-28T00:00:00"), parseTime("2026-09-28", zone))
         assertThrows(IllegalArgumentException::class.java) { parseTime("next tuesday", zone) }
     }
+
+    @Test
+    fun `a time written a little loosely means the same time`() {
+        val zone = java.time.ZoneId.of("America/New_York")
+        val exact = parseTime("2026-10-01T09:00", zone)
+        for (loose in listOf("2026-10-01 09:00", "2026-10-01 9:00", "2026-10-01T09:00:00", " 2026-10-01T9:00 ")) {
+            org.junit.Assert.assertEquals(loose, exact, parseTime(loose, zone))
+        }
+        org.junit.Assert.assertThrows(IllegalArgumentException::class.java) { parseTime("Thursday morning", zone) }
+    }
+
+    @Test
+    fun `an event with no end lasts 30 minutes, as a reminder does`() {
+        val tool = CreateEventTool(object : CalendarSource {
+            override suspend fun events(from: java.time.Instant, to: java.time.Instant) = emptyList<CalendarEvent>()
+            override suspend fun insert(event: NewEvent) = 1L
+        }) { java.time.ZoneId.of("America/New_York") }
+        org.junit.Assert.assertEquals(
+            "Add \"Call Maya\" on Thu 1 Oct, 09:00–09:30 to your calendar",
+            tool.describe(CreateEventInput(title = "Call Maya", start = "2026-10-01T09:00")),
+        )
+    }
 }

@@ -40,7 +40,11 @@ interface CalendarSource {
  * explicit offset is honored, and a plain date means the start of that day.
  */
 internal fun parseTime(text: String, zone: ZoneId): Instant {
-    val value = text.trim()
+    // A space for the "T", a one-digit hour or seconds mean the same time; the voice note eval saw E4B write them.
+    val value = LOOSE_TIME.matchEntire(text.trim())?.let { match ->
+        val (date, hour, minute) = match.destructured
+        "${date}T${hour.padStart(2, '0')}:$minute"
+    } ?: text.trim()
     return try {
         when {
             value.length == 10 -> LocalDate.parse(value).atStartOfDay(zone).toInstant()
@@ -51,5 +55,8 @@ internal fun parseTime(text: String, zone: ZoneId): Instant {
         throw IllegalArgumentException("\"$text\" is not a date or time like 2026-09-26T14:00")
     }
 }
+
+/** "2026-10-01 9:00", "2026-10-01T09:00:00": a date and a local time written a little loosely. */
+private val LOOSE_TIME = Regex("(\\d{4}-\\d{2}-\\d{2})[ T](\\d{1,2}):(\\d{2})(?::\\d{2})?")
 
 internal val EMAIL = Regex("[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}")

@@ -7,7 +7,9 @@ import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.rule.GrantPermissionRule
 import kotlinx.coroutines.runBlocking
 import org.junit.After
+import io.github.sandeepvijayarao09.anu.core.agent.ToolContext
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -54,5 +56,14 @@ class ProviderContactsTest {
     fun findsPeopleByPartOfTheirName() = runBlocking {
         val match = ProviderContacts(resolver).find("Maya", limit = 5).single { it.name == "Maya Testperson" }
         assertEquals(listOf("maya@example.com"), match.emails)
+    }
+
+    @Test
+    fun findsSomeoneWhoseNameWasHeardDifferently() = runBlocking {
+        val contacts = ProviderContacts(resolver)
+        assertTrue("Maya Testperson" in contacts.names())
+        val out = FindContactTool(contacts).invoke(FindContactInput("Maia Testpersen"), ToolContext("run", "key"))
+        assertEquals(listOf("maya@example.com"), out.matches.single { it.name == "Maya Testperson" }.emails)
+        assertTrue(out.note != null)
     }
 }

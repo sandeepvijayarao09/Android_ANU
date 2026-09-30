@@ -13,6 +13,10 @@ object ActionClaims {
     private val CLAIM = Regex(
         listOf(
             "\\b(i'?ve|i have|i|we'?ve|we have)\\s+(just\\s+|now\\s+|also\\s+|already\\s+|successfully\\s+)?($ACTS)\\b",
+            // "I've set a reminder", "your list has been updated": seen after a declined voice note (ADR-085). Not a
+            // bare "I set", which "Shall I set an alarm?" proposes.
+            "\\b(i'?ve|i have|we'?ve|we have)\\s+(just\\s+|now\\s+|also\\s+|already\\s+|successfully\\s+)?set\\s+(a|an|the|your|it|that|this)\\b",
+            "\\b(list|alarm|timer|reminder|note)s?\\s+(has|have)\\s+(just\\s+|now\\s+)?been\\s+(set|updated|saved|added|created)\\b",
             "\\b(invitation|invite|email|message|event|meeting|reminder)s?\\s+(has|have)\\s+(just\\s+|now\\s+)?been\\s+($ACTS)\\b",
             "\\b(is|are|it'?s)\\s+now\\s+(on|in)\\s+your\\s+calendar\\b",
             "\\b(added|put)\\s+(it|this|that)\\s+(to|on|in)\\s+your\\s+calendar\\b",

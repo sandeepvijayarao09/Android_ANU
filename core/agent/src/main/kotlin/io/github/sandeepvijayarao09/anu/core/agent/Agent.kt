@@ -239,7 +239,13 @@ class Agent(
                 tools = specs,
                 dataClasses = route.dataClasses,
                 purpose = route.skill.name.lowercase(),
-                sampling = if (repaired) Sampling.Precise else Sampling.Default,
+                // A turn that can act samples cooler (ADR-085). The tools already key the on-device conversation,
+                // so this rebuilds nothing more.
+                sampling = when {
+                    repaired -> Sampling.Precise
+                    specs.isNotEmpty() -> Sampling.Acting
+                    else -> Sampling.Default
+                },
                 sentAt = sentAt,
                 memory = memory,
                 relevant = relevant,

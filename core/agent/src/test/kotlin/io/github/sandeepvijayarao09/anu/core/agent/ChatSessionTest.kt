@@ -128,7 +128,8 @@ class ChatSessionTest {
         val request = pro.requests.single()
         assertEquals(listOf(create.name), request.tools.map { it.name })
         assertTrue(request.system!!, request.system!!.contains("Friday, 25 September 2026 (America/New_York)"))
-        assertEquals("Fri 2026-09-25 10:31", request.sentAt)
+        // The day it names comes with its date, so the model needn't count (ADR-085).
+        assertEquals("Fri 2026-09-25 10:31; tomorrow is Sat 2026-09-26", request.sentAt)
         assertTrue(request.system!!.contains("call calendar_create_event"))
         assertTrue("hints for tools it wasn't given", "messages_reply" !in request.system!!)
 
@@ -821,6 +822,26 @@ class ChatSessionTest {
         assertEquals(Skill.CHAT, tools.last())
         chat.send("Put this on my calendar", onPhone, recording = note).toList()
         assertEquals(Skill.SCHEDULING, tools.last())
+    }
+
+    @Test
+    fun `a voice note that starts by asking to remember gets memory's tools, and others don't`() = runTest {
+        val skills = mutableListOf<Skill>()
+        val chat = ChatSession(
+            agent(mapOf(Tier.BASE to base, Tier.PRO to base)),
+            toolsFor = { skill -> skills += skill; emptyList() },
+            transcriber = FakeTranscriber(listOf("Remember that my sister's birthday is May 3.")),
+        )
+        base.enqueue(Step.Reply("Noted."), Step.Reply("Summary."))
+        chat.send("", onPhone, recording = note).toList()
+        assertEquals(Skill.MEMORY, skills.last())
+        val shared = ChatSession(
+            agent(mapOf(Tier.BASE to base, Tier.PRO to base)),
+            toolsFor = { skill -> skills += skill; emptyList() },
+            transcriber = FakeTranscriber(listOf("Remember that my sister's birthday is May 3.")),
+        )
+        shared.send("", onPhone, recording = Recording(byteArrayOf(1), seconds = 3, shared = true)).toList()
+        assertEquals("someone else's recording never gets memory's tools", Skill.CHAT, skills.last())
     }
 
     @Test

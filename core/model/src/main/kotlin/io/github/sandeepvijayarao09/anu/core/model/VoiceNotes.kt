@@ -41,8 +41,10 @@ val ChatMessage.User.modelText: String
                 )
                 else -> append(
                     "The user recorded this voice note ($length). It was written down on the phone. If it asks for things to be " +
-                        "done, propose each with a tool, since the user approves each one, and list any that no tool can do. " +
-                        "Otherwise, answer it as a message.",
+                        "done, propose each with a tool, since the user approves each one: a reminder or a call to make becomes a " +
+                        "calendar event for the user alone, with no attendees, at the time it says. You can't keep lists: for " +
+                        "items meant for one, such as groceries, end your answer with \"For your list:\" and the items, for the " +
+                        "user to add. Otherwise, answer it as a message.",
                 )
             }
             if (note.interrupted) append(" It stopped early, so its end may be missing.")

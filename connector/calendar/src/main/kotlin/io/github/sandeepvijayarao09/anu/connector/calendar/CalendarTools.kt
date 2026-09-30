@@ -123,7 +123,7 @@ class FindFreeSlotsTool(
 data class CreateEventInput(
     @Description("Event title") val title: String,
     @Description("Local start time, e.g. 2026-09-26T14:00") val start: String,
-    @Description("Local end time, after start") val end: String,
+    @Description("Local end time, after start. Leave it out for a reminder or a call: it lasts 30 minutes") val end: String? = null,
     @Description("Optional place") val location: String? = null,
     @Description("Email addresses to invite. Leave empty for a private event") val attendees: List<String> = emptyList(),
 ) {
@@ -139,6 +139,11 @@ data class CreatedOut(val eventId: Long, val start: String, val end: String)
 
 /** Creates an event. With attendees, the calendar's account sends invites, so it becomes WRITE_EXTERNAL (§9). */
 class CreateEventTool(private val calendar: CalendarSource, private val zone: () -> ZoneId) : Tool<CreateEventInput, CreatedOut> {
+    private companion object {
+        /** How long an event lasts when no end is given. */
+        val DEFAULT_LENGTH: Duration = Duration.ofMinutes(30)
+    }
+
     override val name = "calendar_create_event"
     override val description = "Create an event in the user's calendar, optionally inviting people by email."
     override val input = CreateEventInput.serializer()
@@ -175,7 +180,8 @@ class CreateEventTool(private val calendar: CalendarSource, private val zone: ()
 
     private fun span(input: CreateEventInput, zone: ZoneId): Pair<Instant, Instant> {
         val start = parseTime(input.start, zone)
-        val end = parseTime(input.end, zone)
+        // A reminder or a call has no end the user said; the voice note eval saw E4B leave it out and give up (ADR-085).
+        val end = input.end?.takeIf(String::isNotBlank)?.let { parseTime(it, zone) } ?: start.plus(DEFAULT_LENGTH)
         require(end > start) { "the end must be after the start" }
         require(Duration.between(start, end) <= Duration.ofDays(1)) { "events can be at most a day long" }
         return start to end
