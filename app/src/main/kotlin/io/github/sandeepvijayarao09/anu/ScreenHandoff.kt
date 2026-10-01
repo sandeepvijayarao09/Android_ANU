@@ -14,6 +14,8 @@ import android.util.Log
 import androidx.core.graphics.scale
 import io.github.sandeepvijayarao09.anu.core.model.Screen
 import io.github.sandeepvijayarao09.anu.core.security.OneTimeCodes
+import io.github.sandeepvijayarao09.anu.connector.messages.MessagingHub
+import io.github.sandeepvijayarao09.anu.feature.home.ScreenChat
 import io.github.sandeepvijayarao09.anu.feature.home.ScreenLook
 import io.github.sandeepvijayarao09.anu.feature.home.ScreenSource
 import kotlinx.coroutines.Dispatchers
@@ -82,19 +84,31 @@ object ScreenHandoff : ScreenSource {
         val screenshot = held.screenshot ?: return ScreenLook.Unavailable(CANT_SEE)
         // Without the screen's text, Anu can't find codes on it to mask, so it won't read it (SECRETS-1, ADR-082).
         val structure = held.structure ?: return ScreenLook.Unavailable(CANT_CHECK)
-        val app = structure.activityComponent?.packageName?.let { name ->
+        val pkg = structure.activityComponent?.packageName
+        val app = pkg?.let { name ->
             runCatching { appContext.packageManager.let { it.getApplicationLabel(it.getApplicationInfo(name, 0)).toString() } }.getOrNull()
         } ?: "this app"
-        val (picture, codes) = withContext(Dispatchers.Default) { masked(structure, screenshot) }
-        return ScreenLook.Ready(Screen(app, held.atMillis, jpeg(picture), secrets = codes))
+        val masked = withContext(Dispatchers.Default) { masked(structure, screenshot) }
+        // The chat the screen shows, among those seen in notifications, for a reply drafted about it (ADR-092).
+        val chat = pkg?.let { MessagingHub.store.shownIn(it, masked.texts) }
+        // Whether one was found and could be answered, never which (the plan's pass bar counts these).
+        if (BuildConfig.DEBUG) Log.d("Anu", "Screen: chat ${if (chat != null) "found" else "not found"}, reply action ${if (chat?.reply != null) "yes" else "no"}")
+        return ScreenLook.Ready(
+            Screen(app, held.atMillis, jpeg(masked.picture), secrets = masked.codes),
+            chat?.let { ScreenChat(it.key, it.title, it.appLabel) },
+        )
     }
+
+    /** A screenshot with its secrets blacked out, the codes found, and the screen's texts, all in memory only. */
+    internal class Masked(val picture: Bitmap, val codes: List<String>, val texts: List<String>)
 
     /**
      * [screenshot] with its secrets blacked out, found from the screen's own text: every text that holds a code when the
      * screen speaks of one (as `OneTimeCodes` masks messages), and every password field. Also the codes themselves, for
-     * masking the answer if one comes back anyway; they stay in memory and never reach a model.
+     * masking the answer if one comes back anyway, and the screen's texts, for finding the chat it shows; they stay in
+     * memory, and neither reaches a model.
      */
-    internal fun masked(structure: AssistStructure, screenshot: Bitmap): Pair<Bitmap, List<String>> {
+    internal fun masked(structure: AssistStructure, screenshot: Bitmap): Masked {
         val texts = mutableListOf<Pair<String, Rect>>()
         val secrets = mutableListOf<Rect>()
         for (i in 0 until structure.windowNodeCount) {
@@ -116,7 +130,7 @@ object ScreenHandoff : ScreenSource {
             val paint = Paint().apply { color = Color.BLACK }
             for (rect in hidden) canvas.drawRect(Rect(rect.left - PAD, rect.top - PAD, rect.right + PAD, rect.bottom + PAD), paint)
         }
-        return out to coded.flatMap { OneTimeCodes.codes(it.first) }.distinct()
+        return Masked(out, coded.flatMap { OneTimeCodes.codes(it.first) }.distinct(), texts.map { it.first })
     }
 
     /**

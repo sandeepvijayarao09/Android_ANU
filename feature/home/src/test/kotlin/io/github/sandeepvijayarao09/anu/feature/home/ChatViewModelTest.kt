@@ -554,6 +554,77 @@ class ChatViewModelTest {
         }
     }
 
+    @Serializable
+    private data class ReplyIn(val conversationId: String, val text: String)
+
+    @Serializable
+    private data class Said(val said: String)
+
+    /** The messages connector's reply, as far as the card can tell: it always asks first (ADR-031). */
+    private class FakeReply : Tool<ReplyIn, Said> {
+        val sent = mutableListOf<ReplyIn>()
+        override val name = ChatSession.REPLY_TOOL
+        override val description = "Send a reply in a chat"
+        override val input = ReplyIn.serializer()
+        override val output = Said.serializer()
+        override val dataClasses = setOf(DataClass.PERSONAL)
+        override val untrustedContent: UntrustedContent? = null
+        override fun risk(input: ReplyIn) = RiskTier.WRITE_EXTERNAL
+        override fun describe(input: ReplyIn) = "Reply in Messages to \"Maya\": \"${input.text}\""
+        override suspend fun invoke(input: ReplyIn, context: ToolContext): Said {
+            sent += input
+            return Said("Sent to Maya in Messages.")
+        }
+    }
+
+    @Test
+    fun `a reply asked about the screen is a draft, and Send goes through the broker only while the chat can be answered`() {
+        val maya = ScreenChat("m:1", "Maya", "Messages")
+        val screens = FakeScreens(ScreenLook.Ready(io.github.sandeepvijayarao09.anu.core.model.Screen("Messages", 5, byteArrayOf(1)), maya))
+        val reply = FakeReply()
+        val approvals = ApprovalCenter()
+        var answerable = true
+        val brains = mapOf(Tier.BASE to base, Tier.PRO to pro)
+        val session = ChatSession(Agent(Router(), BrainProvider { brains[it] }, ToolBroker(listOf(reply), approvals)))
+        val card = ChatViewModel(session, device = { device }, approvals = approvals, screens = screens, replies = { answerable })
+        base.enqueue(Step.Reply("See you at 12:30!"))
+        pro.enqueue(Step.Reply("See you at 12:30!"))
+        card.send("Reply to this")
+        val draft = card.state.value.bubbles.last()
+        assertEquals(ReplyDraft(maya, canSend = true), draft.draft)
+
+        card.sendReply(draft.id)
+        val sheet = card.state.value.approval!!
+        assertEquals("Reply in Messages to \"Maya\": \"See you at 12:30!\"", sheet.summary)
+        assertTrue("nothing is sent before the sheet is approved", reply.sent.isEmpty())
+        card.approve(sheet.id)
+        assertEquals(listOf(ReplyIn("m:1", "See you at 12:30!")), reply.sent)
+        assertEquals("Send this reply to Maya", card.state.value.bubbles.last { it.fromUser }.text)
+        assertEquals("Sent to Maya in Messages.", card.state.value.bubbles.last().text)
+
+        // Once its notification is gone, the chat can't be answered from Anu: Send… goes, Copy stays.
+        answerable = false
+        card.sendReply(draft.id)
+        assertEquals(ReplyDraft(maya, canSend = false), card.state.value.bubbles.first { it.id == draft.id }.draft)
+        assertEquals(1, reply.sent.size)
+    }
+
+    @Test
+    fun `a reply to a chat Anu doesn't know is a draft to copy, and other answers aren't drafts`() {
+        fun card(question: String, answer: String): Bubble {
+            val brain = ScriptedBrain(BrainId.PRO).apply { enqueue(Step.Reply(answer)) }
+            val lighter = ScriptedBrain(BrainId.BASE).apply { enqueue(Step.Reply(answer)) }
+            val session = ChatSession(Agent(Router(), BrainProvider { mapOf(Tier.BASE to lighter, Tier.PRO to brain)[it] }, ToolBroker(emptyList(), ApprovalCenter())))
+            val screens = FakeScreens(ScreenLook.Ready(io.github.sandeepvijayarao09.anu.core.model.Screen("Messages", 5, byteArrayOf(1))))
+            val vm = ChatViewModel(session, device = { device }, screens = screens, replies = { true })
+            vm.send(question)
+            return vm.state.value.bubbles.last()
+        }
+        assertEquals(ReplyDraft(null, canSend = false), card("Draft a reply", "Sounds good!").draft)
+        assertNull("a question about the screen", card("What's this?", "Maya asks about lunch.").draft)
+        assertNull("a screen with nothing to reply to gets an answer", card("Reply to this", "No message to reply to.").draft)
+    }
+
     private fun cardChat(screens: ScreenSource): ChatViewModel {
         val brains = mapOf(Tier.BASE to base, Tier.PRO to pro)
         val session = ChatSession(Agent(Router(), BrainProvider { brains[it] }, ToolBroker(emptyList(), ApprovalCenter())))

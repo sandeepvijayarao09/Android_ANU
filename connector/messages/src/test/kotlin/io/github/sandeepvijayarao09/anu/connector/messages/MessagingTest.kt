@@ -69,8 +69,22 @@ class MessagingTest {
         val input = ReplyInput("m:1", "Yes, see you at 1")
         assertEquals(RiskTier.WRITE_EXTERNAL, tool.risk(input))
         assertEquals("Reply in Messages to \"Maya\": \"Yes, see you at 1\"", tool.describe(input))
-        tool.invoke(input, ctx)
+        assertEquals("Sent to Maya in Messages.", tool.invoke(input, ctx).said)
         assertEquals(listOf("Yes, see you at 1"), sent)
+    }
+
+    @Test
+    fun `the chat a screen shows is the one from that app whose name or number is on it, and only one`() {
+        val chats = ConversationStore()
+        chats.update(ConversationSnapshot("m:1", "com.google.android.apps.messaging", "Messages", "Maya Chen", false, emptyList(), reply))
+        chats.update(ConversationSnapshot("m:2", "com.google.android.apps.messaging", "Messages", "(555) 123-4567", false, emptyList(), reply))
+        chats.update(ConversationSnapshot("w:1", "com.whatsapp", "WhatsApp", "Raj", false, emptyList(), reply))
+        val messages = "com.google.android.apps.messaging"
+        assertEquals("m:1", chats.shownIn(messages, listOf("Maya Chen", "Lunch at 1?", "Text message"))?.key)
+        assertEquals("a number written differently", "m:2", chats.shownIn(messages, listOf("+1 555-123-4567", "See you"))?.key)
+        assertNull("another app's chat", chats.shownIn(messages, listOf("Raj", "Hi")))
+        assertNull("a list showing both", chats.shownIn(messages, listOf("Maya Chen", "(555) 123-4567")))
+        assertNull("a name only within a message", chats.shownIn(messages, listOf("Tell Maya Chen I said hi")))
     }
 
     @Test

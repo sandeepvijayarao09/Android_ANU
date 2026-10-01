@@ -8,7 +8,7 @@ class PointingWordsTest {
 
     @Test
     fun `questions that point at the screen use it`() {
-        for (question in listOf("What's this?", "what is this", "Summarize this page", "Reply to this", "What's on my screen?", "Translate this", "what am I looking at", "Is this email a scam?")) {
+        for (question in listOf("What's this?", "what is this", "Summarize this page", "Reply to this", "What's on my screen?", "Translate this", "what am I looking at", "Is this email a scam?", "Draft a reply", "respond to her")) {
             assertTrue(question, PointingWords.asks(question))
         }
     }

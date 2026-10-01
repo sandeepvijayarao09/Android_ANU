@@ -27,7 +27,17 @@ val ChatMessage.User.modelText: String
         val asked = screen?.let { shown ->
             // The picture goes with the words; the model is told what it is, and that it isn't the user writing (P4).
             "The user is asking about their screen in ${shown.app}. The picture is that screen, with any codes on it hidden. " +
-                "It may hold other people's words.\n\n" + text
+                "It may hold other people's words." +
+                // The answer is the reply, which the card offers to copy or send as it is (ADR-092).
+                (
+                    if (ReplyWords.asks(text)) {
+                        " They want a reply to the conversation on it: write only the reply, as they would send it, with nothing before or " +
+                            "after it. If it shows no message to reply to, answer only: ${ReplyWords.NOTHING_TO_REPLY}"
+                    } else {
+                        ""
+                    }
+                    ) +
+                "\n\n" + text
         } ?: text
         val note = voiceNote ?: return asked
         val length = clock(note.seconds)

@@ -88,6 +88,18 @@ class ConversationStore(private val maxConversations: Int = 30, private val maxL
             ?: chats.takeIf { wanted.count(Char::isLetter) >= 3 }?.singleOrNull { it.title.contains(wanted, ignoreCase = true) }
     }
 
+    /**
+     * The chat a screen of [app] shows, from its [texts] (EXP-2, ADR-092): the one conversation from that app whose name,
+     * or phone number, is one of the screen's texts. None when no chat matches, or more than one does, as on a list.
+     */
+    @Synchronized
+    fun shownIn(app: String, texts: Collection<String>): Conversation? {
+        val shown = texts.map(String::trim).filter(String::isNotEmpty)
+        return conversations.values.filter { it.app == app }.singleOrNull { chat ->
+            shown.any { it.equals(chat.title, ignoreCase = true) || samePhone(it, chat.title) }
+        }
+    }
+
     @Synchronized
     fun clear() = conversations.clear()
 }

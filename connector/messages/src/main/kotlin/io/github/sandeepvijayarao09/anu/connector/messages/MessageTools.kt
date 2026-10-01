@@ -120,7 +120,7 @@ data class ReplyInput(
 }
 
 @Serializable
-data class ReplyOutput(val sent: Boolean)
+data class ReplyOutput(val sent: Boolean, val said: String? = null)
 
 /** Replies through the notification's reply button. Others receive it, so it always needs approval (I2). */
 class ReplyTool(private val store: ConversationStore) : Tool<ReplyInput, ReplyOutput> {
@@ -146,7 +146,7 @@ class ReplyTool(private val store: ConversationStore) : Tool<ReplyInput, ReplyOu
         val c = store.find(input.conversationId) ?: error("That chat is gone.")
         val reply = c.reply ?: error("This chat can't be answered from Anu right now: its notification is gone or has no reply button. Open ${c.appLabel} to reply.")
         reply.send(input.text)
-        return ReplyOutput(sent = true)
+        return ReplyOutput(sent = true, said = "Sent to ${c.title} in ${c.appLabel}.")
     }
 }
 

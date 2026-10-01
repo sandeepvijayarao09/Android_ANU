@@ -13,9 +13,20 @@ interface ScreenSource {
 
 /** What the card can do with the screen. */
 sealed interface ScreenLook {
-    /** Ready to show the model: [screen]'s picture has its codes masked. */
-    data class Ready(val screen: Screen) : ScreenLook
+    /** Ready to show the model: [screen]'s picture has its codes masked. [chat] is the chat it shows, when Anu knows it. */
+    data class Ready(val screen: Screen, val chat: ScreenChat? = null) : ScreenLook
 
     /** It can't be used, and why, in words for the card. */
     data class Unavailable(val reason: String) : ScreenLook
+}
+
+/**
+ * The chat a screen shows, among the chats Anu has seen in notifications (EXP-2, ADR-092): what a reply drafted about it
+ * would answer. [app] is the messaging app's name.
+ */
+data class ScreenChat(val key: String, val title: String, val app: String)
+
+/** Whether a chat can still be answered from Anu: its notification, with its reply button, is still showing (ADR-031). */
+fun interface ReplyTargets {
+    fun canReply(chatKey: String): Boolean
 }

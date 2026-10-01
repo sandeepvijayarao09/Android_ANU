@@ -1,5 +1,7 @@
 package io.github.sandeepvijayarao09.anu.core.agent
 
+import io.github.sandeepvijayarao09.anu.core.model.ReplyWords
+
 /**
  * Whether a question asked from the assistant card is about the screen under it (EXP-2, design review D13): pointing
  * words such as "what's this", "this page", "this screen", "reply to this" or "on my screen". Only then, or after a tap
@@ -13,5 +15,5 @@ object PointingWords {
         RegexOption.IGNORE_CASE,
     )
 
-    fun asks(question: String): Boolean = POINTING.containsMatchIn(question)
+    fun asks(question: String): Boolean = POINTING.containsMatchIn(question) || ReplyWords.asks(question)
 }

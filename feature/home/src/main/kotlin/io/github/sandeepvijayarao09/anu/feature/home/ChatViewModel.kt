@@ -11,6 +11,7 @@ import io.github.sandeepvijayarao09.anu.core.agent.ApprovalRequest
 import io.github.sandeepvijayarao09.anu.core.agent.ToolOutcome
 import io.github.sandeepvijayarao09.anu.core.agent.ChatSession
 import io.github.sandeepvijayarao09.anu.core.agent.PointingWords
+import io.github.sandeepvijayarao09.anu.core.model.ReplyWords
 import io.github.sandeepvijayarao09.anu.core.model.BrainId
 import io.github.sandeepvijayarao09.anu.core.model.BrainStatus
 import io.github.sandeepvijayarao09.anu.core.model.ChatMessage
@@ -42,6 +43,9 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.JsonObject
 
+/** A reply drafted about the screen (EXP-2, ADR-092): for [chat] when Anu knows it, and sendable while [canSend]. */
+data class ReplyDraft(val chat: ScreenChat?, val canSend: Boolean = false)
+
 data class Bubble(
     val id: Long,
     val fromUser: Boolean,
@@ -55,6 +59,8 @@ data class Bubble(
     val failed: Boolean = false,
     /** A note from Anu instead of an answer, such as "Nothing was said in this recording.": shown quietly, not as a failure (ADR-090). */
     val quiet: Boolean = false,
+    /** An answer that is a reply to the chat on the screen, to copy or send (EXP-2, ADR-092). */
+    val draft: ReplyDraft? = null,
     /** What really happened, from the Tool Broker's record, never from the model's words (ADR-027). */
     val actions: List<Receipt> = emptyList(),
     /** Links a tool offered, such as a store's checkout page. Shown as buttons; only the user opens them (ADR-047). */
@@ -209,6 +215,8 @@ class ChatViewModel(
     private val hears: () -> Boolean = { false },
     /** The screen under the assistant card (EXP-2, ADR-083). Only the card has one. */
     private val screens: ScreenSource? = null,
+    /** Whether a chat can still be answered from Anu, for a reply drafted on the card (ADR-092). */
+    private val replies: ReplyTargets? = null,
 ) : ViewModel() {
 
     private val mutable = MutableStateFlow(
@@ -387,7 +395,26 @@ class ChatViewModel(
         val aboutScreen = screens != null && state.screenOffered && (state.useScreen || PointingWords.asks(trimmed))
         add(Bubble(asked, fromUser = true, text = trimmed, photos = photos, voice = clip))
         mutable.update { it.copy(attachment = null, recording = null, attachmentNote = null, useScreen = false) }
-        run(trimmed, photos = photos, recording = voice, asked = asked, aboutScreen = aboutScreen)
+        run(trimmed, photos = photos, recording = voice, asked = asked, aboutScreen = aboutScreen, replying = aboutScreen && ReplyWords.asks(trimmed))
+    }
+
+    /**
+     * Send… under a reply drafted on the card (EXP-2, ADR-092): the reply goes through the broker, whose approval sheet
+     * shows it and names the chat before anything is sent. A chat that can't be answered anymore loses Send…; Copy stays.
+     */
+    fun sendReply(id: Long) {
+        val state = mutable.value
+        if (state.busy) return
+        val draft = state.bubbles.firstOrNull { it.id == id } ?: return
+        val chat = draft.draft?.chat ?: return
+        if (replies?.canReply(chat.key) != true) {
+            edit(id) { it.copy(draft = it.draft?.copy(canSend = false)) }
+            return
+        }
+        val text = "Send this reply to ${chat.title}"
+        val asked = nextId++
+        add(Bubble(asked, fromUser = true, text = text))
+        run(text, asked = asked, sending = ReplySend(chat.key, chat.title, draft.text))
     }
 
     /** Starts listening once the saved conversation has loaded, for the assistant overlay (ADR-044). */
@@ -586,6 +613,10 @@ class ChatViewModel(
         voiceNote: VoiceNote? = null,
         asked: Long? = null,
         aboutScreen: Boolean = false,
+        /** The question asks for a reply to the chat on the screen, so the answer becomes a draft (ADR-092). */
+        replying: Boolean = false,
+        /** Sends a drafted reply instead of asking the model (ADR-092). */
+        sending: ReplySend? = null,
     ) {
         val id = nextId++
         add(Bubble(id, fromUser = false, text = "", streaming = true))
@@ -594,9 +625,10 @@ class ChatViewModel(
             try {
                 // The screen is read only now, when the user has asked about it; one that can't be read is said so,
                 // rather than answered without it (EXP-2, ADR-083).
+                var chat: ScreenChat? = null
                 val screen = if (aboutScreen) {
                     when (val look = screens?.screen()) {
-                        is ScreenLook.Ready -> look.screen
+                        is ScreenLook.Ready -> look.screen.also { chat = look.chat }
                         is ScreenLook.Unavailable -> {
                             edit(id) { it.copy(text = look.reason, failed = true) }
                             return@launch
@@ -610,10 +642,19 @@ class ChatViewModel(
                     asked?.let { question -> edit(question) { it.copy(screenApp = shown.app) } }
                     mutable.update { it.copy(readingApp = shown.app) }
                 }
-                session.send(
+                val events = sending?.let { session.sendReply(it.chatKey, it.chatTitle, it.text) } ?: session.send(
                     text, device(), pinned, cloudConsented, sharedFacts, replacingLast = replaces?.saved == true, photos = photos,
                     recording = recording, voiceNote = voiceNote, screen = screen,
-                ).collect { reduce(id, text, it, replaces, asked) }
+                )
+                events.collect { reduce(id, text, it, replaces, asked) }
+                // The answer to "reply to this" is the reply: a draft to copy, or to send while its chat can be answered.
+                if (replying) {
+                    val sendable = chat?.let { replies?.canReply(it.key) } == true
+                    edit(id) { done ->
+                        val reply = !done.failed && !done.quiet && done.text.isNotBlank() && !ReplyWords.nothingToReply(done.text)
+                        if (reply) done.copy(draft = ReplyDraft(chat, sendable)) else done
+                    }
+                }
             } catch (e: CancellationException) {
                 edit(id) { it.copy(note = "Stopped", hearing = false) }
                 giveBackRecording(asked)
@@ -824,3 +865,6 @@ val Tier.model: String
         Tier.PRO -> "Gemma 4 E4B"
         Tier.CLOUD -> "Gemini"
     }
+
+/** A drafted reply on its way through the broker (ADR-092). */
+internal data class ReplySend(val chatKey: String, val chatTitle: String, val text: String)

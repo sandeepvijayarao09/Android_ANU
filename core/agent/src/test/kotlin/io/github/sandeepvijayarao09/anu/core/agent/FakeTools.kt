@@ -171,3 +171,23 @@ class FakeTimer(private val failure: String? = null) : Tool<SecondsInput, SaidOu
         return SaidOutput("Timer set for ${input.seconds / 60} minutes.")
     }
 }
+
+@Serializable
+data class ReplyIn(val conversationId: String, val text: String)
+
+/** A chat app's reply, like the messages connector's (ADR-031): others read it, so it always asks first. */
+class FakeReply : Tool<ReplyIn, SaidOutput> {
+    val sent = mutableListOf<ReplyIn>()
+    override val name = ChatSession.REPLY_TOOL
+    override val description = "Send a reply in a chat"
+    override val input: KSerializer<ReplyIn> = ReplyIn.serializer()
+    override val output: KSerializer<SaidOutput> = SaidOutput.serializer()
+    override val dataClasses = setOf(DataClass.PERSONAL)
+    override val untrustedContent: UntrustedContent? = null
+    override fun risk(input: ReplyIn) = RiskTier.WRITE_EXTERNAL
+    override fun describe(input: ReplyIn) = "Reply in Messages to \"Maya\": \"${input.text}\""
+    override suspend fun invoke(input: ReplyIn, context: ToolContext): SaidOutput {
+        sent += input
+        return SaidOutput("Sent to Maya in Messages.")
+    }
+}

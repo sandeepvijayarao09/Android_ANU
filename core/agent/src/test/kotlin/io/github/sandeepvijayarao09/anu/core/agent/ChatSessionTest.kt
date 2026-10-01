@@ -23,6 +23,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
@@ -686,6 +687,21 @@ class ChatSessionTest {
         val saved = chat.history()
         assertEquals(ChatMessage.User("Set a timer for 10 minutes"), saved.first())
         assertEquals(ChatMessage.Model("Timer set for 10 minutes."), saved.last())
+    }
+
+    @Test
+    fun `a reply drafted on the card is sent through the broker, which asks first, and is saved as asked`() = runTest {
+        val reply = FakeReply()
+        val gate = RecordingGate()
+        val chat = ChatSession(agent(mapOf(Tier.BASE to base), ToolBroker(listOf(reply), gate)))
+        val completed = chat.sendReply("m:1", "Maya", "See you at 12:30!").toList().last() as AgentEvent.Completed
+        val asked = gate.requests.single()
+        assertEquals("the exact reply, approved first", ReplyIn("m:1", "See you at 12:30!"), Json.decodeFromJsonElement(ReplyIn.serializer(), asked.payload))
+        assertTrue("a model that read the screen wrote it: ${asked.reason}", asked.reason.contains("screen"))
+        assertEquals(listOf(ReplyIn("m:1", "See you at 12:30!")), reply.sent)
+        assertEquals("Sent to Maya in Messages.", completed.text)
+        assertTrue("no model was asked", base.requests.isEmpty())
+        assertEquals(ChatMessage.User("Send this reply to Maya"), chat.history().first())
     }
 
     @Test

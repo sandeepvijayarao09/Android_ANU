@@ -93,6 +93,11 @@ import io.github.sandeepvijayarao09.anu.core.ui.SphereState
 import io.github.sandeepvijayarao09.anu.core.ui.anuCard
 import io.github.sandeepvijayarao09.anu.core.ui.markdown
 import java.time.LocalTime
+import android.content.ClipData
+import android.content.ClipboardManager
+import androidx.compose.foundation.text.selection.SelectionContainer
+import io.github.sandeepvijayarao09.anu.core.ui.AnuButton
+import kotlinx.coroutines.delay
 
 private fun VoicePhase.sphere(): SphereState = when (this) {
     VoicePhase.IDLE -> SphereState.IDLE
@@ -757,17 +762,22 @@ fun AssistantCard(
             )
         }
         if (!state.listening && answer != null) {
-            Column(Modifier.padding(top = 8.dp).heightIn(max = 220.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                val shown = answer.text.ifEmpty { answer.note ?: if (answer.streaming) "…" else "" }
-                Text(
-                    markdown(shown),
-                    style = if (answer.quiet) AnuTheme.type.callout else AnuTheme.type.body,
-                    color = when {
-                        answer.failed -> colors.errorText
-                        answer.quiet -> colors.textMuted
-                        else -> colors.text
-                    },
-                )
+            Column(Modifier.padding(top = 8.dp).heightIn(max = 260.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                val draft = answer.draft
+                if (draft != null && !answer.streaming) {
+                    ReplyDraftPanel(answer.text, draft, onSend = { viewModel.sendReply(answer.id) })
+                } else {
+                    val shown = answer.text.ifEmpty { answer.note ?: if (answer.streaming) "…" else "" }
+                    Text(
+                        markdown(shown),
+                        style = if (answer.quiet) AnuTheme.type.callout else AnuTheme.type.body,
+                        color = when {
+                            answer.failed -> colors.errorText
+                            answer.quiet -> colors.textMuted
+                            else -> colors.text
+                        },
+                    )
+                }
                 answer.actions.forEach { ReceiptRow(it) }
                 LinkButtons(answer.links)
             }
@@ -796,4 +806,39 @@ fun AssistantCard(
         }
     }
     ConversationSheets(state, viewModel::approve, viewModel::deny, viewModel::revise, viewModel::approveCloud, viewModel::declineCloud)
+}
+
+/**
+ * A reply drafted about the screen (EXP-2, design review D15, ADR-092): on a `background` panel labelled with the chat it
+ * answers, its words as they'd be sent, then Copy, and Send… only while that chat can still be answered from Anu.
+ */
+@Composable
+internal fun ReplyDraftPanel(text: String, draft: ReplyDraft, onSend: () -> Unit) {
+    val colors = AnuTheme.colors
+    val context = LocalContext.current
+    var copied by remember { mutableStateOf(false) }
+    LaunchedEffect(copied) {
+        if (copied) {
+            delay(1_500)
+            copied = false
+        }
+    }
+    Column(
+        Modifier.fillMaxWidth().clip(AnuShapes.md).background(colors.background).padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(draft.chat?.let { "Reply to ${it.title} · ${it.app}" } ?: "Reply", style = AnuTheme.type.caption, color = colors.textMuted)
+        SelectionContainer { Text(text.trim(), style = AnuTheme.type.body, color = colors.text) }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            AnuButton(
+                if (copied) "Copied" else "Copy",
+                onClick = {
+                    context.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("Anu", text.trim()))
+                    copied = true
+                },
+                modifier = Modifier.weight(1f).semantics { liveRegion = LiveRegionMode.Polite },
+            )
+            if (draft.canSend) AnuButton("Send…", onClick = onSend, modifier = Modifier.weight(1f), secondary = true)
+        }
+    }
 }

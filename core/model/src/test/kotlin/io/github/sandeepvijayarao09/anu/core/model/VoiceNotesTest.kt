@@ -2,6 +2,7 @@ package io.github.sandeepvijayarao09.anu.core.model
 
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -53,6 +54,17 @@ class VoiceNotesTest {
             asked,
         )
         assertEquals("a screen is the same screen with or without its picture", Screen("Messages", 5), Screen("Messages", 5, byteArrayOf(1)))
+    }
+
+    @Test
+    fun `asked for a reply, the model writes only the reply, ready to send`() {
+        val asked = ChatMessage.User("Reply to this", screen = Screen("Messages", 5, byteArrayOf(1))).modelText
+        assertTrue(asked, asked.contains("They want a reply to the conversation on it: write only the reply, as they would send it, with nothing before or after it."))
+        assertTrue(asked, asked.contains("If it shows no message to reply to, answer only: No message to reply to."))
+        assertTrue(ReplyWords.nothingToReply("No message to reply to"))
+        assertFalse(ReplyWords.nothingToReply("No, see you at 12:30!"))
+        for (question in listOf("Reply to this", "respond to her", "Draft a reply", "write a response")) assertTrue(question, ReplyWords.asks(question))
+        for (question in listOf("What's the answer to this?", "Summarize this chat", "Did Maya reply?")) assertFalse(question, ReplyWords.asks(question))
     }
 
     @Test

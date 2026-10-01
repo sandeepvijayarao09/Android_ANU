@@ -29,6 +29,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import java.time.ZonedDateTime
 import kotlin.math.ceil
 import java.time.format.DateTimeFormatter
@@ -171,7 +173,7 @@ class ChatSession(
             }
             // A whole phone command needs no model (G6, ADR-076). A retry, a photo or a voice note goes to the model.
             val command = if (photos.isEmpty() && note == null && screen == null && pinned == null && !cloudConsented) commands(text) else null
-            if (command != null) return directTurn(command, text, saved, kept, transcript, onCompleted)
+            if (command != null) return directTurn(command, text, saved, kept, transcript, onCompleted = onCompleted)
             val asking = ChatMessage.User(text, voiceNote = note)
             val users = transcript.filterIsInstance<ChatMessage.User>() + asking
             val turns = users.map { it.allWords }
@@ -319,12 +321,13 @@ class ChatSession(
         saved: MutableList<ChatMessage>,
         kept: Int,
         transcript: List<ChatMessage>,
+        inView: Set<UntrustedContent> = emptySet(),
         onCompleted: () -> Unit,
     ) {
         val asked = transcript.size
         val started = nanoTime()
         val message = ChatMessage.User(text)
-        agent.runDirect(call, "$sessionId:$asked").collect { event ->
+        agent.runDirect(call, "$sessionId:$asked", inView).collect { event ->
             var out = event
             if (event is AgentEvent.Completed) {
                 val took = (nanoTime() - started) / 1_000_000
@@ -344,6 +347,20 @@ class ChatSession(
                 onCompleted()
             }
             emit(out)
+        }
+    }
+
+    /**
+     * Sends [text], a reply drafted on the assistant card, to the chat with [chatKey] (EXP-2, ADR-092). It's a step
+     * through the broker with no model, so the approval sheet shows the exact reply and names the chat first (I2). A
+     * model that read the screen wrote it, so the run counts the screen as in view (P4). It's saved as the user asking
+     * to send it, with the broker's receipt.
+     */
+    fun sendReply(chatKey: String, chatTitle: String, text: String): Flow<AgentEvent> = flow {
+        lock.withLock {
+            val saved = loaded()
+            val call = ToolCall(REPLY_TOOL, buildJsonObject { put("conversationId", chatKey); put("text", text) })
+            directTurn(call, "Send this reply to $chatTitle", saved, saved.size, saved.toList(), setOf(UntrustedContent.SCREEN)) {}
         }
     }
 
@@ -546,6 +563,9 @@ class ChatSession(
 
         /** A recording that held no words (EXP-3: nothing said, nothing proposed). */
         const val NOTHING_SAID = "Nothing was said in this recording."
+
+        /** The messages connector's reply tool, which a reply drafted on the card is sent through (ADR-092). */
+        const val REPLY_TOOL = "messages_reply"
 
         const val COULDNT_HEAR = "This recording couldn't be written down."
 

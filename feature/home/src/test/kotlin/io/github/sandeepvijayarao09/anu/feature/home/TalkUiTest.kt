@@ -1,5 +1,7 @@
 package io.github.sandeepvijayarao09.anu.feature.home
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.assertHasClickAction
 import androidx.compose.ui.test.assertHasNoClickAction
@@ -167,6 +169,36 @@ class TalkUiTest {
         compose.onNodeWithText("Keep on this phone").performScrollTo().performClick()
         assertEquals(listOf(true, false), shared)
         assertEquals(1, declined)
+    }
+
+    @Test
+    fun `a reply draft names its chat, copies, and offers Send only while the chat can be answered`() {
+        var sent = 0
+        var canSend by androidx.compose.runtime.mutableStateOf(true)
+        compose.setContent {
+            AnuTheme(dark = false) {
+                ReplyDraftPanel("See you at 12:30!", ReplyDraft(ScreenChat("m:1", "Maya", "Messages"), canSend), onSend = { sent++ })
+            }
+        }
+        compose.onNodeWithText("Reply to Maya · Messages").assertExists()
+        compose.onNodeWithText("See you at 12:30!").assertExists()
+        compose.onNodeWithText("Send…").performClick()
+        assertEquals(1, sent)
+        compose.onNodeWithText("Copy").performClick()
+        compose.onNodeWithText("Copied").assertExists()
+        canSend = false
+        compose.onNodeWithText("Send…").assertDoesNotExist()
+        compose.onNodeWithText("Copied").assertExists()
+    }
+
+    @Test
+    fun `a reply to a chat Anu doesn't know can be copied, not sent`() {
+        compose.setContent {
+            AnuTheme(dark = false) { ReplyDraftPanel("Sounds good!", ReplyDraft(chat = null), onSend = {}) }
+        }
+        compose.onNodeWithText("Reply").assertExists()
+        compose.onNodeWithText("Copy").assertExists()
+        compose.onNodeWithText("Send…").assertDoesNotExist()
     }
 
     @Test
