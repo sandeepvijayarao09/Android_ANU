@@ -32,6 +32,7 @@ dependencies {
     api(project(":core:agent"))
     api(project(":core:memory"))
     api(project(":core:vault"))
+    api(project(":connector:notes")) // RoomNoteStore implements its NoteStore (ADR-093)
     api(libs.androidx.room.runtime) // AnuDatabase extends RoomDatabase
     implementation(libs.androidx.sqlite)
     implementation(libs.sqlcipher.android)

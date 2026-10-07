@@ -464,6 +464,12 @@ class ChatSession(
             if ("phone_set_alarm" in tools) {
                 append(" phone_set_alarm rings at the next time of day it's given; for another day, make a calendar event instead.")
             }
+            if ("notes_create" in tools) {
+                append(" Notes are kept in Anu on this phone. To add to a note the user names, call notes_append with its title; for a new one, notes_create.")
+            }
+            if ("contacts_add" in tools) {
+                append(" To save a person or their number or email, call contacts_add with the name and details exactly as the user gave them.")
+            }
             if (tools.any { it.startsWith("mcp_") }) {
                 append(" Tools named mcp_ belong to services the user added. Use them for what the user asks of that service.")
             }

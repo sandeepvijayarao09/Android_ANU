@@ -107,6 +107,9 @@ internal fun approvalCopy(request: ApprovalRequest): ApprovalCopy {
         tool == "phone_flashlight" -> Words("Change the flashlight?", "Do it", "Don't", AnuIcons.Settings)
         tool == "phone_do_not_disturb" -> Words("Change Do Not Disturb?", "Do it", "Don't", AnuIcons.Settings)
         tool == "phone_open_settings" -> Words("Open this settings page?", "Open", "Don't open", AnuIcons.Settings)
+        tool == "notes_create" -> Words("Save this note?", "Save", "Don't save", AnuIcons.Note)
+        tool == "notes_append" -> Words("Add to this note?", "Add", "Don't add", AnuIcons.Note)
+        tool == "contacts_add" -> Words("Save this contact?", "Save", "Don't save", AnuIcons.Person)
         else -> Words("Allow this?", "Allow", "Don't allow", AnuIcons.Sparkle)
     }
     val destination = request.destination

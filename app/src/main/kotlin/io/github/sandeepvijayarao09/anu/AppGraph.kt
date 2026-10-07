@@ -38,7 +38,12 @@ import io.github.sandeepvijayarao09.anu.connector.calendar.FindFreeSlotsTool
 import io.github.sandeepvijayarao09.anu.connector.calendar.ListEventsTool
 import io.github.sandeepvijayarao09.anu.connector.calendar.ProviderCalendar
 import io.github.sandeepvijayarao09.anu.connector.contacts.FindContactTool
+import io.github.sandeepvijayarao09.anu.connector.contacts.AddContactTool
 import io.github.sandeepvijayarao09.anu.connector.contacts.ProviderContacts
+import io.github.sandeepvijayarao09.anu.connector.notes.AppendNoteTool
+import io.github.sandeepvijayarao09.anu.connector.notes.CreateNoteTool
+import io.github.sandeepvijayarao09.anu.connector.notes.SearchNotesTool
+import io.github.sandeepvijayarao09.anu.core.data.RoomNoteStore
 import io.github.sandeepvijayarao09.anu.connector.gmail.CreateDraftTool
 import io.github.sandeepvijayarao09.anu.connector.gmail.GetThreadTool
 import io.github.sandeepvijayarao09.anu.connector.gmail.GmailClient
@@ -236,6 +241,9 @@ class AppGraph(private val context: Context) {
     /** The services and stores the user connected in Settings (ADR-046, ADR-047). */
     private val connectorSettings by lazy { RoomConnectorSettings(db.connectors()) }
 
+    /** The user's notes, encrypted on the phone (ADR-093). */
+    val notes by lazy { RoomNoteStore(db.notes()) }
+
     /**
      * For MCP servers and stores. The vault attaches a server's token for its bound host only, and
      * never over plain HTTP. Tool calls on a server can take a while.
@@ -329,11 +337,13 @@ class AppGraph(private val context: Context) {
     /** Every tool Anu has. Each skill offers only its own subset to the model (§7.3). */
     private val tools: List<Tool<*, *>> by lazy {
         val calendar = ProviderCalendar(context.contentResolver)
+        val contacts = ProviderContacts(context.contentResolver)
         listOf(
             ListEventsTool(calendar, zone),
             FindFreeSlotsTool(calendar, zone),
             CreateEventTool(calendar, zone),
-            FindContactTool(ProviderContacts(context.contentResolver)),
+            FindContactTool(contacts),
+            AddContactTool(contacts),
             SearchEmailTool(gmail),
             GetThreadTool(gmail),
             CreateDraftTool(gmail),
@@ -358,6 +368,10 @@ class AppGraph(private val context: Context) {
             FlashlightTool(context),
             DoNotDisturbTool(context),
             OpenSettingsTool(context),
+            // Notes kept in Anu, on the phone (ADR-093).
+            CreateNoteTool(notes),
+            SearchNotesTool(notes),
+            AppendNoteTool(notes),
         ) + Flavor.tools(context, zone)
     }
 
@@ -378,7 +392,11 @@ class AppGraph(private val context: Context) {
         // lists, so only a note that starts by asking to remember gets memory's tools (ADR-085).
         Skill.VOICE_NOTE -> listOf("calendar_create_event", "calendar_find_free_slots", "contacts_find", "phone_set_alarm")
         // More than one whole command: the model gets the phone's controls, each still run by the broker (G6).
-        Skill.PHONE -> listOf("phone_set_timer", "phone_set_alarm", "phone_flashlight", "phone_do_not_disturb", "phone_open_settings")
+        // With notes and contacts, the device skill (ADR-093): each is one small call, so it routes to Base.
+        Skill.PHONE -> listOf(
+            "phone_set_timer", "phone_set_alarm", "phone_flashlight", "phone_do_not_disturb", "phone_open_settings",
+            "notes_create", "notes_search", "notes_append", "contacts_find", "contacts_add",
+        )
         else -> emptyList()
     }
 

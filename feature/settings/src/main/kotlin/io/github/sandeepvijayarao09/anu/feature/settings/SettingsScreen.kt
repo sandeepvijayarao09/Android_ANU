@@ -166,6 +166,7 @@ private val CONNECTOR_PERMISSIONS = arrayOf(
     Manifest.permission.READ_CALENDAR,
     Manifest.permission.WRITE_CALENDAR,
     Manifest.permission.READ_CONTACTS,
+    Manifest.permission.WRITE_CONTACTS,
 )
 
 /**

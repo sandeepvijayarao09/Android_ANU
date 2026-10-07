@@ -1,8 +1,10 @@
 package io.github.sandeepvijayarao09.anu.connector.contacts
 
+import android.content.ContentProviderOperation
 import android.content.ContentResolver
 import android.net.Uri
 import android.provider.ContactsContract
+import io.github.sandeepvijayarao09.anu.core.agent.EditableField
 import io.github.sandeepvijayarao09.anu.core.agent.RiskTier
 import io.github.sandeepvijayarao09.anu.core.agent.Tool
 import io.github.sandeepvijayarao09.anu.core.agent.ToolContext
@@ -108,11 +110,125 @@ private fun distance(a: String, b: String): Int {
     return d[a.length][b.length]
 }
 
-/** The phone's address book through `ContactsContract` (§9). Needs `READ_CONTACTS`. */
+/** Saves people in the address book, so the tool can be tested without Android's provider (ADR-093). */
+fun interface ContactWriter {
+    /**
+     * Adds [phone] and [email], when given, to the contact named exactly [name], or creates that contact. Says which,
+     * and the contact's name as the address book has it.
+     */
+    suspend fun save(name: String, phone: String?, email: String?): Saved
+
+    data class Saved(val name: String, val created: Boolean)
+}
+
+@Serializable
+data class AddContactInput(
+    @Description("The person's full name, e.g. Maya Chen") val name: String,
+    @Description("Their phone number, if the user gave one") val phone: String? = null,
+    @Description("Their email address, if the user gave one") val email: String? = null,
+) {
+    init {
+        require(name.isNotBlank() && name.length <= 100) { "name must be 1-100 characters" }
+        require(phone == null || PHONE_NUMBER.matches(phone.trim())) { "phone must be a phone number, such as +1 555 0142" }
+        require(email == null || EMAIL_ADDRESS.matches(email.trim())) { "email must be an email address, such as maya@example.com" }
+    }
+}
+
+private val PHONE_NUMBER = Regex("\\+?[\\d ().-]{3,20}")
+private val EMAIL_ADDRESS = Regex("[^@\\s]+@[^@\\s]+\\.[^@\\s]+")
+
+@Serializable
+data class ContactSaved(val said: String)
+
+/**
+ * Saves a person, or a number or address for someone already saved under that exact name (ADR-093). The address
+ * book is the user's own, and a contact can be deleted, so it's `WRITE_PRIVATE` (§7.1): it runs at once unless the
+ * turn is tainted, as when a number came from someone else's message.
+ */
+class AddContactTool(private val contacts: ContactWriter) : Tool<AddContactInput, ContactSaved> {
+    override val name = "contacts_add"
+    override val description = "Save a person in the user's contacts with their phone number or email, or add one to " +
+        "someone saved under that exact name"
+    override val input = AddContactInput.serializer()
+    override val output = ContactSaved.serializer()
+    override val dataClasses = setOf(DataClass.PERSONAL)
+    override val untrustedContent: UntrustedContent? = null
+    // The name picks which contact is changed, so it stays out (§7.1).
+    override val editable = listOf(
+        EditableField("phone", "Phone", EditableField.Kind.LINE, optional = true),
+        EditableField("email", "Email", EditableField.Kind.LINE, optional = true),
+    )
+
+    override fun risk(input: AddContactInput) = RiskTier.WRITE_PRIVATE
+
+    override fun describe(input: AddContactInput): String {
+        val details = listOfNotNull(input.phone?.trim()?.let { "phone $it" }, input.email?.trim()?.let { "email $it" })
+        require(details.isNotEmpty()) { "give a phone number or an email address to save" }
+        return "Save ${input.name.trim()} in your contacts, with ${details.joinToString(" and ")}"
+    }
+
+    override suspend fun invoke(input: AddContactInput, context: ToolContext): ContactSaved {
+        val saved = contacts.save(input.name.trim(), input.phone?.trim(), input.email?.trim())
+        return ContactSaved(if (saved.created) "Saved ${saved.name} in your contacts." else "Added that to ${saved.name} in your contacts.")
+    }
+}
+
+/** The phone's address book through `ContactsContract` (§9). Needs `READ_CONTACTS`, and `WRITE_CONTACTS` to save. */
 class ProviderContacts(
     private val resolver: ContentResolver,
     private val io: CoroutineDispatcher = Dispatchers.IO,
-) : ContactSource {
+) : ContactSource, ContactWriter {
+
+    override suspend fun save(name: String, phone: String?, email: String?): ContactWriter.Saved = withContext(io) {
+        val existing = rawContactOf(name)
+        val ops = ArrayList<ContentProviderOperation>()
+        // A new contact goes on the phone itself, with no account, so nothing is synced anywhere by Anu.
+        if (existing == null) {
+            ops += ContentProviderOperation.newInsert(ContactsContract.RawContacts.CONTENT_URI)
+                .withValue(ContactsContract.RawContacts.ACCOUNT_TYPE, null)
+                .withValue(ContactsContract.RawContacts.ACCOUNT_NAME, null)
+                .build()
+            ops += data(null).withValue(ContactsContract.Data.MIMETYPE, ContactsContract.CommonDataKinds.StructuredName.CONTENT_ITEM_TYPE)
+                .withValue(ContactsContract.CommonDataKinds.StructuredName.DISPLAY_NAME, name)
+                .build()
+        }
+        phone?.let {
+            ops += data(existing).withValue(ContactsContract.Data.MIMETYPE, ContactsContract.CommonDataKinds.Phone.CONTENT_ITEM_TYPE)
+                .withValue(ContactsContract.CommonDataKinds.Phone.NUMBER, it)
+                .withValue(ContactsContract.CommonDataKinds.Phone.TYPE, ContactsContract.CommonDataKinds.Phone.TYPE_MOBILE)
+                .build()
+        }
+        email?.let {
+            ops += data(existing).withValue(ContactsContract.Data.MIMETYPE, ContactsContract.CommonDataKinds.Email.CONTENT_ITEM_TYPE)
+                .withValue(ContactsContract.CommonDataKinds.Email.ADDRESS, it)
+                .withValue(ContactsContract.CommonDataKinds.Email.TYPE, ContactsContract.CommonDataKinds.Email.TYPE_OTHER)
+                .build()
+        }
+        resolver.applyBatch(ContactsContract.AUTHORITY, ops)
+        ContactWriter.Saved(existing?.second ?: name, created = existing == null)
+    }
+
+    /** A data row for the raw contact [existing], or for the one inserted first in the same batch. */
+    private fun data(existing: Pair<Long, String>?): ContentProviderOperation.Builder =
+        ContentProviderOperation.newInsert(ContactsContract.Data.CONTENT_URI).let {
+            if (existing == null) it.withValueBackReference(ContactsContract.Data.RAW_CONTACT_ID, 0)
+            else it.withValue(ContactsContract.Data.RAW_CONTACT_ID, existing.first)
+        }
+
+    /** The first raw contact of the contact named exactly [name], ignoring case, with the name as saved. */
+    private fun rawContactOf(name: String): Pair<Long, String>? {
+        val filter = Uri.withAppendedPath(ContactsContract.Contacts.CONTENT_FILTER_URI, Uri.encode(name))
+        val contact = resolver.query(filter, arrayOf(ContactsContract.Contacts._ID, ContactsContract.Contacts.DISPLAY_NAME_PRIMARY), null, null, null)?.use { c ->
+            generateSequence { if (c.moveToNext()) c.getLong(0) to c.getString(1).orEmpty() else null }.firstOrNull { it.second.equals(name, ignoreCase = true) }
+        } ?: return null
+        return resolver.query(
+            ContactsContract.RawContacts.CONTENT_URI,
+            arrayOf(ContactsContract.RawContacts._ID),
+            "${ContactsContract.RawContacts.CONTACT_ID} = ?",
+            arrayOf(contact.first.toString()),
+            null,
+        )?.use { c -> if (c.moveToFirst()) c.getLong(0) to contact.second else null }
+    }
 
     override suspend fun find(name: String, limit: Int): List<Contact> = withContext(io) {
         val filter = Uri.withAppendedPath(ContactsContract.Contacts.CONTENT_FILTER_URI, Uri.encode(name))

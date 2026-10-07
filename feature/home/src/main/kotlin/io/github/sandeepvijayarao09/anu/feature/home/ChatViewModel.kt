@@ -126,6 +126,7 @@ data class Receipt(val tool: String, val summary: String, val status: Status) {
             tool.startsWith("shop_") -> "Store"
             tool.startsWith("mcp_") -> "Service"
             tool.startsWith("phone_") -> "Phone"
+            tool.startsWith("notes_") -> "Notes"
             else -> "Anu"
         }
 }
@@ -794,7 +795,10 @@ class ChatViewModel(
     private fun activity(tool: String): String = when {
         tool.startsWith("calendar_create") -> "Preparing the event…"
         tool.startsWith("calendar_") -> "Checking your calendar…"
+        tool == "contacts_add" -> "Saving the contact…"
         tool.startsWith("contacts_") -> "Looking up contacts…"
+        tool == "notes_search" -> "Checking your notes…"
+        tool.startsWith("notes_") -> "Saving the note…"
         tool == "messages_reply" -> "Preparing the reply…"
         tool.startsWith("messages_") || tool.startsWith("sms_") -> "Checking your messages…"
         tool == "email_send" || tool == "email_create_draft" -> "Preparing the email…"

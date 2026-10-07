@@ -72,6 +72,18 @@ object SkillDetector {
     private val PHONE_CONTROLS = Regex("\\b(timers?|alarms?|wake me|flashlight|torch|do not disturb|dnd)\\b", RegexOption.IGNORE_CASE)
 
     /**
+     * The user's notes and address book, which the device skill also offers (ADR-093): "add eggs to my groceries note",
+     * "save Raj's number". "Note that…" is memory, matched first.
+     */
+    private val NOTE_WORDS = Regex("\\b(notes?|notepad)\\b", RegexOption.IGNORE_CASE)
+    private val CALENDAR_WORDS = Regex("\\b(calendar|meetings?|appointments?|invite|schedul\\w*|reschedul\\w*)\\b", RegexOption.IGNORE_CASE)
+
+    private val NOTES_AND_CONTACTS = Regex(
+        "\\b(notes?|notepad|(to|in|from) (my )?contacts|new contact|contact card|(save|add|store) (his|her|their|\\w+['’]s) (number|phone|email))\\b",
+        RegexOption.IGNORE_CASE,
+    )
+
+    /**
      * [previous] is the skill of the last user turn. A short follow-up such as "yes please" or "make it
      * 3pm" keeps it, so the tools stay available. The emulator showed that dropping them made the model
      * write raw tool-call text.
@@ -120,9 +132,12 @@ object SkillDetector {
         // Before scheduling: a reply that proposes a time needs the reply tools, which include the calendar lookups.
         CORRESPONDENCE.containsMatchIn(text) ->
             if (previous == Skill.MESSAGES || hasPhoneNumber(text)) Skill.MESSAGES else Skill.EMAIL
+        // Before scheduling, whose "what's on my" would take "What's on my groceries note?" to tools without notes: on
+        // the emulator the model then made the note up (S12). The calendar's own words keep it scheduling.
+        NOTE_WORDS.containsMatchIn(text) && !CALENDAR_WORDS.containsMatchIn(text) -> Skill.PHONE
         SCHEDULING.containsMatchIn(text) -> Skill.SCHEDULING
         SHOPPING.containsMatchIn(text) -> Skill.SHOPPING
-        PHONE_CONTROLS.containsMatchIn(text) -> Skill.PHONE
+        PHONE_CONTROLS.containsMatchIn(text) || NOTES_AND_CONTACTS.containsMatchIn(text) -> Skill.PHONE
         else -> null
     }
 

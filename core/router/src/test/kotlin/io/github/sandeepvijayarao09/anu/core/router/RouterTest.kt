@@ -230,6 +230,20 @@ class RouterTest {
     }
 
     @Test
+    fun `notes and contacts get the device skill, on Base, and memory still comes first (ADR-093)`() {
+        assertEquals(Skill.PHONE, SkillDetector.detect("Add eggs to my groceries note"))
+        assertEquals(Skill.PHONE, SkillDetector.detect("What's in my notes about the trip?"))
+        assertEquals("not scheduling's \"what's on my\"", Skill.PHONE, SkillDetector.detect("What's on my groceries note?"))
+        assertEquals(Skill.SCHEDULING, SkillDetector.detect("Add a note to my 3pm meeting on the calendar"))
+        assertEquals(Skill.SCHEDULING, SkillDetector.detect("What's on my calendar today?"))
+        assertEquals(Skill.PHONE, SkillDetector.detect("Save Raj's number, it's 555 0100"))
+        assertEquals(Skill.PHONE, SkillDetector.detect("Add Priya Shah to my contacts, priya@example.com"))
+        assertEquals(Skill.MEMORY, SkillDetector.detect("Note that I'm vegetarian"))
+        assertEquals(Skill.CHAT, SkillDetector.detect("I noted the time"))
+        assertEquals(Tier.BASE, route(request("Set an alarm for 6 and add eggs to my groceries note").copy(skill = Skill.PHONE)).tier)
+    }
+
+    @Test
     fun `explanations, advice and time arithmetic go to Pro, and a detailed report to the cloud (ADR-084)`() {
         assertEquals(Tier.PRO, route(request("Explain how a heat pump works in simple terms.")).tier)
         assertEquals(Tier.PRO, route(request("What are three ways to lower my electricity bill?")).tier)

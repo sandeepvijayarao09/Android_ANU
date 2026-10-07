@@ -540,6 +540,7 @@ private fun iconFor(receipt: Receipt) = when (receipt.family) {
     "Store" -> AnuIcons.Bag
     "Service" -> AnuIcons.Service
     "Phone" -> AnuIcons.Settings
+    "Notes" -> AnuIcons.Note
     else -> AnuIcons.Sparkle
 }
 

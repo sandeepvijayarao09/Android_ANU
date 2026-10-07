@@ -37,6 +37,7 @@ dependencies {
     androidTestImplementation(project(":connector:calendar"))
     androidTestImplementation(project(":connector:contacts"))
     androidTestImplementation(project(":connector:phone"))
+    androidTestImplementation(project(":connector:notes"))
     androidTestImplementation(libs.androidx.test.runner)
     androidTestImplementation(libs.androidx.test.ext.junit)
     androidTestImplementation(libs.kotlinx.coroutines.test)
