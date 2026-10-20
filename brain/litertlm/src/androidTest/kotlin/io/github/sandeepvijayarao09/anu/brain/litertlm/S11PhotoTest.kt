@@ -77,6 +77,70 @@ class S11PhotoTest {
         File("/proc/self/status").readLines().firstOrNull { it.startsWith("VmHWM:") }?.let { S1.report("peak_rss", it.substringAfter(':').trim()) }
     }
 
+    /**
+     * ADR-094: four pictures in one message, then whether the engine's [MAX] counts per message or across the
+     * conversation, by sending a fifth in a later turn of the same conversation. Each picture is a big number on white.
+     */
+    @Test
+    fun takesFourPicturesAtOnceAndCountsAcrossTurns() {
+        S1.assumeModelPresent()
+        val vision = if (InstrumentationRegistry.getArguments().getString("visionBackend") == "CPU") Backend.CPU() else Backend.GPU()
+        val config = EngineConfig(
+            modelPath = S1.modelPath, backend = S1.backend(), visionBackend = vision,
+            maxNumTokens = 4096, maxNumImages = MAX, cacheDir = S1.cacheDir(),
+        )
+        Engine(config).use { engine ->
+            engine.initialize()
+            engine.createConversation(ConversationConfig(samplerConfig = SamplerConfig(topK = 1, topP = 1.0, temperature = 0.0))).use { conversation ->
+                val started = SystemClock.elapsedRealtime()
+                val four = (1..4).map { Content.ImageBytes(number(it * 11)) }
+                val answer = conversation.sendMessage(Contents.of(four + Content.Text("Each picture shows one number. List the numbers, in order."))).text()
+                S1.report("four_pictures_ms", SystemClock.elapsedRealtime() - started)
+                S1.report("four_pictures_answer", answer.take(200).replace('\n', ' '))
+                val seen = listOf("11", "22", "33", "44").count { it in answer }
+                S1.report("four_pictures_seen", "$seen of 4")
+                val fifth = runCatching {
+                    conversation.sendMessage(Contents.of(Content.ImageBytes(number(55)), Content.Text("And this one?"))).text()
+                }
+                S1.report("fifth_picture_same_conversation", fifth.fold({ "ok: " + it.take(120).replace('\n', ' ') }, { "failed: ${it.message?.take(160)}" }))
+                assertTrue("reads at least three of the four: $answer", seen >= 3)
+            }
+        }
+    }
+
+    /** ADR-094: what the engine does with more pictures in one prefill than it was loaded for, as a re-read chat sends. */
+    @Test
+    fun fivePicturesInOnePrefill() {
+        S1.assumeModelPresent()
+        val vision = if (InstrumentationRegistry.getArguments().getString("visionBackend") == "CPU") Backend.CPU() else Backend.GPU()
+        val config = EngineConfig(
+            modelPath = S1.modelPath, backend = S1.backend(), visionBackend = vision,
+            maxNumTokens = 4096, maxNumImages = MAX, cacheDir = S1.cacheDir(),
+        )
+        Engine(config).use { engine ->
+            engine.initialize()
+            engine.createConversation(ConversationConfig(samplerConfig = SamplerConfig(topK = 1, topP = 1.0, temperature = 0.0))).use { conversation ->
+                val five = (1..5).map { Content.ImageBytes(number(it * 11)) }
+                val result = runCatching { conversation.sendMessage(Contents.of(five + Content.Text("List the numbers, in order."))).text() }
+                S1.report("five_pictures_one_prefill", result.fold({ "ok: " + it.take(160).replace('\n', ' ') }, { "failed: ${it.javaClass.simpleName} ${it.message?.take(200)}" }))
+            }
+        }
+    }
+
+    private fun number(n: Int): ByteArray {
+        val bitmap = Bitmap.createBitmap(512, 512, Bitmap.Config.ARGB_8888)
+        Canvas(bitmap).apply {
+            drawColor(Color.WHITE)
+            drawText("$n", 90f, 340f, Paint().apply { color = Color.BLACK; textSize = 280f; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD })
+        }
+        return ByteArrayOutputStream().also { bitmap.compress(Bitmap.CompressFormat.JPEG, 90, it) }.toByteArray()
+    }
+
+    private companion object {
+        /** Anu's engines take this many pictures (ModelManager.MAX_PHOTOS). */
+        const val MAX = 4
+    }
+
     /** A made-up picture: a sign on the left, a red circle on the right, on white. */
     private fun picture(): ByteArray {
         val bitmap = Bitmap.createBitmap(768, 512, Bitmap.Config.ARGB_8888)

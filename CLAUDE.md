@@ -61,6 +61,7 @@ export JAVA_HOME=/opt/homebrew/opt/openjdk@21
   - `-Pandroid.testInstrumentationRunnerArguments.backend=GPU` (or `GOOGLE_TENSOR`)
   - `...modelPath=/data/local/tmp/anu/models/<file>.litertlm`
   - `...speculative=on` (or `off`) for the brain and extraction tests' engines; unset keeps the runtime's default (ADR-069).
+  - `S11PhotoTest#takesFourPicturesAtOnceAndCountsAcrossTurns` and `#fivePicturesInOnePrefill` (ADR-094) need `visionBackend=CPU` on the emulator.
   - `S1BenchmarkTest#measuresSpeculativeDecoding` compares the runtime's default, off and on; `...modes=on+off` picks the runs and their order.
 - Run one test method per command: Gradle joins runner arguments with commas, so a comma inside `class=` splits it.
 - **Photos (spike S11):** `ANDROID_SERIAL=emulator-5554 ./gradlew :brain:litertlm:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=io.github.sandeepvijayarao09.anu.brain.litertlm.S11PhotoTest -Pandroid.testInstrumentationRunnerArguments.visionBackend=CPU`. The emulator needs `visionBackend=CPU`; the default is the GPU.

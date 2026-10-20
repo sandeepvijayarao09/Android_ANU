@@ -745,7 +745,7 @@ class ChatSessionTest {
         chat.send("What is this?", onPhone, photos = listOf(io.github.sandeepvijayarao09.anu.core.model.Photo(0, byteArrayOf(9))), pdf = scan).toList()
         val seen = base.requests.single().transcript.last() as ChatMessage.User
         assertEquals("the user's photo, then the pages", listOf<Byte>(9, 1, 2), seen.photos.map { it.bytes!!.single() })
-        assertTrue(seen.modelText.contains("the pictures are its first 2 pages"))
+        assertTrue(seen.modelText.contains("its first 2 pages come as the pictures"))
         val saved = chat.history().first() as ChatMessage.User
         assertTrue(saved.document!!.pictures)
         assertEquals(3, saved.photos.size)

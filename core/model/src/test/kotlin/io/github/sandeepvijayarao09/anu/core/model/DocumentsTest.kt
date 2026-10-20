@@ -68,10 +68,11 @@ class DocumentsTest {
         val read = ChatMessage.User("Rent?", document = notes).modelText
         assertTrue(read.contains("(54 pages; the first 20 read)"))
         assertTrue(read.contains("from reading it in parts"))
-        assertTrue(read.contains("say so"))
+        assertTrue(read.contains("Only if they don't answer the question"))
+        assertTrue(read.contains("without calling them notes"))
 
         val scan = Document("Scan.pdf", pages = 6, read = 4, text = "", whole = false, pictures = true)
-        assertTrue(ChatMessage.User("What is this?", document = scan).modelText.contains("the pictures are its first 4 pages"))
+        assertTrue(ChatMessage.User("What is this?", document = scan).modelText.contains("its first 4 pages come as the pictures with this message: read them to answer."))
         assertTrue(ChatMessage.User("Rent?", document = notes.copy(text = "")).modelText.contains("Nothing in the pages read bears on"))
     }
 }

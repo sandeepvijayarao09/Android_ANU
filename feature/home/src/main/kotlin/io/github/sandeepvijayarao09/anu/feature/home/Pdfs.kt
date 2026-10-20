@@ -52,8 +52,15 @@ fun readPdf(context: Context, uri: Uri, pictures: Int): PdfRead = try {
     val name = resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
         if (cursor.moveToFirst()) cursor.getString(0) else null
     } ?: "Document.pdf"
-    val descriptor = resolver.openFileDescriptor(uri, "r") ?: throw IllegalStateException("no descriptor")
-    PdfRenderer(descriptor).use { renderer ->
+    // Not being let read the file is "can't be read"; only the renderer's refusal means a password (SecurityException).
+    val descriptor = runCatching { resolver.openFileDescriptor(uri, "r") }.getOrNull() ?: return PdfRead.Unreadable
+    val opened = try {
+        PdfRenderer(descriptor)
+    } catch (_: SecurityException) {
+        descriptor.close()
+        return PdfRead.Locked
+    }
+    opened.use { renderer ->
         val pages = renderer.pageCount
         val reading = minOf(pages, Documents.MAX_PAGES)
         val texts = if (Build.VERSION.SDK_INT >= 35) (0 until reading).map { index -> renderer.text(index) } else emptyList()
@@ -64,8 +71,6 @@ fun readPdf(context: Context, uri: Uri, pictures: Int): PdfRead = try {
         }
         if (pages == 0) PdfRead.Unreadable else PdfRead.Ready(Pdf(name, pages, texts, drawn))
     }
-} catch (_: SecurityException) {
-    PdfRead.Locked
 } catch (_: Exception) {
     PdfRead.Unreadable
 }
