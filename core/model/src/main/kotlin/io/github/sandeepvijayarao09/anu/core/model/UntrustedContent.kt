@@ -29,4 +29,7 @@ enum class UntrustedContent {
 
     /** The screen the user asked about from the assistant card: it can show other people's words (EXP-2). */
     SCREEN,
+
+    /** A PDF the user attached, read on the phone: someone else may have written it (ADR-095). */
+    DOCUMENT,
 }

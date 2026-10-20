@@ -255,6 +255,23 @@ class TalkUiTest {
     }
 
     @Test
+    fun `the plus sheet offers a PDF, and a PDF reads as one item with its size`() {
+        var picked = 0
+        compose.setContent {
+            AnuTheme(dark = false) {
+                androidx.compose.foundation.layout.Column {
+                    PdfPill("Lease.pdf", 12)
+                    AddSheet(canHear = true, onPhoto = {}, onVoiceNote = {}, onDismiss = {}, onPdf = { picked++ })
+                }
+            }
+        }
+        compose.onNodeWithContentDescription("PDF, Lease.pdf · 12 pages").assertExists()
+        compose.onNodeWithText("PDF").performClick()
+        compose.waitForIdle()
+        assertEquals(1, picked)
+    }
+
+    @Test
     fun `a voice note shows its kind, length and words as one item, and one not written down says so`() {
         compose.setContent {
             AnuTheme(dark = false) {

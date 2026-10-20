@@ -1,6 +1,11 @@
 package io.github.sandeepvijayarao09.anu.core.agent
 
+import io.github.sandeepvijayarao09.anu.core.model.BrainEvent
 import io.github.sandeepvijayarao09.anu.core.model.ChatMessage
+import io.github.sandeepvijayarao09.anu.core.model.Document
+import io.github.sandeepvijayarao09.anu.core.model.DocumentReader
+import io.github.sandeepvijayarao09.anu.core.model.Documents
+import io.github.sandeepvijayarao09.anu.core.model.Pdf
 import io.github.sandeepvijayarao09.anu.core.model.RelevantFact
 import io.github.sandeepvijayarao09.anu.core.model.factsBlock
 import io.github.sandeepvijayarao09.anu.core.model.DataClass
@@ -83,6 +88,8 @@ class ChatSession(
     private val thinking: () -> Boolean = { false },
     /** Writes voice notes down on the phone (G3, ADR-078). Null when nothing can hear. */
     private val transcriber: Transcriber? = null,
+    /** Reads long PDFs in pieces on the phone (ADR-095). Null when no model can. */
+    private val documentReader: DocumentReader? = null,
     /** Times the first word and the whole answer. */
     private val nanoTime: () -> Long = System::nanoTime,
     private val millis: () -> Long = System::currentTimeMillis,
@@ -122,7 +129,10 @@ class ChatSession(
      * the turn goes on with them as the message's voice note. A retry passes the [voiceNote] it already has. A voice
      * note keeps the turn on the phone too, and its recording is never saved. A [screen] the user asked about from the
      * assistant card goes to the model with its picture this turn only (EXP-2, ADR-083): the saved chat keeps which app
-     * and when, never the picture, and it keeps its turns on the phone and tainted.
+     * and when, never the picture, and it keeps its turns on the phone and tainted. A [pdf] is read first (ADR-095):
+     * kept whole when short, else read in pieces for this question, with [AgentEvent.ReadingDocument] as it goes; one
+     * with no text sends its page pictures as photos. A retry passes the [document] it already has. A PDF keeps its
+     * turns on the phone and tainted too, and the PDF itself is never saved.
      */
     fun send(
         text: String,
@@ -135,13 +145,16 @@ class ChatSession(
         recording: Recording? = null,
         voiceNote: VoiceNote? = null,
         screen: Screen? = null,
+        pdf: Pdf? = null,
+        document: Document? = null,
     ): Flow<AgentEvent> = flow {
-        require(photos.size + (if (screen?.image != null) 1 else 0) <= Photo.MAX_IN_VIEW) { "at most ${Photo.MAX_IN_VIEW} pictures a message" }
+        val pictures = photos.size + (if (screen?.image != null) 1 else 0) + (pdf?.takeUnless { it.hasText }?.pictures?.size ?: 0)
+        require(pictures <= Photo.MAX_IN_VIEW) { "at most ${Photo.MAX_IN_VIEW} pictures a message" }
         lock.withLock {
             val fresh = mutableListOf<Long>()
             var completed = false
             try {
-                runTurn(text, device, pinned, cloudConsented, sharedFacts, replacingLast, photos, recording, voiceNote, screen, fresh) { completed = true }
+                runTurn(text, device, pinned, cloudConsented, sharedFacts, replacingLast, photos, recording, voiceNote, screen, pdf, document, fresh) { completed = true }
             } finally {
                 if (!completed && fresh.isNotEmpty()) withContext(NonCancellable) { photoStore.delete(fresh) }
             }
@@ -160,6 +173,8 @@ class ChatSession(
         recording: Recording?,
         voiceNote: VoiceNote?,
         screen: Screen?,
+        pdf: Pdf?,
+        document: Document?,
         fresh: MutableList<Long>,
         onCompleted: () -> Unit,
     ) {
@@ -173,8 +188,12 @@ class ChatSession(
                 val began = nanoTime()
                 written(it)?.also { heardMs = (nanoTime() - began) / 1_000_000 } ?: return
             }
-            // A whole phone command needs no model (G6, ADR-076). A retry, a photo or a voice note goes to the model.
-            val command = if (photos.isEmpty() && note == null && screen == null && pinned == null && !cloudConsented) commands(text) else null
+            // A PDF is read next, for what the user asked with it (ADR-095). Nothing is saved if it can't be.
+            val doc = document ?: pdf?.let { read(it, ChatMessage.User(text, voiceNote = note).allWords) ?: return }
+            // A scan's pages go as its pictures, after any photos (ADR-095).
+            val pictures = photos + pdf?.takeIf { document == null && !it.hasText }?.pictures.orEmpty().map { Photo(0, it) }
+            // A whole phone command needs no model (G6, ADR-076). A retry, a photo, a voice note or a PDF goes to the model.
+            val command = if (pictures.isEmpty() && note == null && screen == null && doc == null && pinned == null && !cloudConsented) commands(text) else null
             if (command != null) return directTurn(command, text, saved, kept, transcript, onCompleted = onCompleted)
             val asking = ChatMessage.User(text, voiceNote = note)
             val users = transcript.filterIsInstance<ChatMessage.User>() + asking
@@ -187,11 +206,11 @@ class ChatSession(
             val relevantBlock = factsBlock(relevantFacts.map { it.text })
             // The cloud may see only facts the user saw on the consent sheet: relevant ones, never sensitive.
             val consentFacts = relevantFacts.filterNot { it.sensitive }.map { it.text }
-            val attached = photos.map { photo ->
+            val attached = pictures.map { photo ->
                 if (photo.id != 0L) photo else Photo(photoStore.save(requireNotNull(photo.bytes) { "a new photo needs its bytes" }).also(fresh::add), photo.bytes)
             }
             // The saved message keeps the screen's app and time, never its picture (ADR-083).
-            val message = ChatMessage.User(text, attached.map { Photo(it.id) }, note, screen?.let { Screen(it.app, it.atMillis) })
+            val message = ChatMessage.User(text, attached.map { Photo(it.id) }, note, screen?.let { Screen(it.app, it.atMillis) }, doc)
             // What every turn carries besides the history. The note about left-out messages is counted
             // either way, so adding it can't push a turn over the budget.
             val fixed = Tokens.of(systemPrompt(tools, trimmed = true)) + Tokens.of(memoryBlock) + Tokens.of(relevantBlock) +
@@ -204,7 +223,7 @@ class ChatSession(
             val shown = transcript.subList(windowStart, transcript.size).toList()
             val system = systemPrompt(tools, trimmed = windowStart > 0)
             // The model sees the photos in its view; the saved chat keeps only their ids.
-            val turn = withPhotoBytes(shown + ChatMessage.User(text, attached, note, screen))
+            val turn = withPhotoBytes(shown + ChatMessage.User(text, attached, note, screen, doc))
             val promptTokens = ceil((fixed + Tokens.of(shown)) * scale).toInt()
             mutableContext.value = ContextView(windowStart, transcript.size, promptTokens, window.budget, scale, mutableContext.value.lastSample, relevantFacts.size)
             val route = RouteRequest(
@@ -219,6 +238,7 @@ class ChatSession(
                 hasPhotos = (shown + message).any { it is ChatMessage.User && it.photos.isNotEmpty() },
                 hasVoiceNote = (shown + message).any { it is ChatMessage.User && it.voiceNote != null },
                 hasScreen = (shown + message).any { it is ChatMessage.User && it.screen != null },
+                hasDocument = (shown + message).any { it is ChatMessage.User && it.document != null },
             )
             // The index of this message in the transcript, which keys its answer's details.
             val asked = transcript.size
@@ -230,7 +250,8 @@ class ChatSession(
             // When the model began reasoning, for how long it thought before the answer's first word.
             var firstThought: Long? = null
             // A photo or a screen in view can show a code or a password: the answer about it is guarded (I1, ADR-082).
-            val shield = if (route.hasPhotos || route.hasScreen) SecretShield(text, screen?.secrets.orEmpty()) else null
+            // A PDF's text can too, such as a statement's account PIN (ADR-095).
+            val shield = if (route.hasPhotos || route.hasScreen || route.hasDocument) SecretShield(text, screen?.secrets.orEmpty()) else null
             agent.run(
                 route, device, system, turn, tools, turnKey = turnKey, sentAt = sentAt(now, asking.allWords), memory = memoryBlock,
                 relevant = relevantBlock, sharedFacts = if (cloudConsented) sharedFacts else emptyList(), consentFacts = consentFacts,
@@ -399,6 +420,40 @@ class ChatSession(
     }
 
     /**
+     * Reads [pdf] for [question] (ADR-095). Short text is kept whole, with no model; longer text goes in pieces to
+     * [documentReader], each in a conversation of its own, and the notes they give are kept. A PDF with no text keeps
+     * none: its pages go as pictures. Returns null when the turn ends here, because nothing can read it or reading failed.
+     */
+    private suspend fun FlowCollector<AgentEvent>.read(pdf: Pdf, question: String): Document? {
+        val done: suspend (Document) -> Document = { it.also { document -> emit(AgentEvent.DocumentRead(document)) } }
+        if (!pdf.hasText) return done(Document(pdf.name, pdf.pages, pdf.pictures.size, "", whole = false, pictures = true))
+        val read = pdf.texts.size
+        val all = pdf.texts.map(String::trim).filter(String::isNotEmpty).joinToString("\n\n")
+        if (all.length <= Documents.WHOLE_CHARS) return done(Document(pdf.name, pdf.pages, read, all, whole = true))
+        val reader = documentReader?.takeIf { it.canRead() } ?: run {
+            emit(AgentEvent.Failed(listOf(CANT_READ)))
+            return null
+        }
+        val notes = mutableListOf<String>()
+        try {
+            for (piece in Documents.split(pdf.texts)) {
+                emit(AgentEvent.ReadingDocument(pdf.name, piece.last, read))
+                val answer = StringBuilder()
+                reader.read(Documents.pieceRequest(pdf.name, piece, question)).collect { event ->
+                    if (event is BrainEvent.TextDelta && !event.thought) answer.append(event.text)
+                }
+                Documents.note(piece, answer.toString())?.let(notes::add)
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            emit(AgentEvent.Failed(listOf(COULDNT_READ)))
+            return null
+        }
+        return done(Document(pdf.name, pdf.pages, read, Documents.notes(notes), whole = false))
+    }
+
+    /**
      * A user message for skill detection. A voice note's skill is fixed (ADR-078): the typed words choose first; else
      * the user's own note that starts by asking to remember gets memory's tools, so memory learns from it only when
      * the user says so (EXP-3, ADR-085); else the user's own note offers the voice note tools, and a shared recording,
@@ -527,6 +582,7 @@ class ChatSession(
             UntrustedContent.PHOTO.takeIf { users.any { it.photos.isNotEmpty() } },
             UntrustedContent.RECORDING.takeIf { users.any { it.voiceNote != null } },
             UntrustedContent.SCREEN.takeIf { users.any { it.screen != null } },
+            UntrustedContent.DOCUMENT.takeIf { users.any { it.document != null } },
         )
         return results + media
     }
@@ -578,6 +634,12 @@ class ChatSession(
         const val REPLY_TOOL = "messages_reply"
 
         const val COULDNT_HEAR = "This recording couldn't be written down."
+
+        /** A long PDF can't be read: no model on this phone can read it (ADR-095). */
+        const val CANT_READ = "Reading a PDF this long needs Gemma 4 on this phone. You can download it in Settings, Models."
+
+        /** Reading a PDF failed partway. */
+        const val COULDNT_READ = "This PDF couldn't be read."
 
         const val DEFAULT_SYSTEM =
             "You are Anu, a private assistant running on the user's phone. Be concise, warm and accurate. " +

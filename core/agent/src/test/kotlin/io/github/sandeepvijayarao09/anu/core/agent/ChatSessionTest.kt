@@ -3,6 +3,7 @@ package io.github.sandeepvijayarao09.anu.core.agent
 import io.github.sandeepvijayarao09.anu.core.model.BrainEvent
 import io.github.sandeepvijayarao09.anu.core.model.BrainId
 import io.github.sandeepvijayarao09.anu.core.model.ChatMessage
+import io.github.sandeepvijayarao09.anu.core.model.modelText
 import io.github.sandeepvijayarao09.anu.core.model.RelevantFact
 import io.github.sandeepvijayarao09.anu.core.model.DataClass
 import io.github.sandeepvijayarao09.anu.core.model.ScriptedBrain
@@ -27,6 +28,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -662,6 +664,91 @@ class ChatSessionTest {
         base.enqueue(Step.Reply(listOf("Your code is 482913.")))
         val completed = session.send("Read me the code 482913", onPhone).toList().last() as AgentEvent.Completed
         assertEquals("Your code is 482913.", completed.text)
+    }
+
+    /** Reads PDF pieces from a script, one answer a piece, and keeps what it was asked. */
+    private class FakeReader(vararg answers: String, private val fails: Boolean = false) : io.github.sandeepvijayarao09.anu.core.model.DocumentReader {
+        private val queue = ArrayDeque(answers.toList())
+        val requests = mutableListOf<io.github.sandeepvijayarao09.anu.core.model.BrainRequest>()
+
+        override fun canRead() = true
+
+        override fun read(request: io.github.sandeepvijayarao09.anu.core.model.BrainRequest) = kotlinx.coroutines.flow.flow {
+            requests += request
+            if (fails) error("the runtime went quiet")
+            emit(io.github.sandeepvijayarao09.anu.core.model.BrainEvent.TextDelta(queue.removeFirst()))
+        }
+    }
+
+    private fun pdf(vararg pages: String) = io.github.sandeepvijayarao09.anu.core.model.Pdf("Lease.pdf", pages = 30, texts = pages.toList())
+
+    @Test
+    fun `a short PDF goes whole, with no reading, and keeps its turns on the phone and tainted`() = runTest {
+        val create = FakeCreateEvent()
+        val gate = RecordingGate()
+        val reader = FakeReader()
+        val chat = ChatSession(
+            agent(mapOf(Tier.BASE to base, Tier.PRO to base, Tier.CLOUD to cloud), ToolBroker(listOf(create), gate)),
+            toolsFor = { listOf(create.name) }, documentReader = reader,
+        )
+        base.enqueue(Step.Reply("Rent is \$1,850."))
+        val events = chat.send("How much is the rent?", device, pdf = pdf("Rent: \$1,850 a month.", "Deposit: one month.")).toList()
+        assertTrue("short text needs no reader", reader.requests.isEmpty())
+        val routed = (events.first { it is AgentEvent.Routed } as AgentEvent.Routed).decision
+        assertTrue(routed.reasons.contains("a PDF is in view: on-device only"))
+        val seen = (base.requests.single().transcript.last() as ChatMessage.User).modelText
+        assertTrue(seen.contains("Rent: \$1,850 a month.\n\nDeposit: one month."))
+        val saved = (chat.history().first() as ChatMessage.User).document!!
+        assertEquals(io.github.sandeepvijayarao09.anu.core.model.Document("Lease.pdf", 30, 2, "Rent: \$1,850 a month.\n\nDeposit: one month.", whole = true), saved)
+
+        base.enqueue(Step.Reply(listOf(""), toolCalls = listOf(addLunch)), Step.Reply("Added."))
+        chat.send("Add the move-in to my calendar", device).toList()
+        assertEquals("Anu asks because this chat shows a PDF, which can hold other people's words. Check this closely", gate.requests.single().reason)
+        assertTrue(cloud.requests.isEmpty())
+    }
+
+    @Test
+    fun `a long PDF is read in pieces for the question, and the chat answers from the notes`() = runTest {
+        val reader = FakeReader("[nothing]", "Rent is \$1,850 a month, due on the 1st.")
+        val chat = ChatSession(agent(mapOf(Tier.BASE to base, Tier.PRO to base)), documentReader = reader)
+        val pages = arrayOf("Parties and premises. ".repeat(300), "Rent is \$1,850 a month, due on the 1st. ".repeat(100))
+        base.enqueue(Step.Reply("\$1,850, due on the 1st."))
+        val events = chat.send("When is rent due?", onPhone, pdf = pdf(*pages)).toList()
+        assertEquals(2, reader.requests.size)
+        assertTrue(reader.requests.all { (it.transcript.single() as ChatMessage.User).text.startsWith("The user's question: When is rent due?") })
+        assertEquals(listOf(1, 2), events.filterIsInstance<AgentEvent.ReadingDocument>().map { it.page })
+        val document = (chat.history().first() as ChatMessage.User).document!!
+        assertEquals("Page 2: Rent is \$1,850 a month, due on the 1st.", document.text)
+        assertFalse(document.whole)
+        assertEquals(document, events.filterIsInstance<AgentEvent.DocumentRead>().single().document)
+        assertTrue((base.requests.single().transcript.last() as ChatMessage.User).modelText.contains("from reading it in parts"))
+    }
+
+    @Test
+    fun `a long PDF with no model to read it, or a reading that fails, saves nothing`() = runTest {
+        val long = "Clause. ".repeat(1_000)
+        val none = ChatSession(agent(mapOf(Tier.BASE to base)))
+        assertEquals(listOf(ChatSession.CANT_READ), (none.send("Summarize", onPhone, pdf = pdf(long)).toList().last() as AgentEvent.Failed).reasons)
+        assertTrue(none.history().isEmpty())
+
+        val broken = ChatSession(agent(mapOf(Tier.BASE to base)), documentReader = FakeReader(fails = true))
+        assertEquals(listOf(ChatSession.COULDNT_READ), (broken.send("Summarize", onPhone, pdf = pdf(long)).toList().last() as AgentEvent.Failed).reasons)
+        assertTrue(broken.history().isEmpty())
+    }
+
+    @Test
+    fun `a PDF with no text sends its pages as pictures`() = runTest {
+        val photos = InMemoryPhotoStore()
+        val chat = ChatSession(agent(mapOf(Tier.BASE to base, Tier.PRO to base)), photoStore = photos)
+        val scan = io.github.sandeepvijayarao09.anu.core.model.Pdf("Scan.pdf", pages = 6, texts = listOf("", " "), pictures = listOf(byteArrayOf(1), byteArrayOf(2)))
+        base.enqueue(Step.Reply("A signed lease."))
+        chat.send("What is this?", onPhone, photos = listOf(io.github.sandeepvijayarao09.anu.core.model.Photo(0, byteArrayOf(9))), pdf = scan).toList()
+        val seen = base.requests.single().transcript.last() as ChatMessage.User
+        assertEquals("the user's photo, then the pages", listOf<Byte>(9, 1, 2), seen.photos.map { it.bytes!!.single() })
+        assertTrue(seen.modelText.contains("the pictures are its first 2 pages"))
+        val saved = chat.history().first() as ChatMessage.User
+        assertTrue(saved.document!!.pictures)
+        assertEquals(3, saved.photos.size)
     }
 
     @Test

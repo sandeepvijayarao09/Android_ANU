@@ -420,6 +420,7 @@ class AppGraph(private val context: Context) {
             commands = PhoneCommands::match,
             thinking = { thinking.thinking.value },
             transcriber = onDevice,
+            documentReader = onDevice,
             toolsFor = ::toolsFor,
             memory = {
                 // The chat carries on without memory if it fails. The log names the failure, never the content.

@@ -128,4 +128,19 @@ class EgressTest {
         assertEquals("Voice notes never leave the phone (MEDIA-1)", refused.exceptionOrNull()?.message)
         assertTrue("nothing was recorded, so nothing left", ledger.entries.value.isEmpty())
     }
+
+    @Test
+    fun `a PDF is refused at the gate, before any ledger entry, even in an older message`() = runTest {
+        val document = io.github.sandeepvijayarao09.anu.core.model.Document("Lease.pdf", pages = 2, read = 2, text = "Rent: \$1,850.", whole = true)
+        val request = io.github.sandeepvijayarao09.anu.core.model.BrainRequest(
+            transcript = listOf(
+                io.github.sandeepvijayarao09.anu.core.model.ChatMessage.User("Rent?", document = document),
+                io.github.sandeepvijayarao09.anu.core.model.ChatMessage.Model("\$1,850."),
+                io.github.sandeepvijayarao09.anu.core.model.ChatMessage.User("Thanks"),
+            ),
+        )
+        val refused = runCatching { gate.prepare(request, "generativelanguage.googleapis.com") }
+        assertEquals("PDFs never leave the phone (MEDIA-1)", refused.exceptionOrNull()?.message)
+        assertTrue("nothing was recorded, so nothing left", ledger.entries.value.isEmpty())
+    }
 }

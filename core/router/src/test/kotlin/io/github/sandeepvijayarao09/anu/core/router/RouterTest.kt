@@ -209,6 +209,13 @@ class RouterTest {
     }
 
     @Test
+    fun `a PDF in view keeps the turn on the phone, whatever the score or consent, and says why`() {
+        val heavy = route(request(heavy).copy(hasDocument = true, cloudConsented = true))
+        assertTrue(Tier.CLOUD !in heavy.allowed)
+        assertTrue(heavy.reasons.contains("a PDF is in view: on-device only"))
+    }
+
+    @Test
     fun `a voice note of the user's own goes to Pro, where several tasks and dates are worked out`() {
         assertEquals(Tier.PRO, route(request("Call Maya on Thursday.").copy(skill = Skill.VOICE_NOTE, hasVoiceNote = true)).tier)
     }

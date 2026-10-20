@@ -60,6 +60,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import androidx.compose.runtime.LaunchedEffect
+import io.github.sandeepvijayarao09.anu.feature.home.PDF_LOCKED
+import io.github.sandeepvijayarao09.anu.feature.home.PDF_UNREADABLE
+import io.github.sandeepvijayarao09.anu.feature.home.PdfRead
+import io.github.sandeepvijayarao09.anu.feature.home.readPdf
 import io.github.sandeepvijayarao09.anu.feature.home.readPhoto
 import android.content.Intent
 import io.github.sandeepvijayarao09.anu.core.model.Photo
@@ -94,17 +98,19 @@ private const val SETTINGS = 2
  * The three pages: Talk, Memory and Settings (ADR-043, DESIGN.md). Swipe between them, or use the bar.
  * The Privacy report opens over whichever page the privacy indicator was tapped on.
  */
-/** Photos or a recording shared into Anu (G2, G3, ADR-094). A recording comes alone. */
-private class Shared(val uris: List<Uri>, val audio: Boolean)
+/** Photos, a recording or a PDF shared into Anu (G2, G3, ADR-094, ADR-095). A recording or a PDF comes alone. */
+private const val PDF = "application/pdf"
 
-/** The photos or the recording in a share into Anu, if that's what [intent] is. Several are photos only. */
+private class Shared(val uris: List<Uri>, val audio: Boolean, val pdf: Boolean = false)
+
+/** The photos, the recording or the PDF in a share into Anu, if that's what [intent] is. Several are photos only. */
 private fun sharedItem(intent: Intent?): Shared? {
     val type = intent?.type ?: return null
     return when {
-        intent.action == Intent.ACTION_SEND && (type.startsWith("image/") || type.startsWith("audio/")) -> {
+        intent.action == Intent.ACTION_SEND && (type.startsWith("image/") || type.startsWith("audio/") || type == PDF) -> {
             @Suppress("DEPRECATION")
             val uri = (if (Build.VERSION.SDK_INT >= 33) intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java) else intent.getParcelableExtra(Intent.EXTRA_STREAM)) ?: return null
-            Shared(listOf(uri), audio = type.startsWith("audio/"))
+            Shared(listOf(uri), audio = type.startsWith("audio/"), pdf = type == PDF)
         }
         intent.action == Intent.ACTION_SEND_MULTIPLE && type.startsWith("image/") -> {
             @Suppress("DEPRECATION")
@@ -134,7 +140,13 @@ private fun AnuHome(graph: AppGraph, shared: MutableStateFlow<Shared?>) {
     LaunchedEffect(Unit) {
         shared.filterNotNull().collect { item ->
             shared.value = null
-            if (item.audio) {
+            if (item.pdf) {
+                when (val read = withContext(Dispatchers.IO) { readPdf(context, item.uris.first(), chat.photosLeft) }) {
+                    is PdfRead.Ready -> chat.attachPdf(read.pdf)
+                    PdfRead.Locked -> chat.pdfUnusable(PDF_LOCKED)
+                    PdfRead.Unreadable -> chat.pdfUnusable(PDF_UNREADABLE)
+                }
+            } else if (item.audio) {
                 when (val read = withContext(Dispatchers.IO) { readSharedRecording(context, item.uris.first(), VOICE_NOTE_SECONDS) }) {
                     is SharedRecording.Ready -> chat.attachRecording(read.recording)
                     is SharedRecording.TooLong -> chat.recordingUnusable("This recording is ${clock(read.seconds)} long. Anu can write down up to 5 minutes.")

@@ -6,6 +6,7 @@ import io.github.sandeepvijayarao09.anu.core.model.BrainLocation
 import io.github.sandeepvijayarao09.anu.core.model.BrainRequest
 import io.github.sandeepvijayarao09.anu.core.model.ChatMessage
 import io.github.sandeepvijayarao09.anu.core.model.DataClass
+import io.github.sandeepvijayarao09.anu.core.model.Document
 import io.github.sandeepvijayarao09.anu.core.model.echoesFraming
 import io.github.sandeepvijayarao09.anu.core.model.Sampling
 import io.github.sandeepvijayarao09.anu.core.model.ToolCall
@@ -104,6 +105,12 @@ sealed interface AgentEvent {
 
     /** The voice note is written down: the turn goes on with [note], which a retry can send again as it is. */
     data class Transcribed(val note: VoiceNote) : AgentEvent
+
+    /** A PDF being read in pieces on the phone before the turn goes on (ADR-095): up to page [page] of the [of] read. */
+    data class ReadingDocument(val name: String, val page: Int, val of: Int) : AgentEvent
+
+    /** The PDF is read: the turn goes on with [document], which a retry can send again as it is. */
+    data class DocumentRead(val document: Document) : AgentEvent
 
     data class Failed(val reasons: List<String>) : AgentEvent
 

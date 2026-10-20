@@ -8,6 +8,7 @@ import io.github.sandeepvijayarao09.anu.core.agent.ToolResultStore
 import io.github.sandeepvijayarao09.anu.core.agent.TranscriptStore
 import io.github.sandeepvijayarao09.anu.core.model.ChatMessage
 import io.github.sandeepvijayarao09.anu.core.model.DataClass
+import io.github.sandeepvijayarao09.anu.core.model.Document
 import io.github.sandeepvijayarao09.anu.core.model.Photo
 import io.github.sandeepvijayarao09.anu.core.model.Screen
 import io.github.sandeepvijayarao09.anu.core.model.ToolCall
@@ -158,6 +159,16 @@ internal object MessageCodec {
                     put("atMillis", screen.atMillis)
                 }.toString()
             },
+            documentJson = message.document?.let { document ->
+                buildJsonObject {
+                    put("name", document.name)
+                    put("pages", document.pages)
+                    put("read", document.read)
+                    put("text", document.text)
+                    if (document.whole) put("whole", true)
+                    if (document.pictures) put("pictures", true)
+                }.toString()
+            },
         )
         is ChatMessage.Model -> MessageEntity(
             conversationId, seq, "model", message.text,
@@ -208,6 +219,17 @@ internal object MessageCodec {
             row.screenJson?.let { json ->
                 val screen = Json.parseToJsonElement(json).jsonObject
                 Screen(screen.getValue("app").jsonPrimitive.content, screen.getValue("atMillis").jsonPrimitive.long)
+            },
+            row.documentJson?.let { json ->
+                val document = Json.parseToJsonElement(json).jsonObject
+                Document(
+                    name = document.getValue("name").jsonPrimitive.content,
+                    pages = document.getValue("pages").jsonPrimitive.int,
+                    read = document.getValue("read").jsonPrimitive.int,
+                    text = document.getValue("text").jsonPrimitive.content,
+                    whole = document["whole"]?.jsonPrimitive?.boolean ?: false,
+                    pictures = document["pictures"]?.jsonPrimitive?.boolean ?: false,
+                )
             },
         )
         "model" -> ChatMessage.Model(

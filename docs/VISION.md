@@ -45,7 +45,7 @@ Most assistants either know nothing about you or send everything about you to a 
 - Sends, invites, deletes or shares without your explicit approval.
 - Shows a password, key or token to any AI model, or writes one into a log or into memory.
 - Uploads your profile or memory. The cloud receives only the minimum needed for one request, and only when you allow it.
-- Sends a photo you attach off the phone, even with your consent. The same goes for a voice note, and for the words written down from it.
+- Sends a photo you attach off the phone, even with your consent. The same goes for a voice note, for the words written down from it, and for a PDF and what was read from it.
 - Learns from anything you've excluded, such as a contact, a mail label or a topic.
 - Claims to be able to do something before it has been tested.
 - Pays for anything, or handles your card or payment details.
@@ -65,6 +65,7 @@ Most assistants either know nothing about you or send everything about you to a 
 - Phone controls: "set a timer for ten minutes", an alarm, the flashlight, Do Not Disturb or a Settings page, done at once with no model when that's all you ask, and through the model when it's part of something longer.
 - Device control: Anu acts only on the phone it runs on, through that system's own apps. It sets alarms and timers, keeps notes, saves contacts and changes settings, using Gemma 4 E2B on the phone. Notes are kept in Anu, encrypted, because neither Android nor iOS lets apps write the system's notes.
 - Photos: ask about up to four photos at once, picked, taken with the camera, or shared into Anu. Gemma reads it on the phone, and it's kept with its message in Anu's encrypted store only while Anu can still use it in the chat; after that, its place says it's no longer kept, and your original stays where it was.
+- PDFs: ask about a PDF you pick or share into Anu. Gemma reads it on the phone, a long one in parts for your question; only what it read is kept with the message, and the PDF itself never leaves the phone.
 - Voice notes: record one of up to 5 minutes, or share a recording into Anu. Gemma writes it down on the phone, and Anu proposes the events and other things it asks for, each approved. Only its words are kept; a shared recording is only summarized unless you ask for more, and memory never learns from it.
 - Voice: a Talk page with an orb that reacts to your voice, Anu as the phone's assistant over any app, and opt-in "Hey Anu" while the screen is on. Speech is recognized on the phone.
 - Questions about the screen: over any app, "what's this?" or a tap on "Use this screen" lets Anu read the screen on the phone, with codes and password fields blacked out first. It never reads the screen unless you ask, and the picture is never kept.

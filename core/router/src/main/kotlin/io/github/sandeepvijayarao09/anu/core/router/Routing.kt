@@ -47,6 +47,8 @@ data class RouteRequest(
     val hasVoiceNote: Boolean = false,
     /** A screen the user asked about is in the model's view. Screens never leave the phone (MEDIA-1, ADR-083). */
     val hasScreen: Boolean = false,
+    /** A PDF the user attached is in the model's view. PDFs and their text never leave the phone (MEDIA-1, ADR-095). */
+    val hasDocument: Boolean = false,
 ) {
     init {
         require(DataClass.SECRET !in dataClasses) { "Secrets never enter a model context (I1)" }

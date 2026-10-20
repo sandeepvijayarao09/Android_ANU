@@ -15,6 +15,8 @@ import io.github.sandeepvijayarao09.anu.core.model.ReplyWords
 import io.github.sandeepvijayarao09.anu.core.model.BrainId
 import io.github.sandeepvijayarao09.anu.core.model.BrainStatus
 import io.github.sandeepvijayarao09.anu.core.model.ChatMessage
+import io.github.sandeepvijayarao09.anu.core.model.Document
+import io.github.sandeepvijayarao09.anu.core.model.Pdf
 import io.github.sandeepvijayarao09.anu.core.model.Photo
 import io.github.sandeepvijayarao09.anu.core.model.Recording
 import io.github.sandeepvijayarao09.anu.core.model.VoiceNote
@@ -82,7 +84,17 @@ data class Bubble(
     val hearing: Boolean = false,
     /** The app whose screen the user asked about in this turn (EXP-2, ADR-083). Its picture is never kept here. */
     val screenApp: String? = null,
+    /** A PDF in the user's turn (ADR-095). */
+    val document: DocumentClip? = null,
+    /** An answer waiting while its turn's PDF is read: what the line says, such as "Reading Lease.pdf… page 7 of 20". */
+    val reading: String? = null,
 )
+
+/**
+ * A PDF as the thread shows it (ADR-095): its name and size, and once it's read, the [document] the turn kept, for a
+ * retry to send as it is. The PDF itself is never kept.
+ */
+data class DocumentClip(val name: String, val pages: Int, val document: Document? = null)
 
 /**
  * A voice note as the thread shows it (ADR-078): how long it is, and its [words], which grow while [writing]. The
@@ -146,6 +158,8 @@ data class ChatUiState(
     val attachments: List<ByteArray> = emptyList(),
     /** A voice note recorded or shared for the next message, not yet written down (G3, ADR-078). */
     val recording: Recording? = null,
+    /** A PDF picked or shared for the next message, read on the phone but not yet for a question (ADR-095). */
+    val pdf: Pdf? = null,
     /** How long the voice note being recorded has run, or null when none is. */
     val recordingSeconds: Int? = null,
     /** Why a photo or a recording couldn't be used, or what happened to it, such as "This photo can't be read." */
@@ -293,8 +307,29 @@ class ChatViewModel(
         state.copy(attachments = state.attachments.filterIndexed { i, _ -> i != index }, attachmentNote = state.attachmentNote.takeIf { it != FULL })
     }
 
-    /** How many more photos the next message can take. */
-    val photosLeft: Int get() = Photo.MAX_IN_VIEW - mutable.value.attachments.size
+    /** How many more photos the next message can take: a scanned PDF's pages count too (ADR-095). */
+    val photosLeft: Int get() = mutable.value.let { Photo.MAX_IN_VIEW - it.attachments.size - (it.pdf?.pictures?.size ?: 0) }
+
+    /**
+     * A PDF for the next message (ADR-095), in place of any before it. A scan's pages are pictures, so only as many
+     * as there's room for go, and the composer says when that's none. Adding one also warms the model.
+     */
+    fun attachPdf(pdf: Pdf) {
+        mutable.update { state ->
+            val room = Photo.MAX_IN_VIEW - state.attachments.size
+            when {
+                pdf.hasText -> state.copy(pdf = pdf, attachmentNote = null)
+                room <= 0 -> state.copy(attachmentNote = SCAN_NO_ROOM)
+                else -> state.copy(pdf = Pdf(pdf.name, pdf.pages, pdf.texts, pdf.pictures.take(room)), attachmentNote = null)
+            }
+        }
+        warm()
+    }
+
+    fun removePdf() = mutable.update { it.copy(pdf = null) }
+
+    /** A picked or shared PDF that can't be used, and why. */
+    fun pdfUnusable(note: String) = mutable.update { it.copy(attachmentNote = note) }
 
     /** The system camera couldn't be opened. */
     fun cameraUnavailable() = mutable.update { it.copy(attachmentNote = "No camera app on this phone can take a photo for Anu.") }
@@ -395,6 +430,7 @@ class ChatViewModel(
      */
     private fun restingNote(bubble: Bubble): String? = when {
         bubble.hearing -> WRITING_DOWN
+        bubble.reading != null -> bubble.reading
         bubble.streaming && bubble.guarded && bubble.tier == Tier.PRO && bubble.guard == Guard.HEAT -> SLOW_WHILE_WARM
         else -> null
     }
@@ -405,7 +441,8 @@ class ChatViewModel(
         val state = mutable.value
         val picked = state.attachments
         val voice = state.recording
-        if ((trimmed.isEmpty() && picked.isEmpty() && voice == null) || state.busy || state.recordingSeconds != null) return
+        val pdf = state.pdf
+        if ((trimmed.isEmpty() && picked.isEmpty() && voice == null && pdf == null) || state.busy || state.recordingSeconds != null) return
         speakTurn = spoken && !state.muted && speechOut != null
         spokenUpTo = 0
         val photos = picked.map { Photo(0, it) }
@@ -413,9 +450,11 @@ class ChatViewModel(
         val clip = voice?.let { VoiceClip(it.seconds, it.shared, it.interrupted, writing = true, recording = it) }
         // A question from the card about the screen below it: pointing words, or "Use this screen" (EXP-2, D13).
         val aboutScreen = screens != null && state.screenOffered && (state.useScreen || PointingWords.asks(trimmed))
-        add(Bubble(asked, fromUser = true, text = trimmed, photos = photos, voice = clip))
-        mutable.update { it.copy(attachments = emptyList(), recording = null, attachmentNote = null, useScreen = false) }
-        run(trimmed, photos = photos, recording = voice, asked = asked, aboutScreen = aboutScreen, replying = aboutScreen && ReplyWords.asks(trimmed))
+        // A scan's pages show with the user's photos, as the model sees them (ADR-095).
+        val shown = photos + pdf?.takeUnless { it.hasText }?.pictures.orEmpty().map { Photo(0, it) }
+        add(Bubble(asked, fromUser = true, text = trimmed, photos = shown, voice = clip, document = pdf?.let { DocumentClip(it.name, it.pages) }))
+        mutable.update { it.copy(attachments = emptyList(), recording = null, pdf = null, attachmentNote = null, useScreen = false) }
+        run(trimmed, photos = photos, recording = voice, pdf = pdf, asked = asked, aboutScreen = aboutScreen, replying = aboutScreen && ReplyWords.asks(trimmed))
     }
 
     /**
@@ -472,7 +511,8 @@ class ChatViewModel(
                 is ChatMessage.User -> {
                     asked = i
                     val voice = message.voiceNote?.let { VoiceClip(it.seconds, it.shared, it.interrupted, words = it.words) }
-                    out += Bubble(nextId++, fromUser = true, text = message.text, photos = message.photos, saved = true, voice = voice, screenApp = message.screen?.app)
+                    val document = message.document?.let { DocumentClip(it.name, it.pages, it) }
+                    out += Bubble(nextId++, fromUser = true, text = message.text, photos = message.photos, saved = true, voice = voice, screenApp = message.screen?.app, document = document)
                 }
                 is ChatMessage.Model -> if (message.toolCalls.isEmpty() && message.text.isNotEmpty()) {
                     val details = answers[asked]
@@ -562,7 +602,7 @@ class ChatViewModel(
         if (state.busy) return
         val answer = state.bubbles.lastOrNull()?.takeIf { !it.fromUser } ?: return
         val question = state.bubbles.lastOrNull { it.fromUser } ?: return
-        run(question.text, pinned = tier, replaces = answer, photos = question.photos, voiceNote = question.voice?.note, asked = question.id)
+        run(question.text, pinned = tier, replaces = answer, photos = question.photos, voiceNote = question.voice?.note, document = question.document?.document, asked = question.id)
     }
 
     /**
@@ -631,6 +671,8 @@ class ChatViewModel(
         photos: List<Photo> = emptyList(),
         recording: Recording? = null,
         voiceNote: VoiceNote? = null,
+        pdf: Pdf? = null,
+        document: Document? = null,
         asked: Long? = null,
         aboutScreen: Boolean = false,
         /** The question asks for a reply to the chat on the screen, so the answer becomes a draft (ADR-092). */
@@ -664,7 +706,7 @@ class ChatViewModel(
                 }
                 val events = sending?.let { session.sendReply(it.chatKey, it.chatTitle, it.text) } ?: session.send(
                     text, device(), pinned, cloudConsented, sharedFacts, replacingLast = replaces?.saved == true, photos = photos,
-                    recording = recording, voiceNote = voiceNote, screen = screen,
+                    recording = recording, voiceNote = voiceNote, screen = screen, pdf = pdf, document = document,
                 )
                 events.collect { reduce(id, text, it, replaces, asked) }
                 // The answer to "reply to this" is the reply: a draft to copy, or to send while its chat can be answered.
@@ -713,6 +755,14 @@ class ChatViewModel(
             is AgentEvent.Transcribed -> {
                 asked?.let { question -> edit(question) { it.copy(voice = it.voice?.copy(words = event.note.words, writing = false, recording = null)) } }
                 edit(id) { it.copy(hearing = false, note = if (it.waiting) it.note else null) }
+            }
+            is AgentEvent.ReadingDocument -> {
+                val line = "Reading ${event.name}… page ${event.page} of ${event.of}"
+                edit(id) { it.copy(reading = line, note = if (it.waiting) it.note else line) }
+            }
+            is AgentEvent.DocumentRead -> {
+                asked?.let { question -> edit(question) { it.copy(document = it.document?.copy(document = event.document)) } }
+                edit(id) { it.copy(reading = null, note = if (it.waiting || it.reading == null) it.note else null) }
             }
             is AgentEvent.Routed -> edit(id) {
                 val decision = event.decision
@@ -840,6 +890,7 @@ class ChatViewModel(
     private fun friendly(reasons: List<String>): String = when {
         reasons.any { it.startsWith("a photo is in view") } -> "Photos stay on this phone, so Gemini can't answer this."
         reasons.any { it.startsWith("a voice note is in view") } -> "Voice notes stay on this phone, so Gemini can't answer this."
+        reasons.any { it.startsWith("a PDF is in view") } -> "PDFs stay on this phone, so Gemini can't answer this."
         reasons.singleOrNull() in HEARING_REASONS -> reasons.single()
         reasons.any { it == "no model tier is available" } ->
             "No model is ready yet. Download one in Settings, or add a Gemini key there."
@@ -863,6 +914,9 @@ internal const val THINKING = "Thinking…"
 
 /** The line while a voice note is written down, before the model begins (G3, ADR-078). */
 internal const val WRITING_DOWN = "Writing down your voice note…"
+
+/** Why a scanned PDF wasn't added: its pages are pictures, and the message already has as many as Anu looks at. */
+internal const val SCAN_NO_ROOM = "This PDF has no text Anu can read, so its pages go as pictures. Remove a photo to add it."
 
 /** Why the composer took no more photos: one message shows the model at most so many (ADR-094). */
 internal const val FULL = "Anu can look at up to ${Photo.MAX_IN_VIEW} photos at once."

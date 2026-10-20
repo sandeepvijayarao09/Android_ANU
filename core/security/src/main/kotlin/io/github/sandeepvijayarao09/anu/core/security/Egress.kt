@@ -52,6 +52,8 @@ class EgressGate(private val ledger: PrivacyLedger, private val clock: () -> Ins
         require(request.transcript.none { it is ChatMessage.User && it.voiceNote != null }) { "Voice notes never leave the phone (MEDIA-1)" }
         // A screen the user asked about is theirs to show Anu, never to send (MEDIA-1, ADR-083).
         require(request.transcript.none { it is ChatMessage.User && it.screen != null }) { "Screens never leave the phone (MEDIA-1)" }
+        // A PDF the user attached, and the text read from it, stay too (MEDIA-1, ADR-095); redaction would drop them silently.
+        require(request.transcript.none { it is ChatMessage.User && it.document != null }) { "PDFs never leave the phone (MEDIA-1)" }
         val session = RedactionSession()
         val redacted = request.copy(
             system = request.system?.let(session::redact),

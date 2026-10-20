@@ -7,6 +7,7 @@ import io.github.sandeepvijayarao09.anu.core.agent.ApprovalCenter
 import io.github.sandeepvijayarao09.anu.core.agent.ChatSession
 import io.github.sandeepvijayarao09.anu.core.agent.InMemoryTranscriptStore
 import io.github.sandeepvijayarao09.anu.core.model.ChatMessage
+import io.github.sandeepvijayarao09.anu.core.model.modelText
 import io.github.sandeepvijayarao09.anu.core.model.Photo
 import io.github.sandeepvijayarao09.anu.core.model.BrainId
 import io.github.sandeepvijayarao09.anu.core.model.ScriptedBrain
@@ -182,6 +183,36 @@ class ChatViewModelTest {
         val seen = base.requests.single().transcript.last() as ChatMessage.User
         assertEquals(listOf<Byte>(1, 3, 4), seen.photos.map { it.bytes!!.single() })
         assertEquals(Photo.MAX_IN_VIEW, viewModel.photosLeft)
+    }
+
+    @Test
+    fun `a PDF goes with the next message, shows in your turn, and a retry sends what was read`() {
+        viewModel.attachPdf(io.github.sandeepvijayarao09.anu.core.model.Pdf("Menu.pdf", pages = 1, texts = listOf("Soup 6")))
+        base.enqueue(Step.Reply("Yes, soup for 6."))
+        viewModel.send("Is there soup?")
+        assertNull("the composer is clear again", viewModel.state.value.pdf)
+        val asked = bubbles.first()
+        assertEquals("Menu.pdf", asked.document!!.name)
+        val read = asked.document!!.document!!
+        assertTrue(read.whole)
+        assertTrue((base.requests.single().transcript.last() as ChatMessage.User).modelText.contains("Soup 6"))
+
+        base.enqueue(Step.Reply("Soup, 6."))
+        viewModel.retryWithPro()
+        assertEquals(read, (base.requests.last().transcript.last() as ChatMessage.User).document)
+    }
+
+    @Test
+    fun `a scanned PDF's pages count as photos, and with no room left it isn't added`() {
+        viewModel.attach(byteArrayOf(1), byteArrayOf(2), byteArrayOf(3))
+        viewModel.attachPdf(io.github.sandeepvijayarao09.anu.core.model.Pdf("Scan.pdf", pages = 6, pictures = listOf(byteArrayOf(7), byteArrayOf(8))))
+        assertEquals("only the room left", 1, viewModel.state.value.pdf!!.pictures.size)
+        assertEquals(0, viewModel.photosLeft)
+        viewModel.removePdf()
+        viewModel.attach(byteArrayOf(4))
+        viewModel.attachPdf(io.github.sandeepvijayarao09.anu.core.model.Pdf("Scan.pdf", pages = 6, pictures = listOf(byteArrayOf(7))))
+        assertNull(viewModel.state.value.pdf)
+        assertEquals(SCAN_NO_ROOM, viewModel.state.value.attachmentNote)
     }
 
     @Test

@@ -123,4 +123,19 @@ class MigrationTest {
             }
         }
     }
+
+    @Test
+    fun v10ToV11KeepsEverythingAndAddsDocuments() {
+        helper.createDatabase("migration-test-11", 10).use { db ->
+            db.execSQL("INSERT INTO messages (conversationId, seq, role, text, toolCallsJson, toolResultsJson, createdAtMillis, photosJson, voiceNoteJson, screenJson) VALUES ('main', 0, 'user', 'hello', NULL, NULL, 1, NULL, NULL, '{\"app\":\"Settings\",\"atMillis\":5}')")
+        }
+        helper.runMigrationsAndValidate("migration-test-11", 11, true).use { db ->
+            db.query("SELECT text, screenJson, documentJson FROM messages").use { c ->
+                c.moveToFirst()
+                assertEquals("hello", c.getString(0))
+                assertEquals("{\"app\":\"Settings\",\"atMillis\":5}", c.getString(1))
+                assertEquals(true, c.isNull(2))
+            }
+        }
+    }
 }

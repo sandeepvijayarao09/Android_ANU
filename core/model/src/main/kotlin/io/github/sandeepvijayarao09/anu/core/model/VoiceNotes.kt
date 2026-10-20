@@ -20,9 +20,17 @@ data class VoiceNote(
  * What a model reads for a user message: the words they typed, then the voice note's words, marked as a recording so
  * the model reads them as content, not as the user typing (P4). With no typed words, the note says what to do: for
  * the user's own note, propose what it asks for, each through a tool the user approves (EXP-3); for a shared one,
- * which can hold other people's words, only summarize it.
+ * which can hold other people's words, only summarize it. A PDF's text or notes come last, marked the same way (ADR-095).
  */
 val ChatMessage.User.modelText: String
+    get() {
+        val said = spokenText
+        val document = document ?: return said
+        val block = documentBlock(document, typed = text.isNotBlank() || voiceNote != null)
+        return if (said.isBlank()) block else "$said\n\n$block"
+    }
+
+private val ChatMessage.User.spokenText: String
     get() {
         val asked = screen?.let { shown ->
             // The picture goes with the words; the model is told what it is, and that it isn't the user writing (P4).

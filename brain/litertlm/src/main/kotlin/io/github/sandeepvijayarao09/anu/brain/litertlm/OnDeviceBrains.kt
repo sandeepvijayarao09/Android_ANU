@@ -7,6 +7,7 @@ import io.github.sandeepvijayarao09.anu.core.model.BrainId
 import io.github.sandeepvijayarao09.anu.core.model.BrainLocation
 import io.github.sandeepvijayarao09.anu.core.model.BrainRequest
 import io.github.sandeepvijayarao09.anu.core.model.BrainStatus
+import io.github.sandeepvijayarao09.anu.core.model.DocumentReader
 import io.github.sandeepvijayarao09.anu.core.model.PromptLab
 import io.github.sandeepvijayarao09.anu.core.model.Recording
 import io.github.sandeepvijayarao09.anu.core.model.Speed
@@ -34,7 +35,7 @@ class OnDeviceBrains(
     private val maxNumTokens: Int = 4_096,
     /** Keeps the runtime's counters and is told each turn's speed, for the debug log (§15). Numbers only. */
     private val onTurn: ((BrainId, TurnSpeed) -> Unit)? = null,
-) : Transcriber, PromptLab {
+) : Transcriber, PromptLab, DocumentReader {
 
     /** The loaded model. [vision] says its engine has the vision encoder, which photos need (ADR-075). */
     private class Slot(val id: BrainId, val holder: EngineHolder, val brain: LiteRtLmBrain, val vision: Boolean)
@@ -122,6 +123,9 @@ class OnDeviceBrains(
 
     override fun available(): Boolean = hearing() != null
 
+    /** Whether a model on this phone can read a PDF's pieces (ADR-095): any installed one. */
+    override fun canRead(): Boolean = reading() != null
+
     /**
      * Writes [recording] down (G3, ADR-078) with the model already loaded if it can hear, else Pro, else Base, so a
      * voice note rarely switches models. It runs under the residency lock, like a turn, in conversations of its own
@@ -154,6 +158,19 @@ class OnDeviceBrains(
         require(id == BrainId.BASE || id == BrainId.PRO) { "the lab runs only the models on this phone" }
         residency.withLock { emitAll(loaded(id).once(request)) }
     }
+
+    /**
+     * One piece of a PDF (ADR-095), with the model already loaded, else Pro, else Base, so reading rarely switches models.
+     * It runs under the residency lock, like a turn, in a conversation of its own beside the chat's, which stays cached.
+     */
+    override fun read(request: BrainRequest): Flow<BrainEvent> = flow {
+        residency.withLock {
+            val id = reading() ?: error("No model on this phone can read")
+            emitAll(loaded(id).once(request))
+        }
+    }
+
+    private fun reading(): BrainId? = listOfNotNull(slot?.id, BrainId.PRO, BrainId.BASE).firstOrNull { models.installedFile(it) != null }
 
     /** The model that writes recordings down: the loaded one if it can hear, else Pro, else Base. */
     private fun hearing(): BrainId? =

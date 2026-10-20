@@ -6,6 +6,8 @@ import io.github.sandeepvijayarao09.anu.core.agent.ActionRecord
 import io.github.sandeepvijayarao09.anu.core.agent.AnswerDetails
 import io.github.sandeepvijayarao09.anu.core.model.ChatMessage
 import io.github.sandeepvijayarao09.anu.core.model.DataClass
+import io.github.sandeepvijayarao09.anu.core.model.Document
+import io.github.sandeepvijayarao09.anu.core.model.Photo
 import io.github.sandeepvijayarao09.anu.core.model.ToolCall
 import io.github.sandeepvijayarao09.anu.core.model.ToolResult
 import io.github.sandeepvijayarao09.anu.core.model.UntrustedContent
@@ -70,6 +72,16 @@ class RoomStoresTest {
         val store = RoomTranscriptStore(db.transcripts(), "main")
         store.append(transcript)
         assertEquals(transcript, store.load())
+    }
+
+    @Test
+    fun `a message's PDF round-trips as its name, size and text, and a scan's as pictures`() = runBlocking {
+        val store = RoomTranscriptStore(db.transcripts(), "main")
+        val notes = ChatMessage.User("Rent?", document = Document("Lease.pdf", pages = 54, read = 20, text = "Page 3: Rent is \$1,850.", whole = false))
+        val whole = ChatMessage.User("", document = Document("Menu.pdf", pages = 1, read = 1, text = "Soup 6", whole = true))
+        val scan = ChatMessage.User("What is this?", listOf(Photo(4), Photo(5)), document = Document("Scan.pdf", pages = 6, read = 2, text = "", whole = false, pictures = true))
+        store.append(listOf(notes, ChatMessage.Model("\$1,850."), whole, ChatMessage.Model("Soup."), scan))
+        assertEquals(listOf(notes, whole, scan), store.load().filterIsInstance<ChatMessage.User>())
     }
 
     @Test

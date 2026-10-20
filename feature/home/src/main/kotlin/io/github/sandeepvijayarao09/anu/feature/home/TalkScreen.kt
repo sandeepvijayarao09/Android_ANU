@@ -2,6 +2,7 @@ package io.github.sandeepvijayarao09.anu.feature.home
 
 import androidx.compose.ui.semantics.selected
 import io.github.sandeepvijayarao09.anu.core.ui.AnuPill
+import io.github.sandeepvijayarao09.anu.core.model.Pdf
 import io.github.sandeepvijayarao09.anu.core.model.Photo
 import io.github.sandeepvijayarao09.anu.core.model.Recording
 import io.github.sandeepvijayarao09.anu.core.model.clock
@@ -147,6 +148,18 @@ fun TalkScreen(
             }
         }
     }
+    // The system file picker: Anu reads only the PDF chosen, on the phone, and keeps none of it until it's sent (ADR-095).
+    val openPdf = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            scope.launch {
+                when (val read = withContext(Dispatchers.IO) { readPdf(context, uri, viewModel.photosLeft) }) {
+                    is PdfRead.Ready -> viewModel.attachPdf(read.pdf)
+                    PdfRead.Locked -> viewModel.pdfUnusable(PDF_LOCKED)
+                    PdfRead.Unreadable -> viewModel.pdfUnusable(PDF_UNREADABLE)
+                }
+            }
+        }
+    }
     // The system camera writes one photo to Anu's cache, which is read like a picked one and deleted (ADR-094).
     val shot = remember(context) { CameraShot(context) }
     val camera = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { taken ->
@@ -219,6 +232,8 @@ fun TalkScreen(
                     onRemoveAttachment = viewModel::removeAttachment,
                     recording = state.recording,
                     onRemoveRecording = viewModel::removeRecording,
+                    pdf = state.pdf,
+                    onRemovePdf = viewModel::removePdf,
                 )
             }
         }
@@ -229,6 +244,7 @@ fun TalkScreen(
             photosLeft = viewModel.photosLeft,
             onPhoto = { pick.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
             onCamera = { runCatching { camera.launch(shot.target()) }.onFailure { viewModel.cameraUnavailable() } },
+            onPdf = { openPdf.launch(arrayOf("application/pdf")) },
             onVoiceNote = { if (micGranted) viewModel.startRecording() else onRequestMic(viewModel::startRecording) },
             onDismiss = { adding = false },
         )
@@ -357,6 +373,7 @@ private fun YourTurn(bubble: Bubble, loadPhoto: suspend (Long) -> ByteArray?) {
     // Your photo sits in your turn, above your words (design review 3A).
     Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(6.dp)) {
         PhotosView(bubble.photos, loadPhoto)
+        bubble.document?.let { clip -> PdfPill(clip.name, clip.pages) }
         bubble.voice?.let { clip -> VoiceClipView(clip) }
         // A question about the screen keeps only which app it was; the picture is never kept (ADR-083).
         bubble.screenApp?.let { app ->
@@ -589,8 +606,8 @@ internal fun voiceLabel(clip: VoiceClip): String =
     listOfNotNull(if (clip.shared) "Shared recording" else "Voice note", clock(clip.seconds), "Stopped early".takeIf { clip.interrupted }).joinToString(" · ")
 
 /**
- * What the "+" adds (design review D9, ADR-078, ADR-094): photos from the system picker or one from the camera, up to
- * [Photo.MAX_IN_VIEW] in all, or a voice note, which needs a model that can hear.
+ * What the "+" adds (design review D9, ADR-078, ADR-094, ADR-095): photos from the system picker or one from the camera,
+ * up to [Photo.MAX_IN_VIEW] in all, a PDF from the system file picker, or a voice note, which needs a model that can hear.
  */
 @Composable
 internal fun AddSheet(
@@ -600,6 +617,7 @@ internal fun AddSheet(
     onDismiss: () -> Unit,
     photosLeft: Int = Photo.MAX_IN_VIEW,
     onCamera: () -> Unit = {},
+    onPdf: () -> Unit = {},
 ) {
     val room = photosLeft > 0
     AnuSheet(onDismiss) { close ->
@@ -618,6 +636,7 @@ internal fun AddSheet(
                 onClick = { close(); onPhoto() },
             )
             GroupRow("Camera", subtitle = "Take a photo now", icon = AnuIcons.Camera, enabled = room, onClick = { close(); onCamera() })
+            GroupRow("PDF", subtitle = "Choose one from your files, and Anu reads it on this phone", icon = AnuIcons.Note, onClick = { close(); onPdf() })
             GroupRow(
                 "Voice note",
                 subtitle = if (canHear) "Record it, and Anu writes it down on this phone" else "Needs Gemma 4 on this phone",
@@ -685,8 +704,20 @@ private fun Composer(
     onRemoveAttachment: (Int) -> Unit = {},
     recording: Recording? = null,
     onRemoveRecording: () -> Unit = {},
+    pdf: Pdf? = null,
+    onRemovePdf: () -> Unit = {},
 ) {
     val colors = AnuTheme.colors
+    // The PDF to send, above the composer, as a voice note waits (ADR-095).
+    pdf?.let { document ->
+        Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 16.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            PdfPill(document.name, document.pages, Modifier.weight(1f, fill = false))
+            Box(
+                Modifier.size(48.dp).clickable(onClickLabel = "Remove PDF", onClick = onRemovePdf),
+                contentAlignment = Alignment.Center,
+            ) { Icon(AnuIcons.Close, contentDescription = "Remove PDF", Modifier.size(18.dp), tint = colors.textMuted) }
+        }
+    }
     // The voice note to send, above the composer, with a way to take it back (ADR-078).
     recording?.let { voice ->
         val label = voiceLabel(VoiceClip(voice.seconds, voice.shared, voice.interrupted))
@@ -731,11 +762,11 @@ private fun Composer(
         Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 10.dp).heightIn(min = 52.dp).anuCard(AnuShapes.xl).padding(start = 4.dp, end = 5.dp, top = 5.dp, bottom = 5.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        // Adds a photo or a voice note (design review D9, ADR-078).
+        // Adds photos, a PDF or a voice note (design review D9, ADR-078, ADR-094, ADR-095).
         Box(
-            Modifier.size(48.dp).clip(AnuShapes.full).clickable(enabled = !busy, onClickLabel = "Add a photo or a voice note", onClick = onAttach),
+            Modifier.size(48.dp).clip(AnuShapes.full).clickable(enabled = !busy, onClickLabel = "Add photos, a PDF or a voice note", onClick = onAttach),
             contentAlignment = Alignment.Center,
-        ) { Icon(AnuIcons.Plus, contentDescription = "Add a photo or a voice note", Modifier.size(22.dp), tint = if (busy) colors.textFaint else colors.textMuted) }
+        ) { Icon(AnuIcons.Plus, contentDescription = "Add photos, a PDF or a voice note", Modifier.size(22.dp), tint = if (busy) colors.textFaint else colors.textMuted) }
         BasicTextField(
             value = value,
             onValueChange = onValueChange,
@@ -752,7 +783,7 @@ private fun Composer(
         )
         val (icon, label, action) = when {
             busy -> Triple(AnuIcons.Stop, "Stop", onStop)
-            value.isBlank() && attachments.isEmpty() && recording == null -> Triple(AnuIcons.Mic, "Talk", onTalk)
+            value.isBlank() && attachments.isEmpty() && recording == null && pdf == null -> Triple(AnuIcons.Mic, "Talk", onTalk)
             else -> Triple(AnuIcons.ArrowUp, "Send", onSend)
         }
         Box(

@@ -7,14 +7,15 @@ import kotlinx.serialization.json.JsonObject
 sealed interface ChatMessage {
     /**
      * The user's message, with any [photos] they attached (G2, ADR-075), any [voiceNote], a recording written down on
-     * the phone (G3, EXP-3, ADR-078), and any [screen] it asked about (EXP-2, ADR-083). None ever leaves the phone
-     * (MEDIA-1). Models read [modelText].
+     * the phone (G3, EXP-3, ADR-078), any [screen] it asked about (EXP-2, ADR-083), and any [document], a PDF read on
+     * the phone (ADR-095). None ever leaves the phone (MEDIA-1). Models read [modelText].
      */
     data class User(
         val text: String,
         val photos: List<Photo> = emptyList(),
         val voiceNote: VoiceNote? = null,
         val screen: Screen? = null,
+        val document: Document? = null,
     ) : ChatMessage
 
     data class Model(val text: String, val toolCalls: List<ToolCall> = emptyList()) : ChatMessage

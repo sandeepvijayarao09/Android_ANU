@@ -345,7 +345,7 @@ class ToolBroker(
 
     companion object {
         /** Content the user chose to show, which can still hold other people's words. */
-        private val MEDIA = setOf(UntrustedContent.PHOTO, UntrustedContent.RECORDING, UntrustedContent.SCREEN)
+        private val MEDIA = setOf(UntrustedContent.PHOTO, UntrustedContent.RECORDING, UntrustedContent.SCREEN, UntrustedContent.DOCUMENT)
 
         /** The audit's outcome for a call that ran with the user's own changes. */
         const val OK_EDITED = "ok, edited by you"
@@ -363,6 +363,7 @@ class ToolBroker(
                     UntrustedContent.PHOTO -> "a photo"
                     UntrustedContent.RECORDING -> "a recording"
                     UntrustedContent.SCREEN -> "your screen"
+                    UntrustedContent.DOCUMENT -> "a PDF"
                 }
             }
             val listed = if (names.size == 1) names.single() else names.dropLast(1).joinToString(", ") + " and " + names.last()
