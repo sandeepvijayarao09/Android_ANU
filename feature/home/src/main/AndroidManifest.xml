@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application>
+        <!--
+            "+" → Camera (ADR-094): the system camera app writes one photo here, granted for that capture only. Anu
+            reads it to its own size and deletes it. Nothing else is shared, and no camera permission is needed.
+        -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.camera"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/anu_camera_paths" />
+        </provider>
+    </application>
+</manifest>

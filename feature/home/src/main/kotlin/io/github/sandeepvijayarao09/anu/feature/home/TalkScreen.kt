@@ -2,6 +2,7 @@ package io.github.sandeepvijayarao09.anu.feature.home
 
 import androidx.compose.ui.semantics.selected
 import io.github.sandeepvijayarao09.anu.core.ui.AnuPill
+import io.github.sandeepvijayarao09.anu.core.model.Photo
 import io.github.sandeepvijayarao09.anu.core.model.Recording
 import io.github.sandeepvijayarao09.anu.core.model.clock
 import io.github.sandeepvijayarao09.anu.core.ui.AnuSheet
@@ -62,15 +63,12 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.foundation.Image
+import androidx.compose.foundation.border
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
-import android.graphics.BitmapFactory
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -137,15 +135,24 @@ fun TalkScreen(
     val typing = remember { FocusRequester() }
     val talk = { if (micGranted) viewModel.toggleListening() else onRequestMic(viewModel::toggleListening) }
     val list = rememberLazyListState()
-    // The system photo picker: Anu sees only the photo chosen, and keeps a smaller copy (G2, ADR-075).
+    // The system photo picker: Anu sees only the photos chosen, and keeps smaller copies (G2, ADR-075, ADR-094).
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val pick = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
-        if (uri != null) {
+    val pick = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(Photo.MAX_IN_VIEW)) { uris ->
+        if (uris.isNotEmpty()) {
             scope.launch {
-                val jpeg = withContext(Dispatchers.IO) { readPhoto(context.contentResolver, uri) }
-                if (jpeg != null) viewModel.attach(jpeg) else viewModel.photoUnreadable()
+                val read = withContext(Dispatchers.IO) { uris.map { readPhoto(context.contentResolver, it) } }
+                viewModel.attach(*read.filterNotNull().toTypedArray())
+                if (null in read) viewModel.photoUnreadable()
             }
+        }
+    }
+    // The system camera writes one photo to Anu's cache, which is read like a picked one and deleted (ADR-094).
+    val shot = remember(context) { CameraShot(context) }
+    val camera = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { taken ->
+        scope.launch {
+            val jpeg = withContext(Dispatchers.IO) { shot.take(taken) }
+            if (jpeg != null) viewModel.attach(jpeg) else if (taken) viewModel.photoUnreadable()
         }
     }
     // A hairline under the app bar once the thread scrolls beneath it.
@@ -207,7 +214,7 @@ fun TalkScreen(
                     onStop = viewModel::stop,
                     onTalk = talk,
                     focus = typing,
-                    attachment = state.attachment,
+                    attachments = state.attachments,
                     onAttach = { adding = true },
                     onRemoveAttachment = viewModel::removeAttachment,
                     recording = state.recording,
@@ -219,7 +226,9 @@ fun TalkScreen(
     if (adding) {
         AddSheet(
             canHear = viewModel.canHear(),
+            photosLeft = viewModel.photosLeft,
             onPhoto = { pick.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+            onCamera = { runCatching { camera.launch(shot.target()) }.onFailure { viewModel.cameraUnavailable() } },
             onVoiceNote = { if (micGranted) viewModel.startRecording() else onRequestMic(viewModel::startRecording) },
             onDismiss = { adding = false },
         )
@@ -347,7 +356,7 @@ private fun YourTurn(bubble: Bubble, loadPhoto: suspend (Long) -> ByteArray?) {
     val colors = AnuTheme.colors
     // Your photo sits in your turn, above your words (design review 3A).
     Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        bubble.photos.forEach { photo -> PhotoView(photo, loadPhoto) }
+        PhotosView(bubble.photos, loadPhoto)
         bubble.voice?.let { clip -> VoiceClipView(clip) }
         // A question about the screen keeps only which app it was; the picture is never kept (ADR-083).
         bubble.screenApp?.let { app ->
@@ -580,15 +589,35 @@ internal fun voiceLabel(clip: VoiceClip): String =
     listOfNotNull(if (clip.shared) "Shared recording" else "Voice note", clock(clip.seconds), "Stopped early".takeIf { clip.interrupted }).joinToString(" · ")
 
 /**
- * What the "+" adds (design review D9, ADR-078): a photo from the system picker, or a voice note, which needs a model
- * that can hear.
+ * What the "+" adds (design review D9, ADR-078, ADR-094): photos from the system picker or one from the camera, up to
+ * [Photo.MAX_IN_VIEW] in all, or a voice note, which needs a model that can hear.
  */
 @Composable
-internal fun AddSheet(canHear: Boolean, onPhoto: () -> Unit, onVoiceNote: () -> Unit, onDismiss: () -> Unit) {
+internal fun AddSheet(
+    canHear: Boolean,
+    onPhoto: () -> Unit,
+    onVoiceNote: () -> Unit,
+    onDismiss: () -> Unit,
+    photosLeft: Int = Photo.MAX_IN_VIEW,
+    onCamera: () -> Unit = {},
+) {
+    val room = photosLeft > 0
     AnuSheet(onDismiss) { close ->
         SheetTitle("Add to your message")
         DetailPanel(Modifier.padding(top = 14.dp)) {
-            GroupRow("Photo", subtitle = "Choose one from your photos", icon = AnuIcons.Photo, onClick = { close(); onPhoto() })
+            GroupRow(
+                "Photo",
+                subtitle = when {
+                    !room -> "${Photo.MAX_IN_VIEW} photos added, the most at once"
+                    photosLeft == Photo.MAX_IN_VIEW -> "Choose up to ${Photo.MAX_IN_VIEW} from your photos"
+                    photosLeft == 1 -> "Choose 1 more from your photos"
+                    else -> "Choose up to $photosLeft more from your photos"
+                },
+                icon = AnuIcons.Photo,
+                enabled = room,
+                onClick = { close(); onPhoto() },
+            )
+            GroupRow("Camera", subtitle = "Take a photo now", icon = AnuIcons.Camera, enabled = room, onClick = { close(); onCamera() })
             GroupRow(
                 "Voice note",
                 subtitle = if (canHear) "Record it, and Anu writes it down on this phone" else "Needs Gemma 4 on this phone",
@@ -651,9 +680,9 @@ private fun Composer(
     onStop: () -> Unit,
     onTalk: () -> Unit,
     focus: FocusRequester,
-    attachment: ByteArray? = null,
+    attachments: List<ByteArray> = emptyList(),
     onAttach: () -> Unit = {},
-    onRemoveAttachment: () -> Unit = {},
+    onRemoveAttachment: (Int) -> Unit = {},
     recording: Recording? = null,
     onRemoveRecording: () -> Unit = {},
 ) {
@@ -676,17 +705,26 @@ private fun Composer(
             ) { Icon(AnuIcons.Close, contentDescription = "Remove voice note", Modifier.size(18.dp), tint = colors.textMuted) }
         }
     }
-    // The photo to send, above the composer, with a way to take it back.
-    attachment?.let { jpeg ->
-        val image = remember(jpeg) { BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size)?.asImageBitmap() }
-        Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 16.dp, top = 8.dp), verticalAlignment = Alignment.Top) {
-            image?.let {
-                Image(it, contentDescription = "Photo to send", Modifier.size(64.dp).clip(AnuShapes.md), contentScale = ContentScale.Crop)
+    // The photos to send, above the composer, each with a way to take it back (ADR-094).
+    if (attachments.isNotEmpty()) {
+        Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 16.dp, top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            attachments.forEachIndexed { index, jpeg ->
+                val name = if (attachments.size == 1) "photo" else "photo ${index + 1}"
+                Box(Modifier.size(64.dp)) {
+                    Thumbnail(jpeg, 64.dp, "${name.replaceFirstChar { it.uppercase() }} to send")
+                    // A 48dp target in the thumbnail's corner, around a small badge.
+                    Box(
+                        Modifier.align(Alignment.TopEnd).size(48.dp).clickable(onClickLabel = "Remove $name") { onRemoveAttachment(index) }
+                            .semantics { contentDescription = "Remove $name" },
+                        contentAlignment = Alignment.TopEnd,
+                    ) {
+                        Box(
+                            Modifier.padding(4.dp).size(22.dp).clip(AnuShapes.full).background(colors.surface).border(0.5.dp, colors.separator, AnuShapes.full),
+                            contentAlignment = Alignment.Center,
+                        ) { Icon(AnuIcons.Close, contentDescription = null, Modifier.size(12.dp), tint = colors.text) }
+                    }
+                }
             }
-            Box(
-                Modifier.size(48.dp).clickable(onClickLabel = "Remove photo", onClick = onRemoveAttachment),
-                contentAlignment = Alignment.Center,
-            ) { Icon(AnuIcons.Close, contentDescription = "Remove photo", Modifier.size(18.dp), tint = colors.textMuted) }
         }
     }
     Row(
@@ -714,7 +752,7 @@ private fun Composer(
         )
         val (icon, label, action) = when {
             busy -> Triple(AnuIcons.Stop, "Stop", onStop)
-            value.isBlank() && attachment == null && recording == null -> Triple(AnuIcons.Mic, "Talk", onTalk)
+            value.isBlank() && attachments.isEmpty() && recording == null -> Triple(AnuIcons.Mic, "Talk", onTalk)
             else -> Triple(AnuIcons.ArrowUp, "Send", onSend)
         }
         Box(

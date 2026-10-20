@@ -47,12 +47,18 @@
             <!--
                 A photo or a recording shared into Anu opens Talk with it attached (G2, ADR-075; G3, ADR-078). Only
                 that item is read. A recording is someone else's words: summarized unless the user asks for more.
+                Several photos can be shared at once, as many as one message takes (ADR-094).
             -->
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:mimeType="image/*" />
                 <data android:mimeType="audio/*" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="image/*" />
             </intent-filter>
         </activity>
 

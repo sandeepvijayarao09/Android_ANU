@@ -142,8 +142,8 @@ data class ChatUiState(
     val consentFacts: List<String> = emptyList(),
     /** Whether Gemini could be asked right now, for the choices under a guarded answer (design review D21). */
     val cloudAllowed: Boolean = false,
-    /** A photo picked for the next message, as a JPEG (G2, ADR-075). */
-    val attachment: ByteArray? = null,
+    /** Photos picked or taken for the next message, as JPEGs in the order added, at most [Photo.MAX_IN_VIEW] (ADR-094). */
+    val attachments: List<ByteArray> = emptyList(),
     /** A voice note recorded or shared for the next message, not yet written down (G3, ADR-078). */
     val recording: Recording? = null,
     /** How long the voice note being recorded has run, or null when none is. */
@@ -272,13 +272,32 @@ class ChatViewModel(
     /** The user started typing: the model can load while they write (EXP-1). */
     fun typingStarted() = warm()
 
-    /** A photo for the next message (G2). Picking one also warms the model, which reads it on the phone. */
-    fun attach(jpeg: ByteArray) {
-        mutable.update { it.copy(attachment = jpeg, attachmentNote = null) }
+    /**
+     * Photos for the next message (G2, ADR-094), added after any already there. Adding one also warms the model, which
+     * reads them on the phone. Past [Photo.MAX_IN_VIEW] the rest are left out, and the composer says so.
+     */
+    fun attach(vararg jpegs: ByteArray) {
+        if (jpegs.isEmpty()) return
+        mutable.update { state ->
+            val room = Photo.MAX_IN_VIEW - state.attachments.size
+            state.copy(
+                attachments = state.attachments + jpegs.take(room.coerceAtLeast(0)),
+                attachmentNote = if (jpegs.size > room) FULL else null,
+            )
+        }
         warm()
     }
 
-    fun removeAttachment() = mutable.update { it.copy(attachment = null) }
+    /** Takes back the photo at [index] in the composer. */
+    fun removeAttachment(index: Int) = mutable.update { state ->
+        state.copy(attachments = state.attachments.filterIndexed { i, _ -> i != index }, attachmentNote = state.attachmentNote.takeIf { it != FULL })
+    }
+
+    /** How many more photos the next message can take. */
+    val photosLeft: Int get() = Photo.MAX_IN_VIEW - mutable.value.attachments.size
+
+    /** The system camera couldn't be opened. */
+    fun cameraUnavailable() = mutable.update { it.copy(attachmentNote = "No camera app on this phone can take a photo for Anu.") }
 
     /** "Use this screen": the next question goes with the screen under the card, whatever its words (design review D13). */
     fun toggleUseScreen() = mutable.update { it.copy(useScreen = !it.useScreen) }
@@ -384,18 +403,18 @@ class ChatViewModel(
     fun send(text: String, spoken: Boolean = false) {
         val trimmed = text.trim()
         val state = mutable.value
-        val photo = state.attachment
+        val picked = state.attachments
         val voice = state.recording
-        if ((trimmed.isEmpty() && photo == null && voice == null) || state.busy || state.recordingSeconds != null) return
+        if ((trimmed.isEmpty() && picked.isEmpty() && voice == null) || state.busy || state.recordingSeconds != null) return
         speakTurn = spoken && !state.muted && speechOut != null
         spokenUpTo = 0
-        val photos = listOfNotNull(photo?.let { Photo(0, it) })
+        val photos = picked.map { Photo(0, it) }
         val asked = nextId++
         val clip = voice?.let { VoiceClip(it.seconds, it.shared, it.interrupted, writing = true, recording = it) }
         // A question from the card about the screen below it: pointing words, or "Use this screen" (EXP-2, D13).
         val aboutScreen = screens != null && state.screenOffered && (state.useScreen || PointingWords.asks(trimmed))
         add(Bubble(asked, fromUser = true, text = trimmed, photos = photos, voice = clip))
-        mutable.update { it.copy(attachment = null, recording = null, attachmentNote = null, useScreen = false) }
+        mutable.update { it.copy(attachments = emptyList(), recording = null, attachmentNote = null, useScreen = false) }
         run(trimmed, photos = photos, recording = voice, asked = asked, aboutScreen = aboutScreen, replying = aboutScreen && ReplyWords.asks(trimmed))
     }
 
@@ -844,6 +863,9 @@ internal const val THINKING = "Thinking…"
 
 /** The line while a voice note is written down, before the model begins (G3, ADR-078). */
 internal const val WRITING_DOWN = "Writing down your voice note…"
+
+/** Why the composer took no more photos: one message shows the model at most so many (ADR-094). */
+internal const val FULL = "Anu can look at up to ${Photo.MAX_IN_VIEW} photos at once."
 
 /** The longest voice note Anu records or takes from another app: about 7,500 tokens of audio, in 30-second pieces (ADR-078). */
 const val VOICE_NOTE_SECONDS = 300

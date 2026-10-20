@@ -2,6 +2,7 @@ package io.github.sandeepvijayarao09.anu.core.agent
 
 import io.github.sandeepvijayarao09.anu.core.model.BrainRequest
 import io.github.sandeepvijayarao09.anu.core.model.ChatMessage
+import io.github.sandeepvijayarao09.anu.core.model.Photo
 import io.github.sandeepvijayarao09.anu.core.model.ToolSpec
 import io.github.sandeepvijayarao09.anu.core.model.modelText
 import io.github.sandeepvijayarao09.anu.core.model.onDeviceSystem
@@ -85,6 +86,23 @@ class ContextWindow(
         if (size(current) <= budget) return current
         val target = budget * refill
         return starts.firstOrNull { it > current && size(it) <= target } ?: history.size
+    }
+
+    /**
+     * Where the view of [history] must start so the model sees at most [max] pictures, counting the [adding] ones
+     * the new message brings (ADR-094): the engine is loaded for no more. Like [start], it moves only forward, from
+     * [from], and only by whole exchanges. Saved messages count their photos by id; a saved screen keeps no picture.
+     */
+    fun fitPictures(history: List<ChatMessage>, from: Int, adding: Int, max: Int = Photo.MAX_IN_VIEW): Int {
+        val start = from.coerceIn(0, history.size)
+        var inView = adding + history.subList(start, history.size).sumOf { (it as? ChatMessage.User)?.photos?.size ?: 0 }
+        if (inView <= max) return start
+        for (i in start until history.size) {
+            inView -= (history[i] as? ChatMessage.User)?.photos?.size ?: 0
+            val next = i + 1
+            if (inView <= max && (next == history.size || history[next] is ChatMessage.User)) return next
+        }
+        return history.size
     }
 }
 

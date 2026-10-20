@@ -1,6 +1,6 @@
 # Anu for Android: Product Vision
 
-Version 0.4 · Draft · 2026-10-06 (scope decisions recorded in ARCHITECTURE §16 and §17)
+Version 0.5 · Draft · 2026-10-20 (scope decisions recorded in ARCHITECTURE §16 and §17)
 Companion to [ARCHITECTURE.md](ARCHITECTURE.md), which says how this is built.
 
 ## In one sentence
@@ -34,7 +34,7 @@ Most assistants either know nothing about you or send everything about you to a 
 - "What's my day?" A short brief covers meetings with context, emails that need you, and anything you promised to do.
 - You select text in any app, tap **Anu → More formal**, and the rewrite replaces your selection.
 - Over a long email in any app, you hold the power button and ask "what's this about?". Anu says "Reading Gmail", reads the screen on the phone, and answers. It never looks unless you ask.
-- You tap **+** and pick a photo of a sign, or share one into Anu from your gallery, and ask what it says. Gemma reads it on the phone; the photo never goes to the cloud.
+- You tap **+** and pick a photo of a sign, take one with the camera, or share one into Anu from your gallery, and ask what it says. You can add up to four and ask which receipt is bigger. Gemma reads it on the phone; the photo never goes to the cloud.
 - Walking to the car, you tap **+ → Voice note** and say "Call Maya on Thursday morning, and add oat milk to the groceries list." Gemma writes it down on the phone, and Anu proposes the Thursday call as an event for you to approve and lists the oat milk. The recording itself is never kept.
 - A group chat has 40 unread messages. Anu summarizes it from the notification and suggests a reply. It sends only when you tap to approve.
 - You say "Remember I'm vegetarian," or Anu notices a pattern on its own. Either way it lands in your profile with its source, and you can edit it in the Memory screen.
@@ -64,7 +64,7 @@ Most assistants either know nothing about you or send everything about you to a 
   - full SMS history, in the personal build only.
 - Phone controls: "set a timer for ten minutes", an alarm, the flashlight, Do Not Disturb or a Settings page, done at once with no model when that's all you ask, and through the model when it's part of something longer.
 - Device control: Anu acts only on the phone it runs on, through that system's own apps. It sets alarms and timers, keeps notes, saves contacts and changes settings, using Gemma 4 E2B on the phone. Notes are kept in Anu, encrypted, because neither Android nor iOS lets apps write the system's notes.
-- Photos: ask about a photo you pick or share into Anu. Gemma reads it on the phone, and it's kept with its message in Anu's encrypted store only while Anu can still use it in the chat; after that, its place says it's no longer kept, and your original stays where it was.
+- Photos: ask about up to four photos at once, picked, taken with the camera, or shared into Anu. Gemma reads it on the phone, and it's kept with its message in Anu's encrypted store only while Anu can still use it in the chat; after that, its place says it's no longer kept, and your original stays where it was.
 - Voice notes: record one of up to 5 minutes, or share a recording into Anu. Gemma writes it down on the phone, and Anu proposes the events and other things it asks for, each approved. Only its words are kept; a shared recording is only summarized unless you ask for more, and memory never learns from it.
 - Voice: a Talk page with an orb that reacts to your voice, Anu as the phone's assistant over any app, and opt-in "Hey Anu" while the screen is on. Speech is recognized on the phone.
 - Questions about the screen: over any app, "what's this?" or a tap on "Use this screen" lets Anu read the screen on the phone, with codes and password fields blacked out first. It never reads the screen unless you ask, and the picture is never kept.

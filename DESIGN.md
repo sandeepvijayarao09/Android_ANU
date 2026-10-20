@@ -159,7 +159,7 @@ components:
 - A pearl sphere resting on a quiet gray page. It's the only object on screen, and it has depth.
 - "On device" with a green dot in the corner, before you've asked anything.
 - Large, confident type: "Good afternoon".
-- One composer, one microphone, and a "+" to add a photo or a voice note. There's nothing to learn.
+- One composer, one microphone, and a "+" to add photos or a voice note. There's nothing to learn.
 
 ## Colors
 
@@ -210,7 +210,7 @@ Adjacent levels differ by at least 4sp or a clear weight step. Text scales with 
   - Once you talk, the sphere moves into the app bar (26dp) and the thread fills the page.
   - The composer (52dp) is pinned above the tab bar.
 - **Thread:**
-  - Your turns sit in right-aligned `surface-2` bubbles, at most 78% wide. A photo you attached sits above your words, right-aligned, with `md` corners, at most 240dp wide (TalkBack: "Photo you shared"). One no longer kept keeps its place: a photo glyph and "Photo no longer kept" in `text-muted` on `surface-2`.
+  - Your turns sit in right-aligned `surface-2` bubbles, at most 78% wide. A photo you attached sits above your words, right-aligned, with `md` corners, at most 240dp wide (TalkBack: "Photo you shared"). Several sit as a grid of square crops, two to a row, 118dp each with a 4dp gap, as wide as one photo. Photos no longer kept keep their place: a photo glyph and "Photo no longer kept" (or "3 photos no longer kept", one line for the message) in `text-muted` on `surface-2`.
   - A voice note sits in your turn above your words, in its own `surface-2` bubble: a small mic glyph and "Voice note · 0:17" (or "Shared recording · 1:02", then "· Stopped early" when it was cut short) in `text-muted` label, then its words in body. While they're being written down they appear in `text-muted` and turn to `text` when done, like live speech; Anu's line says "Writing down your voice note…". One whose words weren't written down says "Not written down". There's no play button: the recording isn't kept. TalkBack reads it as one item. A recording with no words ends with Anu's note "Nothing was said in this recording." in `text-muted` callout: a note, not a failure, so it isn't red and the sphere doesn't grey.
   - Anu's replies are plain text at full width, with no bubble.
   - Receipts sit under the reply they belong to.
@@ -282,9 +282,10 @@ It's always visible and never hidden by scrolling.
 
 ### Composer
 - **Resting:** a 52dp pill with the placeholder "Ask Anu". The mic button on the right is a 42dp `primary` circle with an `on-primary` glyph. A 48dp "+" at the start, in `text-muted`, opens a sheet titled "Add to your message" with two grouped rows (TalkBack: "Add a photo or a voice note"):
-  - **Photo** ("Choose one from your photos") opens the system photo picker.
+  - **Photo** ("Choose up to 4 from your photos", then "Choose up to 2 more from your photos") opens the system photo picker.
+  - **Camera** ("Take a photo now") opens the system camera. Both photo rows are disabled once the message has 4, and Photo then says "4 photos added, the most at once".
   - **Voice note** ("Record it, and Anu writes it down on this phone") starts recording. Without a model that can hear it's disabled, with "Needs Gemma 4 on this phone".
-- **With a photo:** the picked photo sits above the pill as a 64dp thumbnail with `md` corners and a 48dp Remove button, and the mic becomes Send, so a photo can go on its own.
+- **With photos:** up to 4 sit above the pill in a row, 64dp thumbnails with `md` corners, 8dp apart. Each has a remove badge in its top-right corner: a 22dp `full` circle in `surface` with a hairline and a 12dp close glyph in `text`, inset 4dp, inside a 48dp touch target (TalkBack: "Remove photo 2"). The mic becomes Send, so photos can go on their own. Past 4, one `text-muted` caption line above the composer says "Anu can look at up to 4 photos at once.", with OK.
 - **Recording a voice note:** the pill becomes the recording bar: "Cancel" in `text-muted` at the start; in the middle the level bars, the time in mono ("0:12") and "Recording" in `text-muted` callout; at the end Stop, a 42dp `primary` circle (TalkBack: "Stop recording"). The sphere shows Listening, following the voice. No red: red means an error here. At 5 minutes it stops by itself and says so.
 - **With a voice note:** a `full` pill above the composer, `surface-2`, with the mic glyph and "Voice note · 0:17", and a 48dp Remove button. The mic becomes Send, so a voice note can go on its own, or with words that say what to do with it. When it stopped early, or couldn't be used, one `text-muted` caption line above the composer says why, with OK.
 - **Listening:** the page switches to the listening layout: a large sphere, live speech, "Listening" with a level meter, a 64dp Stop button, "Type instead" and Mute.
@@ -450,3 +451,4 @@ Three tabs with 24dp line icons at stroke 1.7 and 11sp labels. The selected tab 
 | 2026-09-29 | A memory's approval lists the fact in words: "Fact", "Kept in", and "Sensitive" only when it is | The sheet showed the model's snake_case relation and "Sensitive: false". The tool writes the words from the exact payload, so the user reads a sentence and still approves exactly what's kept |
 | 2026-09-30 | A recording with no words ends with a quiet note in `text-muted`, not a red failure, and the sphere doesn't grey. The prompt lab and the reasoning render Markdown as answers do; Copy keeps what the model wrote | Nothing broke when nothing was said, and red read as an error. On the emulator the lab showed "* " bullets and "**bold**" as they were, and the chat's reasoning did too. The owner chose these on 2026-09-30, with a plainer example for the lab's Instruction than "Answer like a pirate" |
 | 2026-10-01 | "Reply to this" on the card shows the reply on a panel labelled with its chat, with Copy first, and Send… only while the chat's notification can still answer it | Copy always works, whatever the app. Sending needs the reply button of that chat's notification, which apps often clear once the chat is open, so Send… appears only when it's there, and the approval sheet still shows the exact reply and the chat. A screen with no message gets an answer, so a refusal is never offered as a reply |
+| 2026-10-20 | "+" adds up to 4 photos, from the picker or the camera; each thumbnail has its own corner badge, and your turn shows several as a grid | Comparing two receipts or reading a menu over several shots needs more than one photo, and the camera is the quickest way to ask about what's in front of you. Four 64dp thumbnails each with a 48dp Remove beside it would be 448dp wide, so the badge sits inside the corner with its touch target over the thumbnail, which does nothing else. A grid as wide as one photo keeps your turn the size it was |

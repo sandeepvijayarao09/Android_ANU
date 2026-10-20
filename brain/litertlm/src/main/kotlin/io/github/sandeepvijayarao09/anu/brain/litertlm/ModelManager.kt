@@ -25,6 +25,7 @@ import io.github.sandeepvijayarao09.anu.core.model.BrainId
 import io.github.sandeepvijayarao09.anu.core.model.ModelInfo
 import io.github.sandeepvijayarao09.anu.core.model.ModelState
 import io.github.sandeepvijayarao09.anu.core.model.OnDeviceModels
+import io.github.sandeepvijayarao09.anu.core.model.Photo
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import okhttp3.OkHttpClient
@@ -139,8 +140,8 @@ class ModelManager(
     }
 
     internal companion object {
-        /** The most photos one engine takes at a time: those in the model's view of a chat. */
-        const val MAX_PHOTOS = 4
+        /** The most photos one engine takes at a time: those in the model's view of a chat, which the chat keeps to this. */
+        const val MAX_PHOTOS = Photo.MAX_IN_VIEW
 
         const val KEY_FILE = "file"
         const val KEY_DONE = "done"

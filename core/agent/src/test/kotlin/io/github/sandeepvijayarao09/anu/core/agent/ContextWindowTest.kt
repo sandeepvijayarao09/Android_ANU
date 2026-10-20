@@ -1,6 +1,7 @@
 package io.github.sandeepvijayarao09.anu.core.agent
 
 import io.github.sandeepvijayarao09.anu.core.model.ChatMessage
+import io.github.sandeepvijayarao09.anu.core.model.Photo
 import io.github.sandeepvijayarao09.anu.core.model.ToolCall
 import io.github.sandeepvijayarao09.anu.core.model.ToolResult
 import kotlinx.serialization.json.buildJsonObject
@@ -82,5 +83,17 @@ class ContextWindowTest {
         val call = ChatMessage.Model("", listOf(ToolCall("x_y", arguments)))
         // 4 for the turn markers, 2 for the name, and the arguments at 2.5 characters a token.
         assertEquals(4 + 2 + kotlin.math.ceil(arguments.toString().length / 2.5).toInt(), Tokens.of(call))
+    }
+
+    @Test
+    fun `pictures in view stay within what the engine takes, by whole exchanges`() {
+        fun withPhotos(n: Int) = ChatMessage.User("look", List(n) { Photo(it + 1L) })
+        val history = listOf(withPhotos(2), model(), withPhotos(1), model(), user(), model())
+        val window = ContextWindow()
+        assertEquals("three in view and one more fits", 0, window.fitPictures(history, from = 0, adding = 1))
+        assertEquals("two more would make five: the first exchange goes", 2, window.fitPictures(history, from = 0, adding = 2))
+        assertEquals("four new ones leave no photo before them", 4, window.fitPictures(history, from = 0, adding = 4))
+        assertEquals("it never moves back", 4, window.fitPictures(history, from = 4, adding = 0))
+        assertEquals("more than it takes leaves only the new message", history.size, window.fitPictures(history, from = 0, adding = 5))
     }
 }

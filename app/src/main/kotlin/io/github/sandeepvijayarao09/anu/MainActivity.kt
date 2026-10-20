@@ -62,6 +62,7 @@ import kotlinx.coroutines.withContext
 import androidx.compose.runtime.LaunchedEffect
 import io.github.sandeepvijayarao09.anu.feature.home.readPhoto
 import android.content.Intent
+import io.github.sandeepvijayarao09.anu.core.model.Photo
 
 class MainActivity : ComponentActivity() {
     /** A photo or recording shared into Anu, waiting to be attached in Talk (G2, G3). */
@@ -93,16 +94,25 @@ private const val SETTINGS = 2
  * The three pages: Talk, Memory and Settings (ADR-043, DESIGN.md). Swipe between them, or use the bar.
  * The Privacy report opens over whichever page the privacy indicator was tapped on.
  */
-/** A photo or a recording shared into Anu (G2, G3). */
-private class Shared(val uri: Uri, val audio: Boolean)
+/** Photos or a recording shared into Anu (G2, G3, ADR-094). A recording comes alone. */
+private class Shared(val uris: List<Uri>, val audio: Boolean)
 
-/** The photo or recording in a share into Anu, if that's what [intent] is. */
+/** The photos or the recording in a share into Anu, if that's what [intent] is. Several are photos only. */
 private fun sharedItem(intent: Intent?): Shared? {
     val type = intent?.type ?: return null
-    if (intent.action != Intent.ACTION_SEND || !(type.startsWith("image/") || type.startsWith("audio/"))) return null
-    @Suppress("DEPRECATION")
-    val uri = (if (Build.VERSION.SDK_INT >= 33) intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java) else intent.getParcelableExtra(Intent.EXTRA_STREAM)) ?: return null
-    return Shared(uri, audio = type.startsWith("audio/"))
+    return when {
+        intent.action == Intent.ACTION_SEND && (type.startsWith("image/") || type.startsWith("audio/")) -> {
+            @Suppress("DEPRECATION")
+            val uri = (if (Build.VERSION.SDK_INT >= 33) intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java) else intent.getParcelableExtra(Intent.EXTRA_STREAM)) ?: return null
+            Shared(listOf(uri), audio = type.startsWith("audio/"))
+        }
+        intent.action == Intent.ACTION_SEND_MULTIPLE && type.startsWith("image/") -> {
+            @Suppress("DEPRECATION")
+            val uris = (if (Build.VERSION.SDK_INT >= 33) intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM, Uri::class.java) else intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM))
+            uris?.filterNotNull()?.takeIf { it.isNotEmpty() }?.let { Shared(it, audio = false) }
+        }
+        else -> null
+    }
 }
 
 @Composable
@@ -125,14 +135,16 @@ private fun AnuHome(graph: AppGraph, shared: MutableStateFlow<Shared?>) {
         shared.filterNotNull().collect { item ->
             shared.value = null
             if (item.audio) {
-                when (val read = withContext(Dispatchers.IO) { readSharedRecording(context, item.uri, VOICE_NOTE_SECONDS) }) {
+                when (val read = withContext(Dispatchers.IO) { readSharedRecording(context, item.uris.first(), VOICE_NOTE_SECONDS) }) {
                     is SharedRecording.Ready -> chat.attachRecording(read.recording)
                     is SharedRecording.TooLong -> chat.recordingUnusable("This recording is ${clock(read.seconds)} long. Anu can write down up to 5 minutes.")
                     SharedRecording.Unreadable -> chat.recordingUnusable("This recording can't be read.")
                 }
             } else {
-                val jpeg = withContext(Dispatchers.IO) { readPhoto(context.contentResolver, item.uri) }
-                if (jpeg != null) chat.attach(jpeg) else chat.photoUnreadable()
+                // Only as many as one message takes are read; attach says when the rest were left out (ADR-094).
+                val read = withContext(Dispatchers.IO) { item.uris.take(Photo.MAX_IN_VIEW + 1).map { readPhoto(context.contentResolver, it) } }
+                chat.attach(*read.filterNotNull().toTypedArray())
+                if (null in read) chat.photoUnreadable()
             }
             pager.scrollToPage(0)
         }

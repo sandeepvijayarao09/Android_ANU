@@ -7,6 +7,7 @@ import androidx.compose.ui.test.assertHasClickAction
 import androidx.compose.ui.test.assertHasNoClickAction
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.longClick
+import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -218,6 +219,42 @@ class TalkUiTest {
     }
 
     @Test
+    fun `several photos show as a grid, and once let go, one line says how many`() {
+        val bitmap = android.graphics.Bitmap.createBitmap(40, 30, android.graphics.Bitmap.Config.ARGB_8888)
+        val jpeg = java.io.ByteArrayOutputStream().also { bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 85, it) }.toByteArray()
+        val kept = mapOf(1L to jpeg, 2L to jpeg, 3L to jpeg)
+        compose.setContent {
+            AnuTheme(dark = false) {
+                androidx.compose.foundation.layout.Column {
+                    PhotosView(listOf(1L, 2L, 3L).map { io.github.sandeepvijayarao09.anu.core.model.Photo(it) }, load = { kept[it] })
+                    PhotosView(listOf(8L, 9L).map { io.github.sandeepvijayarao09.anu.core.model.Photo(it) }, load = { null })
+                }
+            }
+        }
+        compose.waitForIdle()
+        assertEquals(3, compose.onAllNodesWithContentDescription("Photo you shared").fetchSemanticsNodes().size)
+        compose.onNodeWithContentDescription("2 photos you shared, no longer kept").assertExists()
+    }
+
+    @Test
+    fun `the plus sheet offers the camera, and counts the photos left`() {
+        var camera = 0
+        val left = androidx.compose.runtime.mutableStateOf(2)
+        compose.setContent {
+            AnuTheme(dark = false) { AddSheet(canHear = true, onPhoto = {}, onVoiceNote = {}, onDismiss = {}, photosLeft = left.value, onCamera = { camera++ }) }
+        }
+        compose.onNodeWithText("Choose up to 2 more from your photos").assertExists()
+        compose.onNodeWithText("Camera").performClick()
+        compose.waitForIdle()
+        assertEquals(1, camera)
+
+        left.value = 0
+        compose.onNodeWithText("4 photos added, the most at once").assertExists()
+        compose.onNodeWithText("Camera").performClick()
+        assertEquals("disabled once the message is full", 1, camera)
+    }
+
+    @Test
     fun `a voice note shows its kind, length and words as one item, and one not written down says so`() {
         compose.setContent {
             AnuTheme(dark = false) {
@@ -260,6 +297,7 @@ class TalkUiTest {
             AnuTheme(dark = false) { AddSheet(canHear = hears.value, onPhoto = {}, onVoiceNote = { voice++ }, onDismiss = {}) }
         }
         compose.onNodeWithText("Photo").assertExists()
+        compose.onNodeWithText("Choose up to 4 from your photos").assertExists()
         compose.onNodeWithText("Needs Gemma 4 on this phone").assertExists()
         compose.onNodeWithText("Voice note").performClick()
         assertEquals("disabled without a model that can hear", 0, voice)

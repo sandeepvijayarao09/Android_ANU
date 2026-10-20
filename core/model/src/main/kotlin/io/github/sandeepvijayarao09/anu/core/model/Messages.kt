@@ -34,6 +34,14 @@ class Photo(val id: Long, val bytes: ByteArray? = null) {
     override fun hashCode(): Int = id.hashCode()
 
     override fun toString(): String = "Photo($id)"
+
+    companion object {
+        /**
+         * The most pictures the on-device model sees at once, in one message or across its view of the chat: the
+         * engine is loaded for this many (ADR-094). The screen a message asks about counts as one.
+         */
+        const val MAX_IN_VIEW = 4
+    }
 }
 
 /**

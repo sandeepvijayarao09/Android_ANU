@@ -558,6 +558,42 @@ class ChatSessionTest {
     }
 
     @Test
+    fun `several photos go with one message, and the model sees at most four pictures at once`() = runTest {
+        val photos = InMemoryPhotoStore()
+        val chat = ChatSession(agent(mapOf(Tier.BASE to base, Tier.PRO to base)), photoStore = photos)
+        fun picks(vararg bytes: Byte) = bytes.map { io.github.sandeepvijayarao09.anu.core.model.Photo(0, byteArrayOf(it)) }
+        base.enqueue(Step.Reply("The first costs more."))
+        chat.send("Which receipt is bigger?", onPhone, photos = picks(1, 2, 3)).toList()
+        val first = base.requests.single().transcript.last() as ChatMessage.User
+        assertEquals("all three, in the order picked", listOf<Byte>(1, 2, 3), first.photos.map { it.bytes!!.single() })
+        val firstIds = (chat.history().first() as ChatMessage.User).photos.map { it.id }
+        assertEquals(3, firstIds.size)
+
+        // Two more would make five in view: the older exchange leaves it, and its photos are let go (ADR-091, ADR-094).
+        base.enqueue(Step.Reply("Both are cats."))
+        chat.send("And these?", onPhone, photos = picks(4, 5)).toList()
+        val shown = base.requests.last().transcript.filterIsInstance<ChatMessage.User>()
+        assertEquals(listOf("And these?"), shown.map { it.text })
+        assertEquals(listOf<Byte>(4, 5), shown.single().photos.map { it.bytes!!.single() })
+        assertEquals(emptyMap<Long, ByteArray>(), photos.load(firstIds))
+        assertEquals("the chat still says the first message had three", 3, (chat.history().first() as ChatMessage.User).photos.size)
+
+        // A message without photos keeps the view where it was.
+        base.enqueue(Step.Reply("Tabby, I think."))
+        chat.send("What kind?", onPhone).toList()
+        assertEquals(2, base.requests.last().transcript.filterIsInstance<ChatMessage.User>().sumOf { it.photos.size })
+    }
+
+    @Test
+    fun `a message can't carry more pictures than the model takes`() = runTest {
+        val chat = ChatSession(agent(mapOf(Tier.BASE to base)))
+        val five = (1..5).map { io.github.sandeepvijayarao09.anu.core.model.Photo(0, byteArrayOf(it.toByte())) }
+        val failure = runCatching { chat.send("Five?", onPhone, photos = five).toList() }.exceptionOrNull()
+        assertTrue("refused: $failure", failure is IllegalArgumentException)
+        assertTrue(chat.history().isEmpty())
+    }
+
+    @Test
     fun `a photo keeps the turn on the phone, and a later write asks first, naming the photo`() = runTest {
         val create = FakeCreateEvent()
         val gate = RecordingGate()

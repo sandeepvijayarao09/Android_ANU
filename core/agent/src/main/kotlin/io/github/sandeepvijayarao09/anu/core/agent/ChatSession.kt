@@ -116,7 +116,8 @@ class ChatSession(
      * [text] answers the last message again: its exchange leaves the model's view now, but the saved chat only
      * once the new answer is complete, so a retry that fails or is declined loses nothing (ADR-072). [photos] are
      * attached to the message: new ones (id 0, with their bytes) are kept at once and taken back if the turn doesn't
-     * complete; a retry passes the ids it already has. A photo keeps the turn on the phone (MEDIA-1, ADR-075).
+     * complete; a retry passes the ids it already has. A photo keeps the turn on the phone (MEDIA-1, ADR-075). One
+     * message holds at most [Photo.MAX_IN_VIEW] pictures, its screen's included (ADR-094).
      * A [recording] is written down first (G3, EXP-3, ADR-078): its words stream as [AgentEvent.Transcribing], then
      * the turn goes on with them as the message's voice note. A retry passes the [voiceNote] it already has. A voice
      * note keeps the turn on the phone too, and its recording is never saved. A [screen] the user asked about from the
@@ -135,6 +136,7 @@ class ChatSession(
         voiceNote: VoiceNote? = null,
         screen: Screen? = null,
     ): Flow<AgentEvent> = flow {
+        require(photos.size + (if (screen?.image != null) 1 else 0) <= Photo.MAX_IN_VIEW) { "at most ${Photo.MAX_IN_VIEW} pictures a message" }
         lock.withLock {
             val fresh = mutableListOf<Long>()
             var completed = false
@@ -196,6 +198,8 @@ class ChatSession(
                 Tokens.ofTools(agent.toolSpecs(tools)) + Tokens.of(message)
             val scale = tokens.scale
             windowStart = window.start(transcript, windowStart, fixed, scale)
+            // The engine takes so many pictures at once, so older photos leave the view first (ADR-094).
+            windowStart = window.fitPictures(transcript, windowStart, adding = attached.size + if (screen?.image != null) 1 else 0)
             letGoOfPhotosBefore(transcript, windowStart)
             val shown = transcript.subList(windowStart, transcript.size).toList()
             val system = systemPrompt(tools, trimmed = windowStart > 0)

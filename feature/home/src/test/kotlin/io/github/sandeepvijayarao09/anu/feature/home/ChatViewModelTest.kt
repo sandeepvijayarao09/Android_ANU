@@ -7,6 +7,7 @@ import io.github.sandeepvijayarao09.anu.core.agent.ApprovalCenter
 import io.github.sandeepvijayarao09.anu.core.agent.ChatSession
 import io.github.sandeepvijayarao09.anu.core.agent.InMemoryTranscriptStore
 import io.github.sandeepvijayarao09.anu.core.model.ChatMessage
+import io.github.sandeepvijayarao09.anu.core.model.Photo
 import io.github.sandeepvijayarao09.anu.core.model.BrainId
 import io.github.sandeepvijayarao09.anu.core.model.ScriptedBrain
 import io.github.sandeepvijayarao09.anu.core.model.ScriptedBrain.Step
@@ -148,8 +149,8 @@ class ChatViewModelTest {
     @Test
     fun `an attached photo goes with the next message, alone or with words, and can be taken back`() {
         viewModel.attach(byteArrayOf(1, 2, 3))
-        viewModel.removeAttachment()
-        assertNull(viewModel.state.value.attachment)
+        viewModel.removeAttachment(0)
+        assertTrue(viewModel.state.value.attachments.isEmpty())
 
         viewModel.attach(byteArrayOf(1, 2, 3))
         base.enqueue(Step.Reply("A red circle."))
@@ -159,7 +160,28 @@ class ChatViewModelTest {
         assertEquals(listOf<Byte>(1, 2, 3), asked.photos.single().bytes!!.toList())
         val seen = base.requests.single().transcript.last() as ChatMessage.User
         assertEquals(listOf<Byte>(1, 2, 3), seen.photos.single().bytes!!.toList())
-        assertNull("the composer is clear again", viewModel.state.value.attachment)
+        assertTrue("the composer is clear again", viewModel.state.value.attachments.isEmpty())
+    }
+
+    @Test
+    fun `several photos go with one message in the order added, up to four`() {
+        viewModel.attach(byteArrayOf(1), byteArrayOf(2), byteArrayOf(3))
+        assertEquals(1, viewModel.photosLeft)
+        viewModel.attach(byteArrayOf(4), byteArrayOf(5))
+        assertEquals("the fifth is left out", listOf<Byte>(1, 2, 3, 4), viewModel.state.value.attachments.map { it.single() })
+        assertEquals(FULL, viewModel.state.value.attachmentNote)
+        assertEquals(0, viewModel.photosLeft)
+
+        viewModel.removeAttachment(1)
+        assertEquals(listOf<Byte>(1, 3, 4), viewModel.state.value.attachments.map { it.single() })
+        assertNull("room again, so the note goes", viewModel.state.value.attachmentNote)
+
+        base.enqueue(Step.Reply("Three receipts."))
+        viewModel.send("Add these up")
+        assertEquals(listOf<Byte>(1, 3, 4), bubbles.first().photos.map { it.bytes!!.single() })
+        val seen = base.requests.single().transcript.last() as ChatMessage.User
+        assertEquals(listOf<Byte>(1, 3, 4), seen.photos.map { it.bytes!!.single() })
+        assertEquals(Photo.MAX_IN_VIEW, viewModel.photosLeft)
     }
 
     @Test
