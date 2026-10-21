@@ -85,7 +85,7 @@ export JAVA_HOME=/opt/homebrew/opt/openjdk@21
   - Its eval (spike S3) needs the files in `/data/local/tmp/anu/models/` too: `adb push` both, then `ANDROID_SERIAL=<serial> ./gradlew :brain:embedding:connectedDebugAndroidTest` and `adb logcat -d -s AnuS3`. It skips itself without them.
   - Keep the emulator's window in front while timing: behind other windows the Mac runs it about 4× slower.
   - In the app, `adb logcat -s Anu:D` shows `Relevant facts: N in X ms, search by meaning on, I of M facts indexed` for each message.
-- **Test data on `anu_api36`.** Created once with `adb shell content insert`:
+- **Test data on `anu_api36`.** Created once with `scripts/emu-test-data.sh <serial>` (`adb shell content insert`; running it again adds nothing, and it refuses any other emulator):
   - a local calendar "Personal" (`account_type=LOCAL`);
   - a made-up contact "Maya Chen", `maya.chen@example.com`.
   Only use made-up `example.com` people.
