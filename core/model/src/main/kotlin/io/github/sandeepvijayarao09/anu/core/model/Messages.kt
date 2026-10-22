@@ -98,6 +98,12 @@ data class BrainRequest(
      */
     val sentAt: String? = null,
     /**
+     * The coming week's dates for a turn that can act, such as "today Fri 2026-09-25; tomorrow Sat 2026-09-26; …"
+     * (§7.3). Brains show it with the newest user message, before [sentAt], so the first turn after midnight doesn't
+     * change [system] and the on-device KV cache survives it (ADR-098).
+     */
+    val dates: String? = null,
+    /**
      * What Anu remembers about the user, as a ready-to-read block (§8.3). On-device brains add it to
      * the system instruction ([onDeviceSystem]). Cloud brains never send it: the profile stays on the
      * phone (§8.4, ADR-038).
@@ -143,28 +149,35 @@ val BrainRequest.newestUserIndex: Int get() = transcript.indexOfLast { it is Cha
 
 /**
  * The text a brain shows the model for the user message at [index]. The newest one starts with
- * [BrainRequest.sentAt], after [facts]: the [BrainRequest.relevant] block on the phone, the block of
- * [BrainRequest.sharedFacts] in the cloud.
+ * [BrainRequest.sentAt], after [facts] (the [BrainRequest.relevant] block on the phone, the block of
+ * [BrainRequest.sharedFacts] in the cloud) and the week's [BrainRequest.dates].
  */
 fun BrainRequest.userText(index: Int, facts: String? = relevant): String {
     val text = (transcript[index] as ChatMessage.User).modelText
     if (index != newestUserIndex) return text
     val stamped = if (sentAt != null) "[$sentAt] $text" else text
-    return if (facts != null) "$facts\n\n$stamped" else stamped
+    val dated = if (dates != null) "$DATES_LABEL$dates.\n$stamped" else stamped
+    return if (facts != null) "$facts\n\n$dated" else dated
 }
 
 /**
  * Whether [answer] quotes the framing [userText] adds to the newest message: its send time in brackets,
- * or the facts header (ADR-058). A sampled model sometimes copies it; such an answer is invalid output.
+ * the facts header, or the week's dates (ADR-058). A sampled model sometimes copies it; such an answer is
+ * invalid output.
  */
-fun BrainRequest.echoesFraming(answer: String): Boolean = sentAt != null && "[$sentAt]" in answer || FACTS_HEADER in answer
+fun BrainRequest.echoesFraming(answer: String): Boolean =
+    sentAt != null && "[$sentAt]" in answer || FACTS_HEADER in answer || dates != null && dates in answer
 
 /** [answer] without the framing it quoted, for an answer that still quotes it after a retry. */
 fun BrainRequest.withoutFraming(answer: String): String {
     var out = answer.replace(FACTS_HEADER, "")
+    if (dates != null) out = out.replace("$DATES_LABEL$dates.", "").replace(dates, "")
     if (sentAt != null) out = out.replace("[$sentAt] ", "").replace("[$sentAt]", "")
     return out.trim()
 }
+
+/** Heads the week's dates shown with a message (ADR-098). */
+const val DATES_LABEL = "Dates: "
 
 /** Heads the facts shown with a message (ADR-054). */
 const val FACTS_HEADER = "Facts from memory about this message (the user's own data):"

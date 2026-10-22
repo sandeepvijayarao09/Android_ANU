@@ -2,6 +2,7 @@ package io.github.sandeepvijayarao09.anu.core.agent
 
 import io.github.sandeepvijayarao09.anu.core.model.BrainRequest
 import io.github.sandeepvijayarao09.anu.core.model.ChatMessage
+import io.github.sandeepvijayarao09.anu.core.model.DATES_LABEL
 import io.github.sandeepvijayarao09.anu.core.model.Photo
 import io.github.sandeepvijayarao09.anu.core.model.ToolSpec
 import io.github.sandeepvijayarao09.anu.core.model.modelText
@@ -33,9 +34,13 @@ object Tokens {
 
     private fun count(text: String?, charsPerToken: Double): Int = if (text.isNullOrEmpty()) 0 else ceil(text.length / charsPerToken).toInt()
 
-    /** Everything a brain is sent for [request]: system prompt, memory, tools, transcript, and the time on the newest message. */
+    /**
+     * Everything a brain is sent for [request]: system prompt, memory, tools, transcript, and the time and the week's
+     * dates on the newest message.
+     */
     fun ofRequest(request: BrainRequest): Int =
-        of(request.onDeviceSystem) + ofTools(request.tools) + of(request.transcript) + (request.sentAt?.let { of(it) + 2 } ?: 0)
+        of(request.onDeviceSystem) + ofTools(request.tools) + of(request.transcript) + (request.sentAt?.let { of(it) + 2 } ?: 0) +
+            (request.dates?.let { of(DATES_LABEL + it) + 1 } ?: 0)
 
     /** What a photo costs the model, about Gemma 4's default image budget. */
     const val PHOTO_TOKENS = 280

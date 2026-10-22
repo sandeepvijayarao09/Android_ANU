@@ -130,7 +130,10 @@ class ChatSessionTest {
         scheduling.send("Book a meeting with Maya tomorrow afternoon", device).toList()
         val request = pro.requests.single()
         assertEquals(listOf(create.name), request.tools.map { it.name })
-        assertTrue(request.system!!, request.system!!.contains("Friday, 25 September 2026 (America/New_York)"))
+        assertTrue(request.system!!, request.system!!.contains("(America/New_York)"))
+        // The week's dates go with the message, not the prompt (ADR-098).
+        assertTrue(request.system!!, "2026-09-25" !in request.system!! && "Friday" !in request.system!!)
+        assertEquals(ChatSession.dateTable(now.toLocalDate()), request.dates)
         // The day it names comes with its date, so the model needn't count (ADR-085).
         assertEquals("Fri 2026-09-25 10:31; tomorrow is Sat 2026-09-26", request.sentAt)
         assertTrue(request.system!!.contains("call calendar_create_event"))
@@ -145,6 +148,25 @@ class ChatSessionTest {
         base.enqueue(Step.Reply("Hi!"))
         plain.send("Hello there", device).toList()
         assertTrue(base.requests.single().tools.isEmpty())
+        assertEquals(null, base.requests.single().dates)
+    }
+
+    @Test
+    fun `the first turn after midnight keeps the system prompt, and the new dates travel with the message`() = runTest {
+        val create = FakeCreateEvent()
+        var now = java.time.ZonedDateTime.parse("2026-09-25T23:58:00-04:00[America/New_York]")
+        val chat = ChatSession(
+            agent(mapOf(Tier.BASE to base, Tier.PRO to pro), ToolBroker(listOf(create), RecordingGate())),
+            toolsFor = { listOf(create.name) },
+            clock = { now },
+        )
+        pro.enqueue(Step.Reply("Which time?"), Step.Reply("Noon, then."))
+        chat.send("Book lunch with Maya tomorrow", device).toList()
+        now = now.plusMinutes(4)
+        chat.send("Make it noon", device).toList()
+        // A date in the prompt would make the on-device model re-read the whole chat on this turn (ADR-098).
+        assertEquals(pro.requests[0].system, pro.requests[1].system)
+        assertEquals(listOf("today Fri 2026-09-25", "today Sat 2026-09-26"), pro.requests.map { it.dates!!.substringBefore(';') })
     }
 
     @Test

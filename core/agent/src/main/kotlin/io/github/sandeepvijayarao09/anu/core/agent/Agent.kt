@@ -207,6 +207,8 @@ class Agent(
         runId: String = turnKey,
         /** When the user sent the newest message. Brains show it with that message (ADR-033). */
         sentAt: String? = null,
+        /** The coming week's dates, for a turn that can act. Brains show them with the newest message too (ADR-098). */
+        dates: String? = null,
         /** What Anu remembers. Only on-device brains use it (ADR-038). */
         memory: String? = null,
         /** Facts from memory that bear on the newest message, shown with it by on-device brains (ADR-054). */
@@ -285,6 +287,7 @@ class Agent(
                     else -> Sampling.Default
                 },
                 sentAt = sentAt,
+                dates = dates,
                 memory = memory,
                 relevant = relevant,
                 sharedFacts = sharedFacts,
