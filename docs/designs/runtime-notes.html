@@ -1,0 +1,192 @@
+<title>Anu Runtime Notes</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,500;8..60,650&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one reading column of field notes, with wide figures and tables that scroll on their own. */
+:root {
+  --bg: #f6f7f8; --surface: #ffffff; --ink: #16202a; --muted: #5a6572; --rule: #dde2e7;
+  --prefill: #2f6fb2; --decode: #c2780e; --load: #7a8591; --good: #2e7d4f; --flat: #8a6d1d;
+  --display: "Source Serif 4", Georgia, serif;
+  --body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0f141a; --surface: #161d25; --ink: #e4e9ee; --muted: #9aa5b1; --rule: #2a333d;
+  --prefill: #6aa6e6; --decode: #e8a23f; --load: #8d98a4; --good: #5fbf86; --flat: #d4b25a; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #0f141a; --surface: #161d25; --ink: #e4e9ee; --muted: #9aa5b1; --rule: #2a333d;
+  --prefill: #6aa6e6; --decode: #e8a23f; --load: #8d98a4; --good: #5fbf86; --flat: #d4b25a; color-scheme: dark }
+
+body { background: var(--bg); color: var(--ink); font: 16px/1.6 var(--body); }
+.wrap { max-width: 46rem; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 3rem 5rem; display: grid; gap: 2.75rem; }
+header { display: grid; gap: .75rem; }
+.eyebrow { font: 500 .75rem/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+h1 { font: 650 2.4rem/1.1 var(--display); margin: 0; text-wrap: balance; }
+h2 { font: 650 1.45rem/1.2 var(--display); margin: 0; text-wrap: balance; }
+h3 { font: 600 1rem/1.3 var(--body); margin: 0; }
+p, ul, ol { margin: 0; }
+section { display: grid; gap: 1rem; min-width: 0; }
+.lede { font-size: 1.1rem; color: var(--muted); }
+code, .mono { font-family: var(--mono); font-size: .86em; }
+a { color: var(--prefill); text-underline-offset: 2px; }
+a:focus-visible { outline: 2px solid var(--prefill); outline-offset: 2px; border-radius: 2px; }
+ul, ol { padding-left: 1.2rem; display: grid; gap: .45rem; }
+.meta { display: flex; flex-wrap: wrap; gap: .5rem 1.5rem; font: .82rem/1.4 var(--mono); color: var(--muted); }
+
+.figure { background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; padding: 1.1rem 1.1rem .9rem; display: grid; gap: .75rem; min-width: 0; }
+.figure .cap { font-size: .85rem; color: var(--muted); }
+.scroll { overflow-x: auto; min-width: 0; }
+svg text { font-family: var(--mono); }
+
+table { border-collapse: collapse; width: 100%; font-size: .9rem; font-variant-numeric: tabular-nums; }
+th, td { text-align: left; padding: .5rem .6rem; border-bottom: 1px solid var(--rule); vertical-align: top; }
+th { font: 500 .72rem/1.3 var(--mono); text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+td.num { font-family: var(--mono); white-space: nowrap; }
+.pill { display: inline-block; font: 500 .72rem/1 var(--mono); padding: .3rem .5rem; border-radius: 999px; border: 1px solid currentColor; white-space: nowrap; }
+.pill.on { color: var(--good); } .pill.off { color: var(--muted); } .pill.flat { color: var(--flat); } .pill.next { color: var(--prefill); }
+
+.phases { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: 1rem; }
+.phase { border-top: 3px solid var(--c); padding-top: .75rem; display: grid; gap: .4rem; min-width: 0; }
+.phase .big { font: 500 1.5rem/1 var(--mono); color: var(--c); }
+
+.next li strong { font-weight: 600; }
+.res { display: grid; gap: .9rem; list-style: none; padding: 0; }
+.res li { display: grid; gap: .15rem; }
+.res .why { color: var(--muted); font-size: .92rem; }
+footer { font-size: .85rem; color: var(--muted); border-top: 1px solid var(--rule); padding-top: 1rem; }
+</style>
+
+<div class="wrap">
+<header>
+  <span class="eyebrow">Anu for Android · runtime field notes · 21 Oct 2026</span>
+  <h1>Where an on-device answer spends its time</h1>
+  <p class="lede">What happens between tapping send and the last word, which knobs Anu has, what today's measurements on LiteRT-LM 0.18.1 showed, and what to try next.</p>
+  <div class="meta"><span>Model: Gemma 4 E4B, generic CPU file</span><span>Device: anu_api36 emulator, 4 cores</span><span>Runtime: LiteRT-LM 0.18.1</span></div>
+</header>
+
+<section>
+  <h2>One turn, measured</h2>
+  <p>Each turn goes through up to four steps. <strong>Load</strong> maps the 3.66 GB model into memory; it happens once per app session (warm start, ADR-074, does it before you type). <strong>Create</strong> sets up a conversation. <strong>Prefill</strong> reads every token the model hasn't seen yet. <strong>Decode</strong> writes the answer one token at a time.</p>
+  <div class="figure">
+    <div class="scroll">
+      <svg viewBox="0 0 640 196" width="100%" role="img" aria-label="Timeline of two turns. A turn that reads an 814-token prompt: about 4.1 seconds of reading, then about 3.3 seconds writing 102 tokens. A follow-up in a cached conversation: about 0.8 seconds of reading, then about 4.6 seconds writing 129 tokens." style="min-width:520px">
+        <!-- scale: 0–8 s across x=150..630, 60 px per second -->
+        <g fill="var(--muted)" font-size="11">
+          <text x="150" y="186">0 s</text><text x="270" y="186">2 s</text><text x="390" y="186">4 s</text><text x="510" y="186">6 s</text><text x="612" y="186">8 s</text>
+        </g>
+        <g stroke="var(--rule)" stroke-width="1">
+          <line x1="150" y1="20" x2="150" y2="170"/><line x1="270" y1="20" x2="270" y2="170"/><line x1="390" y1="20" x2="390" y2="170"/><line x1="510" y1="20" x2="510" y2="170"/><line x1="630" y1="20" x2="630" y2="170"/>
+        </g>
+        <text x="0" y="52" fill="var(--ink)" font-size="12">814-token prompt</text>
+        <text x="0" y="68" fill="var(--muted)" font-size="11">chat re-read</text>
+        <rect x="150" y="38" width="246" height="34" rx="3" fill="var(--prefill)"/>
+        <rect x="396" y="38" width="198" height="34" rx="3" fill="var(--decode)"/>
+        <text x="158" y="59" fill="var(--surface)" font-size="11">read 4.1 s</text>
+        <text x="404" y="59" fill="var(--surface)" font-size="11">write 3.3 s</text>
+
+        <text x="0" y="124" fill="var(--ink)" font-size="12">26-token message</text>
+        <text x="0" y="140" fill="var(--muted)" font-size="11">cache reused</text>
+        <rect x="150" y="110" width="48" height="34" rx="3" fill="var(--prefill)"/>
+        <rect x="198" y="110" width="276" height="34" rx="3" fill="var(--decode)"/>
+        <text x="206" y="131" fill="var(--surface)" font-size="11">write 4.6 s · 129 tokens</text>
+        <text x="150" y="104" fill="var(--prefill)" font-size="11">read 0.8 s</text>
+      </svg>
+    </div>
+    <p class="cap">Medians of three runs on 0.18.1, 32-bit activations. Load (6.4–7.7 s with a warm weight cache) is left out because warm start hides it. On the Pixel 10 Pro's CPU the same long prompt takes about 14 s to its first word, because the phone reads at about 57 tokens/s where this emulator reads at about 200.</p>
+  </div>
+</section>
+
+<section>
+  <h2>Two phases, two bottlenecks</h2>
+  <div class="phases">
+    <div class="phase" style="--c: var(--prefill)">
+      <h3>Prefill: reading</h3>
+      <span class="big">~200 tok/s</span>
+      <p>All the new tokens go through the network together as one big matrix multiply. That keeps the arithmetic units busy, so it's <em>compute-bound</em>. More parallel hardware helps a lot: on the Pixel, the GPU read the same prompt 4.6× faster than the CPU (263.6 against 57.4 tok/s).</p>
+    </div>
+    <div class="phase" style="--c: var(--decode)">
+      <h3>Decode: writing</h3>
+      <span class="big">~30 tok/s</span>
+      <p>Each new token needs a pass over essentially all of the weights, yet it does little maths per byte. So it's <em>memory-bandwidth-bound</em>, and the GPU barely helped it on the Pixel (5.5 against 5.8 tok/s). Speculative decoding attacks this phase by guessing several tokens and checking them in one pass. On the Pixel's CPU it gained nothing (ADR-069).</p>
+    </div>
+  </div>
+  <p>The <strong>KV cache</strong> is what makes a follow-up cheap. While reading, the model keeps each token's attention keys and values. A later message then only has to read its own new tokens. Anu keeps one LiteRT-LM <code>Conversation</code> alive as that cache (ADR-018), and the saved transcript stays the source of truth. If the cache can't be reused, the whole visible chat is read again: that's the "Catching up on this chat…" line.</p>
+</section>
+
+<section id="cache">
+  <h2>When Anu reads the chat again</h2>
+  <p data-fill="cache-intro">The cached conversation is reused only when the new request has the same system prompt, tools, sampling and thinking setting as the previous turn, and continues exactly the history it already read (<code>LiteRtLmBrain.kt:301</code>).</p>
+</section>
+
+<section>
+  <h2>The knobs, and where each stands</h2>
+  <div class="scroll">
+    <table>
+      <thead><tr><th>Knob</th><th>What it changes</th><th>In Anu</th><th>Evidence</th></tr></thead>
+      <tbody>
+        <tr><td>Backend</td><td>CPU, GPU or NPU for the main model</td><td><span class="pill flat">CPU only</span></td><td>GPU reads 4.6× faster on Tensor G5 and the generic file answered correctly. It waits for a clean run on an idle phone (ADR-059)</td></tr>
+        <tr><td>Weight cache</td><td>Saves the CPU's repacked weights to disk</td><td><span class="pill on">On, app-private</span></td><td>Without <code>cacheDir</code> it silently runs uncached (ADR-020). Cold load 16.4 s, warm 6.4–7.7 s today</td></tr>
+        <tr><td>KV cache reuse</td><td>Skips re-reading the chat</td><td><span class="pill on">One conversation</span></td><td>Moving the time to the message cut one emulator turn from over 6 min to 15–27 s (ADR-033)</td></tr>
+        <tr><td>Context size</td><td>How many tokens fit in a conversation</td><td><span class="pill on">4,096</span></td><td>The file declares no limit and a fixed context, so this is Anu's choice (measured today)</td></tr>
+        <tr><td>Activation type</td><td>32- or 16-bit floats between layers</td><td><span class="pill off">Default (32-bit)</span></td><td>New in 0.18. No gain on the CPU in three runs each (today)</td></tr>
+        <tr><td>Speculative decoding</td><td>Gemma's multi-token heads guess ahead</td><td><span class="pill off">Off</span></td><td>No gain on the Pixel's CPU (ADR-069). Retest on the GPU, where "on" read 8% faster</td></tr>
+        <tr><td>Read ahead</td><td>Prefill the chat when the conversation is created</td><td><span class="pill off">Not used</span></td><td>First word 91–94% sooner, but the read can't be stopped (ENG-11)</td></tr>
+        <tr><td>Thinking</td><td>Reasoning before the answer</td><td><span class="pill off">Off by default</span></td><td>First word after 28.7 s with it, 8.8 s without (ADR-077)</td></tr>
+        <tr><td>Heat guard</td><td>Base model or shorter answers when warm</td><td><span class="pill on">On</span></td><td>Acts on Android's heat forecast (ADR-072). The 10-turn test waits for the Pixel</td></tr>
+        <tr><td>Constrained decoding</td><td>Grammar-limits output to a schema</td><td><span class="pill on">For JSON</span></td><td>Used for structured output. Conversation-wide tool constraints are still to measure</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section>
+  <h2>Today's runs</h2>
+  <p>Everything below is from <code>S1BenchmarkTest</code> on anu_api36, greedy decoding. The 0.18.1 runs alternated 32-bit and 16-bit, three of each, so a warming emulator favoured neither.</p>
+  <div class="scroll">
+    <table>
+      <thead><tr><th></th><th>0.17.1 (1 run)</th><th>0.18.1, 32-bit</th><th>0.18.1, 16-bit</th></tr></thead>
+      <tbody>
+        <tr><td>Load</td><td class="num">16.4 s (cold)</td><td class="num">6.4–7.7 s</td><td class="num">6.3–6.8 s</td></tr>
+        <tr><td>Short prompt, first word</td><td class="num">1.29 s</td><td class="num">0.73–0.87 s</td><td class="num">0.78–0.84 s</td></tr>
+        <tr><td>Short answer, writing</td><td class="num">20.5 tok/s</td><td class="num">27.6–28.7 tok/s</td><td class="num">27.2–29.2 tok/s</td></tr>
+        <tr><td>814-token prompt, reading</td><td class="num">209.8 tok/s</td><td class="num">193.6–208.1 tok/s</td><td class="num">191.7–202.4 tok/s</td></tr>
+        <tr><td>814-token prompt, first word</td><td class="num">3.91 s</td><td class="num">3.94–4.24 s</td><td class="num">4.05–4.28 s</td></tr>
+        <tr><td>Long answer, writing</td><td class="num">30.3 tok/s</td><td class="num">30.8–31.5 tok/s</td><td class="num">29.7–31.3 tok/s</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <ul>
+    <li><strong>0.18.1 matches 0.17.1 on the CPU.</strong> The 0.17.1 run was the session's first, with a cold cache and the app holding another copy of the model, which explains its slow load and short answer. Prompt reading, the steady figure, is the same.</li>
+    <li><strong>16-bit activations bought nothing.</strong> The emulator's CPU has 16-bit float instructions (<code>fphp</code>, <code>asimdhp</code>) and int8 matrix instructions (<code>i8mm</code>). Gemma's CPU file stores its weights as small integers, and the heavy maths runs in integer kernels, so the float type between layers barely matters. ADR-096 leaves it unset.</li>
+    <li><strong>The role change is safe.</strong> 0.18 sends the model's earlier turns as "assistant". A new contract test rebuilds a chat from the transcript and the model recalls its own suggestion. All 5 contract tests pass, and cancel took 35 ms against a 500 ms target.</li>
+  </ul>
+</section>
+
+<section>
+  <h2>What would actually make it faster</h2>
+  <ol class="next" data-fill="next">
+    <li><strong>The GPU on the Pixel.</strong> The biggest measured lever: 14.3 s to 3.3 s for the first word of a long prompt. It needs the clean idle-phone run of the contract and extraction tests that ADR-059 asks for, and your go to install on the phone.</li>
+  </ol>
+</section>
+
+<section>
+  <h2>Reading list</h2>
+  <ul class="res">
+    <li><a href="https://github.com/google-ai-edge/LiteRT-LM">LiteRT-LM on GitHub</a><span class="why">The runtime Anu uses. <code>kotlin/java/com/google/ai/edge/litertlm/</code> is the API Anu calls, and <code>runtime/conversation/</code> is where chat templates and tool formats are applied (invariant I8).</span></li>
+    <li><a href="https://github.com/google-ai-edge/LiteRT-LM/releases/tag/v0.18.0">LiteRT-LM 0.18.0 release notes</a><span class="why">ModelInfo, EmbeddingGemma 2, NPU KV-cache growth and GPU attention-mask pruning. The 245 commits since 0.17.1 hold more than the notes say.</span></li>
+    <li><a href="https://ai.google.dev/edge/litert-lm/overview">LiteRT-LM overview (Google AI Edge)</a><span class="why">Official guide to engines, conversations, backends and the benchmark counters.</span></li>
+    <li><a href="https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm">Gemma 4 E4B for LiteRT-LM (Hugging Face)</a><span class="why">The exact files in Anu's catalog: the generic CPU build and the GPU build.</span></li>
+    <li><a href="https://ai.google.dev/gemma/docs/core">Gemma documentation</a><span class="why">Model cards, the published sampling defaults Anu keeps, and what "E4B" (effective 4B parameters) means.</span></li>
+    <li><a href="https://github.com/google/XNNPACK">XNNPACK</a><span class="why">The CPU kernel library behind the CPU backend and its weight cache (ADR-020). Its quantized kernels are why 16-bit activations don't matter here.</span></li>
+    <li><a href="https://arxiv.org/abs/2211.17192">Leviathan et al., Fast Inference from Transformers via Speculative Decoding (2023)</a><span class="why">The idea behind ADR-069: draft several tokens, then check them in one pass.</span></li>
+    <li><a href="https://arxiv.org/abs/2404.19737">Gloeckle et al., Better &amp; Faster Large Language Models via Multi-token Prediction (2024)</a><span class="why">Where Gemma's built-in multi-token prediction heads come from.</span></li>
+    <li><a href="https://arxiv.org/abs/2309.06180">Kwon et al., Efficient Memory Management for LLM Serving with PagedAttention (2023)</a><span class="why">The clearest explanation of what a KV cache holds and why it costs memory.</span></li>
+    <li><a href="https://github.com/guidance-ai/llguidance">llguidance</a><span class="why">The constrained-decoding engine LiteRT-LM uses for <code>enableResponseFormat</code>.</span></li>
+    <li><a href="https://github.com/google-ai-edge/gallery">Google AI Edge Gallery</a><span class="why">Google's reference app on the same runtime. §16 of the architecture compares it with Anu row by row.</span></li>
+    <li><a href="https://developer.android.com/reference/android/os/PowerManager">Android PowerManager</a><span class="why"><code>getThermalHeadroom</code>, the heat forecast the guard acts on (ADR-072).</span></li>
+  </ul>
+</section>
+
+<footer>Measured figures come from the spike log in <code>docs/ARCHITECTURE.md</code> §16 (S1, 2026-09-28 and 2026-10-21) and ADR-096. Emulator speeds run on the Mac's hardware and are higher than the phone's; the Pixel 10 Pro is the reference for speed.</footer>
+</div>

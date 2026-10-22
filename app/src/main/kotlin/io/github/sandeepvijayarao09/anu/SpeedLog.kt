@@ -9,7 +9,8 @@ internal fun speedLine(id: BrainId, variant: String, speed: TurnSpeed): String {
     val tier = if (id == BrainId.BASE) "Base" else "Pro"
     val first = if (speed.firstTokenMs >= 0) "first token after ${speed.firstTokenMs} ms" else "no token"
     return "$tier on $variant read ${speed.read} tokens at ${rate(speed.readPerSecond)} tok/s, $first, " +
-        "wrote ${speed.written} at ${rate(speed.writtenPerSecond)} tok/s"
+        "wrote ${speed.written} at ${rate(speed.writtenPerSecond)} tok/s" +
+        speed.conversation.takeIf(String::isNotEmpty)?.let { ", conversation $it" }.orEmpty()
 }
 
 private fun rate(perSecond: Double) = String.format(Locale.ROOT, "%.1f", perSecond)

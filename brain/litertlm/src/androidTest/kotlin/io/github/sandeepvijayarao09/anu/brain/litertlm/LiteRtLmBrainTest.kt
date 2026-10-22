@@ -122,6 +122,33 @@ class LiteRtLmBrainTest {
         assertTrue("reply was: $text", text.contains("cliff", ignoreCase = true))
     }
 
+    /**
+     * A one-message request with another system prompt, such as Writing or Test speed, runs beside the chat's
+     * conversation (ADR-097), so the chat's next turn reads only its new message, not the whole chat again.
+     */
+    @Test
+    fun aOneOffRequestKeepsTheChatsConversation() = runBlocking {
+        val chat = mutableListOf<ChatMessage>(ChatMessage.User(LONG_MESSAGE))
+        chat += ChatMessage.Model(answer(BrainRequest(transcript = chat.toList(), sampling = Sampling.Precise, maxOutputTokens = 32)).first)
+        val oneOpen = residentKb()
+        answer(BrainRequest(system = "Rewrite the text in a friendly tone.", transcript = listOf(ChatMessage.User("see you at noon")), sampling = Sampling.Precise, maxOutputTokens = 16))
+        S1.report("second_conversation_rss_kb", residentKb() - oneOpen)
+        chat += ChatMessage.User("Reply with just the word: done")
+        val (text, usage) = answer(BrainRequest(transcript = chat.toList(), sampling = Sampling.Precise))
+        val read = usage.inputTokens ?: Int.MAX_VALUE
+        S1.report("follow_up_read_tokens", read)
+        assertTrue("reply was: $text", text.contains("done", ignoreCase = true))
+        assertTrue("the follow-up read $read tokens, so the chat was read again", read < 60)
+    }
+
+    /** The process's resident memory now, from /proc. */
+    private fun residentKb(): Long = java.io.File("/proc/self/status").readLines().first { it.startsWith("VmRSS:") }.filter(Char::isDigit).toLong()
+
+    private suspend fun answer(request: BrainRequest): Pair<String, BrainEvent.Usage> {
+        val events = brain.stream(request).toList()
+        return events.filterIsInstance<BrainEvent.TextDelta>().joinToString("") { it.text } to events.filterIsInstance<BrainEvent.Usage>().single()
+    }
+
     @Test
     fun cancelStopsGenerationAndBrainRecovers() = runBlocking {
         val firstToken = CompletableDeferred<Unit>()
@@ -145,6 +172,11 @@ class LiteRtLmBrainTest {
     }
 
     companion object {
+        /** About 250 tokens, so reading it again would show in the follow-up's count. */
+        private val LONG_MESSAGE = "Here are my notes from the week. " + List(10) { i ->
+            "On day ${i + 1} I walked the harbor loop, had lunch by the old pier, and read on the east cliffs."
+        }.joinToString(" ") + " Say only: noted."
+
         private lateinit var holder: EngineHolder
         private lateinit var brain: LiteRtLmBrain
 

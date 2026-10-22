@@ -72,8 +72,8 @@ class OnDeviceBrains(
 
     /**
      * Test speed (ADR-073): runs [request] on [id] under the same residency rule as chat, so it waits for the current
-     * answer, and says each step: waiting, getting the model ready (or the GPU's first setup), reading, writing. The
-     * chat's conversation is set aside, so its next turn reads the chat again. [clock] is in nanoseconds.
+     * answer, and says each step: waiting, getting the model ready (or the GPU's first setup), reading, writing. It
+     * runs in a conversation of its own and the chat's stays cached (ADR-097). [clock] is in nanoseconds.
      */
     fun test(id: BrainId, request: BrainRequest, clock: () -> Long = System::nanoTime): Flow<TestUpdate> = flow {
         emit(TestUpdate(TestStep.WAITING))

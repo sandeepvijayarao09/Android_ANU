@@ -45,7 +45,15 @@ import java.util.concurrent.atomic.AtomicLong
  * One on-device turn's speed, from the runtime's own counters (debug builds, §15): the tokens it read and at what
  * rate, how long the first token took from sending, and the tokens it wrote. Numbers only, never content.
  */
-data class TurnSpeed(val read: Int, val readPerSecond: Double, val firstTokenMs: Long, val written: Int, val writtenPerSecond: Double)
+data class TurnSpeed(
+    val read: Int,
+    val readPerSecond: Double,
+    val firstTokenMs: Long,
+    val written: Int,
+    val writtenPerSecond: Double,
+    /** Whether the turn kept the cached conversation, and if not which parts differed (ADR-097). Names only. */
+    val conversation: String = "",
+)
 
 /**
  * Gemma 4 E2B or E4B running through LiteRT-LM (ARCHITECTURE §5).
@@ -71,7 +79,12 @@ class LiteRtLmBrain(
 
     /** One generation at a time per model. It also guards [cached]. */
     private val generation = Mutex()
-    private var cached: CachedConversation? = null
+
+    /**
+     * The conversations kept as KV caches, least recently used first, at most [KEPT] (ADR-097). Two, so a one-message
+     * job such as Writing or Test speed doesn't throw away the chat's, and the chat's next turn doesn't read it again.
+     */
+    private val cached = ArrayDeque<CachedConversation>()
 
     override fun stream(request: BrainRequest): Flow<BrainEvent> = callbackFlow {
         generation.lock()
@@ -114,7 +127,7 @@ class LiteRtLmBrain(
                 override fun onDone() {
                     val done = System.nanoTime()
                     active.history = request.transcript + ChatMessage.Model(reply.toString(), calls.toList())
-                    val counters = speed(active.conversation, sent.get(), first.get())
+                    val counters = speed(active.conversation, sent.get(), first.get())?.copy(conversation = active.why)
                     counters?.let { speed -> onTurn?.invoke(speed) }
                     val tokens = active.conversation.getTokenCount()
                     trySend(usage(tokens, active.tokens, pieces, counters, sent.get(), first.get(), done))
@@ -293,23 +306,28 @@ class LiteRtLmBrain(
 
     /** Frees the cached conversation, for example before the residency policy unloads the model. */
     suspend fun reset() = generation.withLock {
-        cached?.conversation?.close()
-        cached = null
+        cached.forEach { it.conversation.close() }
+        cached.clear()
     }
 
     /** Whether the cached conversation already holds everything before [request]'s new message. Callers hold [generation]. */
-    private fun reusable(request: BrainRequest): Boolean = cached?.let { previous ->
-        previous.key == ConversationKey(request.onDeviceSystem, request.tools, request.sampling, request.thinking) && previous.history == request.transcript.dropLast(1)
-    } ?: false
+    private fun reusable(request: BrainRequest): Boolean {
+        val key = ConversationKey(request.onDeviceSystem, request.tools, request.sampling, request.thinking)
+        val history = request.transcript.dropLast(1)
+        return cached.any { it.key == key && it.history == history }
+    }
 
     private fun acquire(engine: Engine, request: BrainRequest): CachedConversation {
         val system = request.onDeviceSystem
         val key = ConversationKey(system, request.tools, request.sampling, request.thinking)
         val history = request.transcript.dropLast(1)
-        val previous = cached
-        cached = null
-        if (previous != null && previous.key == key && previous.history == history) return previous
-        previous?.conversation?.close()
+        cached.firstOrNull { it.key == key && it.history == history }?.let { kept ->
+            cached.remove(kept)
+            return kept.also { it.why = "kept" }
+        }
+        val previous = cached.lastOrNull()
+        // The new one and the kept ones stay within [KEPT]; S6 showed the engine keeps two open.
+        while (cached.size >= KEPT) cached.removeFirst().conversation.close()
         val config = ConversationConfig(
             systemInstruction = system?.let { Contents.of(it) },
             initialMessages = history.indices.map(request::messageAt),
@@ -321,7 +339,24 @@ class LiteRtLmBrain(
             thinkingConfig = ThinkingConfig(enableThinking = request.thinking, thinkingTokenBudget = THINKING_BUDGET),
         )
         val conversation = withoutThoughtsInCache { engine.createConversation(config) }
-        return CachedConversation(key, conversation, history)
+        return CachedConversation(key, conversation, history).also { it.why = rebuilt(previous, key, history) }
+    }
+
+    /**
+     * Why a turn read its chat again (ADR-097): "new" when nothing was cached (the first turn, or after a load, an
+     * unload, a failure or a cancel), else the parts of the request that differed from the most recently used
+     * conversation. Only the parts' names, never their content.
+     */
+    private fun rebuilt(previous: CachedConversation?, key: ConversationKey, history: List<ChatMessage>): String {
+        if (previous == null) return "new"
+        val parts = listOfNotNull(
+            "system".takeIf { previous.key.system != key.system },
+            "tools".takeIf { previous.key.tools != key.tools },
+            "sampling".takeIf { previous.key.sampling != key.sampling },
+            "thinking".takeIf { previous.key.thinking != key.thinking },
+            "history".takeIf { previous.history != history },
+        )
+        return "rebuilt (${parts.joinToString()})"
     }
 
     /**
@@ -363,7 +398,10 @@ class LiteRtLmBrain(
 
     private suspend fun release(session: CachedConversation, finished: CompletableDeferred<Boolean>) {
         when (withTimeoutOrNull(CANCEL_GRACE_MS) { finished.await() }) {
-            true -> cached = session
+            true -> {
+                cached.addLast(session)
+                while (cached.size > KEPT) cached.removeFirst().conversation.close()
+            }
             false -> session.conversation.close()
             // The runtime hasn't confirmed the cancel yet. Close once it does, never mid-decode.
             null -> finished.invokeOnCompletion { session.conversation.close() }
@@ -379,6 +417,9 @@ class LiteRtLmBrain(
     ) {
         /** The context's size after the last turn, so the next can tell what it read. */
         @Volatile var tokens: Int = 0
+
+        /** Whether the current turn kept this conversation or why it was built ([rebuilt]), for the debug speed line. */
+        @Volatile var why: String = "new"
     }
 
     /**
@@ -398,6 +439,9 @@ class LiteRtLmBrain(
 
     private companion object {
         const val CANCEL_GRACE_MS = 2_000L
+
+        /** How many conversations stay cached per model ([cached]). */
+        const val KEPT = 2
 
         /**
          * How long the runtime may say nothing before the turn fails. Well past a whole window's reading on a phone's
