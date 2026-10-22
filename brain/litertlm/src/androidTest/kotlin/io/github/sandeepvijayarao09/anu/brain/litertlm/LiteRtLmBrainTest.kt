@@ -106,6 +106,22 @@ class LiteRtLmBrainTest {
         Unit
     }
 
+    /**
+     * A conversation built from a saved transcript (ADR-018) holds the model's earlier answers. LiteRT-LM 0.18 sends
+     * them with the role "assistant" instead of "model", so this checks the model still reads them as its own turns.
+     */
+    @Test
+    fun readsEarlierTurnsFromTheTranscript() = runBlocking {
+        val transcript = listOf(
+            ChatMessage.User("I'm planning a picnic on Saturday."),
+            ChatMessage.Model("Nice! I'll suggest the east cliffs, since they're sheltered from the wind."),
+            ChatMessage.User("Which place did you suggest? Reply with just the place."),
+        )
+        val text = brain.stream(BrainRequest(transcript = transcript, sampling = Sampling.Precise))
+            .toList().filterIsInstance<BrainEvent.TextDelta>().joinToString("") { it.text }
+        assertTrue("reply was: $text", text.contains("cliff", ignoreCase = true))
+    }
+
     @Test
     fun cancelStopsGenerationAndBrainRecovers() = runBlocking {
         val firstToken = CompletableDeferred<Unit>()

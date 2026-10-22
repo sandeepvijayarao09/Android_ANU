@@ -3,6 +3,7 @@ package io.github.sandeepvijayarao09.anu.brain.litertlm
 import android.os.Bundle
 import android.util.Log
 import androidx.test.platform.app.InstrumentationRegistry
+import com.google.ai.edge.litertlm.ActivationDataType
 import com.google.ai.edge.litertlm.Backend
 import org.junit.Assume.assumeTrue
 import java.io.File
@@ -10,8 +11,9 @@ import java.io.File
 // Shared setup for spike S1 (ARCHITECTURE §16). These are real-model tests, and they skip themselves
 // when no model is present. Push one first:
 //   adb push gemma-4-E4B-it.litertlm /data/local/tmp/anu/models/
-// Optional instrumentation arguments: modelPath, backend (CPU | GPU | GOOGLE_TENSOR), and speculative (on | off)
-// for the brain tests' engines, which otherwise keep the runtime's default.
+// Optional instrumentation arguments: modelPath, backend (CPU | GPU | GOOGLE_TENSOR), speculative (on | off)
+// for the brain tests' engines, which otherwise keep the runtime's default, and activation (F32 | F16) for the
+// benchmark's engine, which otherwise keeps the backend's default (F32 on the CPU).
 
 internal object S1 {
     private val args: Bundle get() = InstrumentationRegistry.getArguments()
@@ -26,6 +28,14 @@ internal object S1 {
         get() = when (args.getString("speculative")) {
             "on" -> true
             "off" -> false
+            else -> null
+        }
+
+    /** The benchmark engine's activation type; null keeps the backend's default. */
+    val activation: ActivationDataType?
+        get() = when (args.getString("activation")) {
+            "F16" -> ActivationDataType.FLOAT16
+            "F32" -> ActivationDataType.FLOAT32
             else -> null
         }
 
@@ -48,7 +58,7 @@ internal object S1 {
 
     /** Writes a metric to logcat (tag AnuS1) and to the instrumentation status stream. */
     fun report(name: String, value: Any) {
-        val line = "model=${File(modelPath).name} backend=$backendName speculative=${speculative ?: "default"} $name=$value"
+        val line = "model=${File(modelPath).name} backend=$backendName speculative=${speculative ?: "default"} activation=${activation ?: "default"} $name=$value"
         Log.i("AnuS1", line)
         InstrumentationRegistry.getInstrumentation().sendStatus(0, Bundle().apply { putString("AnuS1", line) })
     }

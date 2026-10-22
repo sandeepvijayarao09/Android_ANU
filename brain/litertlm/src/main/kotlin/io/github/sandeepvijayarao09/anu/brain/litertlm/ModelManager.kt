@@ -19,7 +19,7 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import com.google.ai.edge.litertlm.Backend
-import com.google.ai.edge.litertlm.Capabilities
+import com.google.ai.edge.litertlm.ModelInfo as FileInfo
 import com.google.ai.edge.litertlm.EngineConfig
 import io.github.sandeepvijayarao09.anu.core.model.BrainId
 import io.github.sandeepvijayarao09.anu.core.model.ModelInfo
@@ -124,7 +124,7 @@ class ModelManager(
     /** Whether [brain]'s installed file takes audio, as its own metadata declares (ADR-078). Read once per file. */
     fun hears(brain: BrainId): Boolean {
         val path = installedFile(brain)?.absolutePath ?: return false
-        return hearing.getOrPut(path) { runCatching { Capabilities(path).use { it.inputModalities().audio } }.getOrDefault(false) }
+        return hearing.getOrPut(path) { runCatching { FileInfo.from(path).use { it.inputModalities().audio } }.getOrDefault(false) }
     }
 
     private val hearing = java.util.concurrent.ConcurrentHashMap<String, Boolean>()

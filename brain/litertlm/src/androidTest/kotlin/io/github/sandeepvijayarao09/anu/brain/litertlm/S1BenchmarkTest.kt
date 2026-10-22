@@ -5,12 +5,13 @@ import android.os.Build
 import android.os.SystemClock
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import com.google.ai.edge.litertlm.Capabilities
 import com.google.ai.edge.litertlm.ConversationConfig
 import com.google.ai.edge.litertlm.Engine
 import com.google.ai.edge.litertlm.EngineConfig
 import com.google.ai.edge.litertlm.ExperimentalApi
 import com.google.ai.edge.litertlm.ExperimentalFlags
+import com.google.ai.edge.litertlm.Modality
+import com.google.ai.edge.litertlm.ModelInfo
 import com.google.ai.edge.litertlm.SamplerConfig
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -31,10 +32,23 @@ class S1BenchmarkTest {
         if (Build.VERSION.SDK_INT >= 34) S1.report("memory_advertised_bytes", memory.advertisedMem)
     }
 
+    /** What the file says about its context (0.18's `ModelInfo`): the most it takes, and whether it can be set. */
+    @Test
+    fun reportsContextLimits() {
+        S1.assumeModelPresent()
+        ModelInfo.from(S1.modelPath).use {
+            S1.report("max_context_tokens", it.maxContextTokens())
+            S1.report("dynamic_context", it.isDynamicContext())
+            S1.report("min_runtime_version", it.minRuntimeVersion() ?: "none")
+            S1.report("text_backends", it.supportedBackends(Modality.TEXT))
+        }
+    }
+
+    /** Reads both prompts and reports each answer, so runs with another `activation` can be compared word for word. */
     @Test
     fun measuresLoadPrefillAndDecode() {
         S1.assumeModelPresent()
-        benchmark(prefix = "")
+        benchmark(prefix = "").forEachIndexed { i, text -> S1.report("answer_$i", text.take(160).replace('\n', ' ')) }
     }
 
     /**
@@ -46,7 +60,7 @@ class S1BenchmarkTest {
     @Test
     fun measuresSpeculativeDecoding() {
         S1.assumeModelPresent()
-        Capabilities(S1.modelPath).use {
+        (ModelInfo.from(S1.modelPath) as ModelInfo.Llm).use {
             S1.report("speculative_support", it.hasSpeculativeDecodingSupport())
             S1.report("thinking_support", it.supportsThinking())
             S1.report("function_calling_support", it.supportsFunctionCalling())
@@ -81,7 +95,7 @@ class S1BenchmarkTest {
         ExperimentalFlags.enableSpeculativeDecoding = speculative
         try {
             val start = SystemClock.elapsedRealtime()
-            Engine(EngineConfig(modelPath = S1.modelPath, backend = S1.backend(), maxNumTokens = 4096, cacheDir = S1.cacheDir())).use { engine ->
+            Engine(EngineConfig(modelPath = S1.modelPath, backend = S1.backend(), maxNumTokens = 4096, cacheDir = S1.cacheDir(), activationDataType = S1.activation)).use { engine ->
                 engine.initialize()
                 S1.report("${prefix}load_ms", SystemClock.elapsedRealtime() - start)
                 return listOf(

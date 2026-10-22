@@ -5,7 +5,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.google.ai.edge.litertlm.Backend
 import com.google.ai.edge.litertlm.BenchmarkInfo
-import com.google.ai.edge.litertlm.Capabilities
+import com.google.ai.edge.litertlm.ModelInfo
 import com.google.ai.edge.litertlm.Content
 import com.google.ai.edge.litertlm.Contents
 import com.google.ai.edge.litertlm.ConversationConfig
@@ -42,7 +42,7 @@ class S6AudioTest {
         val audioName = InstrumentationRegistry.getArguments().getString("audioBackend") ?: "CPU"
         val audio = if (audioName == "GPU") Backend.GPU() else Backend.CPU()
         S1.report("audio_backend", audioName)
-        Capabilities(S1.modelPath).use { S1.report("hears", it.inputModalities().audio) }
+        ModelInfo.from(S1.modelPath).use { S1.report("hears", it.inputModalities().audio) }
         val note = File(notePath).readBytes()
         S1.report("note_bytes", note.size)
         S1.report("note_seconds", "%.1f".format((note.size - 44) / 32_000.0))

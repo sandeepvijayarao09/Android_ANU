@@ -9,7 +9,7 @@ import android.os.SystemClock
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.google.ai.edge.litertlm.Backend
-import com.google.ai.edge.litertlm.Capabilities
+import com.google.ai.edge.litertlm.ModelInfo
 import com.google.ai.edge.litertlm.Content
 import com.google.ai.edge.litertlm.Contents
 import com.google.ai.edge.litertlm.ConversationConfig
@@ -40,7 +40,7 @@ class S11PhotoTest {
         val visionName = InstrumentationRegistry.getArguments().getString("visionBackend") ?: "GPU"
         val vision = if (visionName == "CPU") Backend.CPU() else Backend.GPU()
         S1.report("vision_backend", visionName)
-        Capabilities(S1.modelPath).use { S1.report("vision_token_budget", it.maxVisionTokenBudget()) }
+        ModelInfo.from(S1.modelPath).use { S1.report("vision_token_budget", it.maxVisionTokenBudget()) }
         val picture = picture()
         S1.report("picture_bytes", picture.size)
         ExperimentalFlags.enableBenchmark = true
