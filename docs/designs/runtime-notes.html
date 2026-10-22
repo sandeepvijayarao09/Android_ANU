@@ -116,7 +116,26 @@ footer { font-size: .85rem; color: var(--muted); border-top: 1px solid var(--rul
 
 <section id="cache">
   <h2>When Anu reads the chat again</h2>
-  <p data-fill="cache-intro">The cached conversation is reused only when the new request has the same system prompt, tools, sampling and thinking setting as the previous turn, and continues exactly the history it already read (<code>LiteRtLmBrain.kt:301</code>).</p>
+  <p>A cached conversation is reused only when the new request has the same system prompt, tools, sampling and thinking setting, and continues exactly the history it already read. Until today Anu kept one. It now keeps two (ADR-097), and debug builds log why each turn kept or rebuilt its conversation. Four messages in the app on the emulator:</p>
+  <div class="scroll">
+    <table>
+      <thead><tr><th>Turn</th><th>Conversation</th><th>Read</th><th>First word</th></tr></thead>
+      <tbody>
+        <tr><td>First turn after installing</td><td><span class="pill off">new</span></td><td class="num">1,348 tokens</td><td class="num">13.1 s</td></tr>
+        <tr><td>Chat, then chat</td><td><span class="pill on">kept</span></td><td class="num">36 tokens</td><td class="num">1.0 s</td></tr>
+        <tr><td>Chat, then a calendar question</td><td><span class="pill flat">rebuilt: system, tools</span></td><td class="num">1,236 tokens</td><td class="num">8.7 s</td></tr>
+        <tr><td>The calendar tool's follow-up</td><td><span class="pill on">kept</span></td><td class="num">13 tokens</td><td class="num">0.7 s</td></tr>
+        <tr><td>A thank-you, still in the calendar skill</td><td><span class="pill on">kept</span></td><td class="num">36 tokens</td><td class="num">1.1 s</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>A skill change costs about 8× the wait of a kept turn on the emulator, and roughly 25–35 s on the Pixel's CPU. Reading the code, these also make the next turn re-read the chat:</p>
+  <ul>
+    <li><strong>Prompt changes:</strong> a different skill (its own tools and hints, and since ADR-085 a different temperature for turns that can act), a memory change, the first turn after midnight (the Dates table), toggling thinking, and a repair, which costs two re-reads.</li>
+    <li><strong>History changes:</strong> the chat window sliding forward, Retry, an answer rewritten before it's saved (masking, framing cleanup), a phone command or card reply that ran without the model, and a cloud turn in between.</li>
+    <li><strong>Model changes:</strong> a Base↔Pro switch or the first photo reloads the engine as well, and backgrounding the app unloads everything.</li>
+    <li><strong>Fixed today:</strong> Writing, Test speed and fact extraction used to replace the chat's conversation. With two kept, the chat's follow-up in the new contract test reads 16 tokens instead of 284. The second conversation costs about 20 MB.</li>
+  </ul>
 </section>
 
 <section>
@@ -127,7 +146,7 @@ footer { font-size: .85rem; color: var(--muted); border-top: 1px solid var(--rul
       <tbody>
         <tr><td>Backend</td><td>CPU, GPU or NPU for the main model</td><td><span class="pill flat">CPU only</span></td><td>GPU reads 4.6× faster on Tensor G5 and the generic file answered correctly. It waits for a clean run on an idle phone (ADR-059)</td></tr>
         <tr><td>Weight cache</td><td>Saves the CPU's repacked weights to disk</td><td><span class="pill on">On, app-private</span></td><td>Without <code>cacheDir</code> it silently runs uncached (ADR-020). Cold load 16.4 s, warm 6.4–7.7 s today</td></tr>
-        <tr><td>KV cache reuse</td><td>Skips re-reading the chat</td><td><span class="pill on">One conversation</span></td><td>Moving the time to the message cut one emulator turn from over 6 min to 15–27 s (ADR-033)</td></tr>
+        <tr><td>KV cache reuse</td><td>Skips re-reading the chat</td><td><span class="pill on">Two conversations</span></td><td>Moving the time to the message cut one emulator turn from over 6 min to 15–27 s (ADR-033). A second kept conversation stops side jobs evicting the chat (ADR-097, today)</td></tr>
         <tr><td>Context size</td><td>How many tokens fit in a conversation</td><td><span class="pill on">4,096</span></td><td>The file declares no limit and a fixed context, so this is Anu's choice (measured today)</td></tr>
         <tr><td>Activation type</td><td>32- or 16-bit floats between layers</td><td><span class="pill off">Default (32-bit)</span></td><td>New in 0.18. No gain on the CPU in three runs each (today)</td></tr>
         <tr><td>Speculative decoding</td><td>Gemma's multi-token heads guess ahead</td><td><span class="pill off">Off</span></td><td>No gain on the Pixel's CPU (ADR-069). Retest on the GPU, where "on" read 8% faster</td></tr>
@@ -159,14 +178,18 @@ footer { font-size: .85rem; color: var(--muted); border-top: 1px solid var(--rul
   <ul>
     <li><strong>0.18.1 matches 0.17.1 on the CPU.</strong> The 0.17.1 run was the session's first, with a cold cache and the app holding another copy of the model, which explains its slow load and short answer. Prompt reading, the steady figure, is the same.</li>
     <li><strong>16-bit activations bought nothing.</strong> The emulator's CPU has 16-bit float instructions (<code>fphp</code>, <code>asimdhp</code>) and int8 matrix instructions (<code>i8mm</code>). Gemma's CPU file stores its weights as small integers, and the heavy maths runs in integer kernels, so the float type between layers barely matters. ADR-096 leaves it unset.</li>
-    <li><strong>The role change is safe.</strong> 0.18 sends the model's earlier turns as "assistant". A new contract test rebuilds a chat from the transcript and the model recalls its own suggestion. All 5 contract tests pass, and cancel took 35 ms against a 500 ms target.</li>
+    <li><strong>The role change works.</strong> 0.18 sends the model's earlier turns as "assistant". A new contract test rebuilds a chat from the transcript and the model recalls its own suggestion. All 5 contract tests pass, and cancel took 35 ms against a 500 ms target.</li>
   </ul>
 </section>
 
 <section>
   <h2>What would actually make it faster</h2>
-  <ol class="next" data-fill="next">
-    <li><strong>The GPU on the Pixel.</strong> The biggest measured lever: 14.3 s to 3.3 s for the first word of a long prompt. It needs the clean idle-phone run of the contract and extraction tests that ADR-059 asks for, and your go to install on the phone.</li>
+  <ol class="next">
+    <li><strong>The GPU on the Pixel.</strong> The biggest measured lever: 14.3 s to 3.3 s for the first word of a long prompt. It needs the clean idle-phone run of the contract and extraction tests that ADR-059 asks for, and your go to install on the phone. It also makes every remaining re-read about 4× cheaper.</li>
+    <li><strong>Fewer re-reads on skill changes.</strong> Keep a skill's tools offered for the rest of the window, or use one sampling setting for chat and acting turns. Both change answers, so each needs your decision and an eval run before it ships.</li>
+    <li><strong>Cheap prompt fixes.</strong> Move the Dates table onto the newest message, as the time already is (ADR-033). Keep MCP tools in a stable order. Shorten the longest tool descriptions. Each cuts misses or tokens without changing what the model is told.</li>
+    <li><strong>No Base↔Pro flip-flops.</strong> Each switch reloads the model and re-reads the chat. Stay on the loaded tier unless the router clearly needs the other.</li>
+    <li><strong>Save what the model actually wrote.</strong> Masking and cleanup could apply when an answer is shown, not when it's saved. Then the history still matches after a rewrite. This touches invariant I1, so it needs a careful design first.</li>
   </ol>
 </section>
 
@@ -178,7 +201,7 @@ footer { font-size: .85rem; color: var(--muted); border-top: 1px solid var(--rul
     <li><a href="https://ai.google.dev/edge/litert-lm/overview">LiteRT-LM overview (Google AI Edge)</a><span class="why">Official guide to engines, conversations, backends and the benchmark counters.</span></li>
     <li><a href="https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm">Gemma 4 E4B for LiteRT-LM (Hugging Face)</a><span class="why">The exact files in Anu's catalog: the generic CPU build and the GPU build.</span></li>
     <li><a href="https://ai.google.dev/gemma/docs/core">Gemma documentation</a><span class="why">Model cards, the published sampling defaults Anu keeps, and what "E4B" (effective 4B parameters) means.</span></li>
-    <li><a href="https://github.com/google/XNNPACK">XNNPACK</a><span class="why">The CPU kernel library behind the CPU backend and its weight cache (ADR-020). Its quantized kernels are why 16-bit activations don't matter here.</span></li>
+    <li><a href="https://github.com/google/XNNPACK">XNNPACK</a><span class="why">The CPU kernel library behind the CPU backend and its weight cache (ADR-020). Its integer kernels are the likely reason 16-bit activations changed nothing here.</span></li>
     <li><a href="https://arxiv.org/abs/2211.17192">Leviathan et al., Fast Inference from Transformers via Speculative Decoding (2023)</a><span class="why">The idea behind ADR-069: draft several tokens, then check them in one pass.</span></li>
     <li><a href="https://arxiv.org/abs/2404.19737">Gloeckle et al., Better &amp; Faster Large Language Models via Multi-token Prediction (2024)</a><span class="why">Where Gemma's built-in multi-token prediction heads come from.</span></li>
     <li><a href="https://arxiv.org/abs/2309.06180">Kwon et al., Efficient Memory Management for LLM Serving with PagedAttention (2023)</a><span class="why">The clearest explanation of what a KV cache holds and why it costs memory.</span></li>
@@ -188,5 +211,5 @@ footer { font-size: .85rem; color: var(--muted); border-top: 1px solid var(--rul
   </ul>
 </section>
 
-<footer>Measured figures come from the spike log in <code>docs/ARCHITECTURE.md</code> §16 (S1, 2026-09-28 and 2026-10-21) and ADR-096. Emulator speeds run on the Mac's hardware and are higher than the phone's; the Pixel 10 Pro is the reference for speed.</footer>
+<footer>Measured figures come from the spike log in <code>docs/ARCHITECTURE.md</code> §16 (S1, 2026-09-28 and 2026-10-21), ADR-096 and ADR-097. Emulator speeds run on the Mac's hardware and are higher than the phone's; the Pixel 10 Pro is the reference for speed.</footer>
 </div>
