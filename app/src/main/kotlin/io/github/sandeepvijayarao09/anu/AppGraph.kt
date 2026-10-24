@@ -196,7 +196,7 @@ class AppGraph(private val context: Context) {
         scope.launch {
             try {
                 val last = runCatching { db.answers().latestTier() }.getOrNull()?.let { name -> Tier.entries.firstOrNull { it.name == name } }
-                val id = warmModel(last, setOfNotNull(BrainId.BASE.takeIf(models::isInstalled), BrainId.PRO.takeIf(models::isInstalled))) ?: return@launch
+                val id = warmModel(last, setOfNotNull(BrainId.BASE.takeIf(models::isInstalled), BrainId.PRO.takeIf(models::isInstalled)), models.baseOnTpu) ?: return@launch
                 val started = System.nanoTime()
                 runCatching { onDevice.warm(id) }
                 // Which model and how long, never content.
