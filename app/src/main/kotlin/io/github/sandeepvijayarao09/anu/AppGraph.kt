@@ -388,7 +388,8 @@ class AppGraph(private val context: Context) {
             CreateNoteTool(notes),
             SearchNotesTool(notes),
             AppendNoteTool(notes),
-        ) + Flavor.tools(context, zone, appBrain = { onDevice.brainFor(BrainId.PRO) ?: onDevice.brainFor(BrainId.BASE) }, broker = { broker })
+        // An app task picks each step with a model call: on the TPU when Base is there, as ADK's agents do.
+        ) + Flavor.tools(context, zone, appBrain = { agentBrain()?.second }, broker = { broker })
     }
 
     private fun toolsFor(skill: Skill): List<String> = when (skill) {
@@ -426,7 +427,10 @@ class AppGraph(private val context: Context) {
         return memory.state.first().facts.filter { it.id in wanted }.associate { it.id to it.text }
     }
 
-    /** The on-device brain ADK's agents use (ADR-104), with its tier: Base when it's on the TPU, else Pro, else Base. */
+    /**
+     * The on-device brain for many-call work, ADK's agents (ADR-104) and app tasks (ADR-098), with its tier: Base when
+     * it's on the TPU, else Pro, else Base.
+     */
     private fun agentBrain(): Pair<Tier, Brain>? {
         val order = if (models.baseOnTpu) listOf(Tier.BASE to BrainId.BASE, Tier.PRO to BrainId.PRO) else listOf(Tier.PRO to BrainId.PRO, Tier.BASE to BrainId.BASE)
         return order.firstNotNullOfOrNull { (tier, id) -> onDevice.brainFor(id)?.let { tier to it } }
