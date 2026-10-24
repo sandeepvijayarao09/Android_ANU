@@ -13,6 +13,8 @@ litertlm = "0.18.1"
 litertNpuGoogleTensor = "2.3.0"
 # Live object detection (ADR-111): LiteRT's CompiledModel runs YOLOX; the same release as the Tensor NPU runtime.
 litert = "2.3.0"
+# Spike S15 (Qualcomm NPU): Qualcomm's QNN runtime, under the Qualcomm AI Hub Model License, in device tests only.
+qnnRuntime = "2.51.0"
 camerax = "1.6.2"
 mlkitGenaiPrompt = "1.0.0-beta4"
 localagentsRag = "0.3.0"
@@ -52,6 +54,8 @@ androidx-compose-ui-test-manifest = { module = "androidx.compose.ui:ui-test-mani
 litertlm-android = { module = "com.google.ai.edge.litertlm:litertlm-android", version.ref = "litertlm" }
 litert-npu-google-tensor = { module = "com.google.ai.edge.litert:litert-npu-runtime-google-tensor", version.ref = "litertNpuGoogleTensor" }
 litert-gpu = { module = "com.google.ai.edge.litert:litert-gpu", version.ref = "litert" }
+litert-npu-qualcomm = { module = "com.google.ai.edge.litert:litert-npu-runtime-qualcomm", version.ref = "litert" }
+qnn-runtime = { module = "com.qualcomm.qti:qnn-runtime", version.ref = "qnnRuntime" }
 androidx-camera-camera2 = { module = "androidx.camera:camera-camera2", version.ref = "camerax" }
 androidx-camera-lifecycle = { module = "androidx.camera:camera-lifecycle", version.ref = "camerax" }
 androidx-camera-view = { module = "androidx.camera:camera-view", version.ref = "camerax" }

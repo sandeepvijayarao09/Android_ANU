@@ -15,8 +15,8 @@ import org.junit.runner.RunWith
  * Spike S14 (ADR-111): YOLOX-Nano through LiteRT on this device. It finds the glasses on a dinner table (COCO val2017
  * 405691, 640 × 480, which scripts/live-camera-photos.sh pushes; it skips without it) and times detection, the
  * letterbox and decoding included, as the camera runs it.
- * Runner arguments: `width` for the frame's width (640 by default), and `backend=GPU` or `CPU`; unset, the detector
- * picks (the GPU on a phone, the CPU on an emulator).
+ * Runner arguments: `width` for the frame's width (640 by default), and `backend=GPU`, `CPU` or `NPU` (spike S15, through
+ * the app's native library folder); unset, the detector picks (the GPU on a phone, the CPU on an emulator).
  * Results: `adb logcat -d -s AnuS14`.
  */
 @RunWith(AndroidJUnit4::class)
@@ -34,7 +34,7 @@ class S14DetectionTest {
         val frame = Frame(scaled.width, scaled.height, IntArray(scaled.width * scaled.height).also { scaled.getPixels(it, 0, scaled.width, 0, 0, scaled.width, scaled.height) })
 
         val loadStart = SystemClock.elapsedRealtime()
-        YoloxDetector.open(instrumentation.targetContext.assets, backend).use { detector ->
+        YoloxDetector.open(instrumentation.targetContext.assets, backend, instrumentation.targetContext.applicationInfo.nativeLibraryDir).use { detector ->
             val loadMs = SystemClock.elapsedRealtime() - loadStart
             repeat(WARM_UP) { detector.detect(frame) }
             val times = LongArray(RUNS)

@@ -13,6 +13,8 @@ android {
 
     // The model is read straight from the APK, so it isn't compressed.
     androidResources { noCompress += "tflite" }
+    // The NPU runtime looks for its dispatch and QNN libraries as files in the native library folder (spike S15).
+    packaging { jniLibs { useLegacyPackaging = true } }
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -30,6 +32,10 @@ dependencies {
 
     testImplementation(libs.junit)
 
+    // Spike S15: the Snapdragon's NPU through LiteRT's Qualcomm dispatch and compiler plugin, with Qualcomm's QNN
+    // libraries (HTP v81 for the SM8850). Device tests only until the spike passes.
+    androidTestImplementation(libs.litert.npu.qualcomm)
+    androidTestImplementation(libs.qnn.runtime)
     androidTestImplementation(libs.androidx.test.runner)
     androidTestImplementation(libs.androidx.test.ext.junit)
 }
