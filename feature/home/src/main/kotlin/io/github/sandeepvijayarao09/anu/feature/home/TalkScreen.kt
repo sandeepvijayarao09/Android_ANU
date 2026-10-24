@@ -126,6 +126,8 @@ fun TalkScreen(
     awayPulse: Int = 0,
     /** Opens a fact in Memory, or Memory itself for null, from "About this answer". */
     onOpenMemory: (Long?) -> Unit = {},
+    /** Opens live camera (ADR-111), whose "Ask Anu about this" comes back as a photo. Null hides its row. */
+    onLiveCamera: (() -> Unit)? = null,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val colors = AnuTheme.colors
@@ -250,6 +252,7 @@ fun TalkScreen(
             onPdf = { openPdf.launch(arrayOf("application/pdf")) },
             onVoiceNote = { if (micGranted) viewModel.startRecording() else onRequestMic(viewModel::startRecording) },
             onDismiss = { adding = false },
+            onLiveCamera = onLiveCamera,
         )
     }
     ConversationSheets(state, viewModel::approve, viewModel::deny, viewModel::revise, viewModel::approveCloud, viewModel::declineCloud)
@@ -631,6 +634,7 @@ internal fun voiceLabel(clip: VoiceClip): String =
 /**
  * What the "+" adds (design review D9, ADR-078, ADR-094, ADR-095): photos from the system picker or one from the camera,
  * up to [Photo.MAX_IN_VIEW] in all, a PDF from the system file picker, or a voice note, which needs a model that can hear.
+ * Live camera (ADR-111) finds things in view, and its "Ask Anu about this" adds the frame as a photo.
  */
 @Composable
 internal fun AddSheet(
@@ -641,6 +645,7 @@ internal fun AddSheet(
     photosLeft: Int = Photo.MAX_IN_VIEW,
     onCamera: () -> Unit = {},
     onPdf: () -> Unit = {},
+    onLiveCamera: (() -> Unit)? = null,
 ) {
     val room = photosLeft > 0
     AnuSheet(onDismiss) { close ->
@@ -659,6 +664,14 @@ internal fun AddSheet(
                 onClick = { close(); onPhoto() },
             )
             GroupRow("Camera", subtitle = "Take a photo now", icon = AnuIcons.Camera, enabled = room, onClick = { close(); onCamera() })
+            if (onLiveCamera != null) {
+                GroupRow(
+                    "Live camera",
+                    subtitle = if (room) "Find things around you, on this phone" else "Find things around you; ask about them once a photo is removed",
+                    icon = AnuIcons.Scan,
+                    onClick = { close(); onLiveCamera() },
+                )
+            }
             GroupRow("PDF", subtitle = "Choose one from your files, and Anu reads it on this phone", icon = AnuIcons.Note, onClick = { close(); onPdf() })
             GroupRow(
                 "Voice note",

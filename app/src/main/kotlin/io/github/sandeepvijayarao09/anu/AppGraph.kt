@@ -23,6 +23,8 @@ import io.github.sandeepvijayarao09.anu.core.model.Embedder
 import io.github.sandeepvijayarao09.anu.core.model.ModelInstaller
 import io.github.sandeepvijayarao09.anu.brain.embedding.EmbeddingCatalog
 import io.github.sandeepvijayarao09.anu.brain.embedding.GemmaEmbedder
+import io.github.sandeepvijayarao09.anu.brain.embedding.Gemma2Embedder
+import io.github.sandeepvijayarao09.anu.core.model.VisualEmbedder
 import io.github.sandeepvijayarao09.anu.brain.litertlm.OnDeviceBrains
 import io.github.sandeepvijayarao09.anu.core.agent.BrainProvider
 import io.github.sandeepvijayarao09.anu.core.agent.Agent
@@ -349,17 +351,33 @@ class AppGraph(private val context: Context) {
     val embedder: () -> Embedder? = { searchModel ?: GemmaEmbedder.installed(File(context.noBackupFilesDir, "models"))?.also { searchModel = it } }
 
     /**
+     * Live camera's EmbeddingGemma 2 (ADR-111), once installed: the Tensor G5 build on that chip's TPU when it's there,
+     * else the CPU build. Checked again until one is.
+     */
+    private var liveModel: Gemma2Embedder? = null
+    val visualEmbedder: () -> VisualEmbedder? = {
+        liveModel ?: Gemma2Embedder.installed(
+            File(context.noBackupFilesDir, "models"),
+            File(context.noBackupFilesDir, "litertlm-cache"),
+            tensorG5 = "tensorg5" in Build.SOC_MODEL.lowercase().replace(" ", ""),
+            nativeLibraryDir = context.applicationInfo.nativeLibraryDir,
+        )?.also { liveModel = it }
+    }
+
+    /**
      * Installs a model file the user already has, if it's one this phone uses (ADR-067): a chat model's chosen build,
-     * or one of search by meaning's two files, which then get their vectors at once.
+     * one of search by meaning's two files, which then get their vectors at once, or live camera's EmbeddingGemma 2.
      */
     val installer: ModelInstaller by lazy {
         val search = EmbeddingCatalog.MODEL.let { KnownFile(it.name, it.bytes, it.sha256, "EmbeddingGemma 300M", pairedWith = EmbeddingCatalog.TOKENIZER.name) }
         val tokenizer = EmbeddingCatalog.TOKENIZER.let { KnownFile(it.name, it.bytes, it.sha256, "EmbeddingGemma's tokenizer", pairedWith = EmbeddingCatalog.MODEL.name) }
+        val live = EmbeddingCatalog.VISION.let { KnownFile(it.name, it.bytes, it.sha256, "EmbeddingGemma 2") }
+        val liveTpu = EmbeddingCatalog.VISION_TENSOR_G5.let { KnownFile(it.name, it.bytes, it.sha256, "EmbeddingGemma 2's Tensor G5 build") }
         fun chat(artifact: ModelArtifact, what: String) = KnownFile(artifact.fileName, artifact.sizeBytes, artifact.sha256, what)
         CatalogInstaller(
             File(context.noBackupFilesDir, "models"),
-            wanted = { listOf(chat(models.artifactFor(BrainId.BASE), "Gemma 4 E2B"), chat(models.artifactFor(BrainId.PRO), "Gemma 4 E4B"), search, tokenizer) },
-            known = ModelCatalog.all.map { chat(it, "${if (it.brain == BrainId.BASE) "Gemma 4 E2B" else "Gemma 4 E4B"}'s ${buildName(it.variant)}") } + listOf(search, tokenizer),
+            wanted = { listOf(chat(models.artifactFor(BrainId.BASE), "Gemma 4 E2B"), chat(models.artifactFor(BrainId.PRO), "Gemma 4 E4B"), search, tokenizer, live, liveTpu) },
+            known = ModelCatalog.all.map { chat(it, "${if (it.brain == BrainId.BASE) "Gemma 4 E2B" else "Gemma 4 E4B"}'s ${buildName(it.variant)}") } + listOf(search, tokenizer, live, liveTpu),
             onInstalled = { file -> if (file == search || file == tokenizer) scope.launch { runCatching { memory.index() } } },
         )
     }

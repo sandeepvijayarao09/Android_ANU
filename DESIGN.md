@@ -285,6 +285,7 @@ It's always visible and never hidden by scrolling.
   - **Photo** ("Choose up to 4 from your photos", then "Choose up to 2 more from your photos") opens the system photo picker.
   - **PDF** ("Choose one from your files, and Anu reads it on this phone") opens the system file picker.
   - **Camera** ("Take a photo now") opens the system camera. Both photo rows are disabled once the message has 4, and Photo then says "4 photos added, the most at once".
+  - **Live camera** ("Find things around you, on this phone") opens live camera (below). It stays enabled with 4 photos, and says it can be asked about once a photo is removed.
   - **Voice note** ("Record it, and Anu writes it down on this phone") starts recording. Without a model that can hear it's disabled, with "Needs Gemma 4 on this phone".
 - **With photos:** up to 4 sit above the pill in a row, 64dp thumbnails with `md` corners, 8dp apart. Each has a remove badge in its top-right corner: a 22dp `full` circle in `surface` with a hairline and a 12dp close glyph in `text`, inset 4dp, inside a 48dp touch target (TalkBack: "Remove photo 2"). The mic becomes Send, so photos can go on their own. Past 4, one `text-muted` caption line above the composer says "Anu can look at up to 4 photos at once.", with OK.
 - **With a PDF:** a `full` pill above the composer, `surface-2`, with the note glyph and "Lease.pdf · 12 pages" in callout (the name ellipsized in the middle), and a 48dp Remove button, as a voice note waits. The mic becomes Send. In your turn the same pill sits above your words (TalkBack: "PDF, Lease.pdf · 12 pages"). While a long PDF is read, Anu's line says "Reading Lease.pdf… page 7 of 20" in `text-muted`, as a voice note's does.
@@ -345,6 +346,16 @@ While live talk goes on behind another app, it shows in two places, so it's neve
 
 ### Ask Anu about this screen (ADR-108)
 A Quick Settings tile with the Talk tab's concentric circles, "Ask Anu" over "This screen". One tap closes the panel and opens the assistant card with "Will use this screen" already on. When it can't read the screen, the card says why in `text-muted` caption where the pill would be ("To read the screen from this tile, turn on Anu app control…").
+
+### Live camera (ADR-111)
+The back camera full screen, always dark (as camera apps are), with Anu finding things in it.
+- **Boxes:** a 1.5dp white stroke at 90%, 6dp corners, round each thing found, with a label chip above it: the name and certainty in 13sp label ("cup 91%"), white on black at 60%. Never green or orange: those mean where data is.
+- **While a question is asked:** matches get a 3dp white stroke and a white chip with black text; everything else dims to 30%.
+- **Top:** "‹ Talk" as a 48dp pill on black at 60%, and the privacy indicator on the right. Under them, the detector's line in mono `text` on the same black: "YOLOX-Nano · CPU · 31 fps · 27 ms", exact values only.
+- **Bottom sheet:** `surface` with the sheet's top corners: the search field ("Find something, like “anything to drink”"); one `text-muted` callout line saying what it found ("In view: cup, chair", "2 in view: cup, bottle", "Looking for bottle, cup or wine glass", "Matching by meaning…", "Anu can spot 80 everyday things, and none of them fits that."); then "Ask Anu about this", a full-width primary button, which puts the frame in Talk's composer as a photo.
+- **Without the camera permission:** a title ("Anu needs the camera to find things around you."), a `text-muted` line ("Frames are looked at on this phone and never saved.") and "Allow camera".
+- **Notices** sit centred on black at 60% with `md` corners: "Paused while the phone cools down", or "Anu can't look for things on this phone."
+- **TalkBack** hears the things in view and which match; the found line is a polite live region.
 
 ### Assistant card (over any app)
 It opens from the power button, the corner swipe or "Hey Anu".
