@@ -381,6 +381,18 @@ class AppControlTest {
     }
 
     @Test
+    fun `after a search, a page that shows only its top is read again until the results load`() = runTest {
+        val searching = screen(field(1, "Search Amazon", "aa batteries"))
+        val loading = screen(button(1, "Search Amazon"))
+        val loaded = AppScreen("Test Shop", SHOP, listOf(button(1, "Search Amazon")) + (2..20).map { button(it, "Battery pack $it") })
+        val shop = FakeShop(mutableListOf(searching, loading, loaded))
+        val brain = ScriptedBrain(BrainId.PRO, steps = listOf(NO_PLAN, step("enter", 1), step("stuck", note = "Seen.")))
+        setUp(shop, brain).execute(task("find aa batteries"), run())
+        val last = (brain.requests.last().transcript.single() as ChatMessage.User).text
+        assertTrue(last.contains("Battery pack 2"))
+    }
+
+    @Test
     fun `words find one element, or none when two fit as well`() {
         val twice = screen(button(1, "Add to cart"), button(2, "Add to cart"))
         assertNull(ScreenMatch.find(twice, PlanStep(StepAction.TAP, "Add to cart")))

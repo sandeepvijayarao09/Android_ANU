@@ -15,6 +15,7 @@ import io.github.sandeepvijayarao09.anu.core.model.UntrustedContent
 import io.github.sandeepvijayarao09.anu.core.security.OneTimeCodes
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.selects.select
@@ -358,13 +359,25 @@ class AppTaskTool(
         var byModel = false
         // Text to type once a tap opens the field: Amazon's search bar on its results is a button that opens one.
         var typeNext: String? = null
+        var before: AppScreen? = null
+        var searched = false
         var misses = 0
         val tried = mutableMapOf<String, Int>()
         fun done(said: String, finished: Boolean) = AppTaskDone(said, finished, history.toList())
         for (n in 1..maxSteps) {
             driver.showProgress(app.label, "Looking at the screen…")
             val readFrom = millis()
-            val screen = driver.read() ?: return done("Stopped: Anu couldn't read ${app.label}'s screen.", false)
+            var screen = driver.read() ?: return done("Stopped: Anu couldn't read ${app.label}'s screen.", false)
+            // A screen still loading: far fewer elements than the last one, or a search's results showing only the page's top.
+            // Amazon's results read 10 elements at first, so the model tapped the search bar again and went round in circles.
+            var looks = 0
+            while (looks < LOADING_LOOKS && (searched && screen.elements.size <= FEW || before != null && screen.elements.size * 2 < before.elements.size)) {
+                delay(LOADING_MS)
+                screen = driver.read() ?: return done("Stopped: Anu couldn't read ${app.label}'s screen.", false)
+                looks++
+            }
+            before = screen
+            searched = false
             val thinkFrom = millis()
             // Anu acts only in the approved app. Another app, such as a browser a link opened, needs asking again.
             if (screen.packageName != app.packageName) {
@@ -401,7 +414,7 @@ class AppTaskTool(
             }
             byModel = matched == null && waiting == null
             var step = waiting ?: matched?.second ?: decide(brain, goal, app.label, history, ScreenMatch.focus(screen, about))
-            log("App task: step $n ${step?.action ?: "unparsed"} by ${if (matched != null) "words" else "model"}, ${screen.elements.size} elements, read in ${thinkFrom - readFrom} ms, chosen in ${millis() - thinkFrom} ms")
+            log("App task: step $n ${step?.action ?: "unparsed"} by ${if (waiting != null) "the tap before" else if (matched != null) "words" else "model"}, ${screen.elements.size} elements, read in ${thinkFrom - readFrom} ms, chosen in ${millis() - thinkFrom} ms")
             step ?: return done("Stopped: Anu couldn't work out the next step in ${app.label}.", false)
             when (step.action) {
                 StepAction.DONE -> return done(step.note.ifBlank { "Done in ${app.label}." }, true)
@@ -429,6 +442,7 @@ class AppTaskTool(
                 inView = setOf(UntrustedContent.SCREEN), granted = setOf(AppStepTool.NAME),
             )
             val outcome = broker().execute(call, run)
+            searched = step.action == StepAction.ENTER && outcome is ToolOutcome.Ok
             log("App task: step $n ${outcome::class.simpleName}")
             when (outcome) {
                 is ToolOutcome.Ok -> {
@@ -497,6 +511,13 @@ class AppTaskTool(
 
         /** Enough for search, open a result, choose an option and add it, with room for one more. */
         const val MAX_PLAN = 8
+
+        /** How long a screen that looks half-loaded gets before it's read again. */
+        const val LOADING_MS = 1_500L
+        private const val LOADING_LOOKS = 3
+
+        /** About a page's top bar alone: a search's results with no more than this haven't loaded. */
+        private const val FEW = 12
 
         private val SCHEMA = JsonSchemas.of(AppStep.serializer())
         private val PLAN_SCHEMA = JsonSchemas.of(AppPlan.serializer())

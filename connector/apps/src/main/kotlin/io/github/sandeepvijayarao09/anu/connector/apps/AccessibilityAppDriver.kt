@@ -259,6 +259,8 @@ class AccessibilityAppDriver(private val context: Context) : AppDriver {
             }
         }
         withContext(Dispatchers.Main) { service.pill.touchable(false) }
+        // The window manager applies the change a little later; a tap sent at once still hit the line.
+        delay(PILL_AWAY_MS)
         try {
             val sent = withContext(Dispatchers.Main) { service.dispatchGesture(GestureDescription.Builder().addStroke(stroke).build(), callback, null) }
             check(sent && withTimeoutOrNull(millis + 2_000) { finished.await() } == true) { if (node != null) "couldn't tap that" else "couldn't scroll" }
@@ -275,6 +277,7 @@ class AccessibilityAppDriver(private val context: Context) : AppDriver {
         const val CONTAINER_DEPTH = 4
         const val QUIET_MS = 400L
         const val AGREE_MS = 250L
+        const val PILL_AWAY_MS = 200L
         const val SETTLE_MAX_MS = 2_500L
     }
 }

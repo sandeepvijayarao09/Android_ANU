@@ -42,9 +42,13 @@ internal class ProgressPill(private val context: Context) {
         line = null
     }
 
-    /** Lets touches through the line, or takes them again. Call on the main thread, before and after Anu's own tap. */
+    /**
+     * Hides the line and lets touches through it, or brings it back. Call on the main thread, before and after Anu's own
+     * tap: on Amazon a tap on the suggestion under the line hit the line, though it let touches through, so it now hides.
+     */
     fun touchable(on: Boolean) {
         val shown = view ?: return
+        shown.visibility = if (on) View.VISIBLE else View.INVISIBLE
         val params = shown.layoutParams as WindowManager.LayoutParams
         params.flags = if (on) params.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv() else params.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
         windows.updateViewLayout(shown, params)
