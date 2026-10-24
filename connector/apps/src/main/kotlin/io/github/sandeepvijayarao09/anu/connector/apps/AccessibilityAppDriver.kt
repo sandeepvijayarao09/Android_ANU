@@ -93,11 +93,16 @@ class AccessibilityAppDriver(private val context: Context) : AppDriver {
 
     /** The active app's screen now, with the nodes behind its numbers. */
     private fun snapshot(): Pair<AppScreen, Map<Int, AccessibilityNodeInfo>>? {
-        val root = activeWindow()?.root ?: service?.rootInActiveWindow ?: return null
+        // The focused app window, or the system's active root when that reads richer: on Amazon's results one read 10
+        // elements where the page held 1,766 nodes.
+        val roots = listOfNotNull(activeWindow()?.root, service?.rootInActiveWindow).distinct()
+        val (root, found, byId) = roots.map { root ->
+            val found = mutableListOf<ScreenElement>()
+            val byId = mutableMapOf<Int, AccessibilityNodeInfo>()
+            walk(root, found, byId, insideButton = false)
+            Triple(root, found, byId)
+        }.maxByOrNull { it.second.size } ?: return null
         val packageName = root.packageName?.toString() ?: return null
-        val found = mutableListOf<ScreenElement>()
-        val byId = mutableMapOf<Int, AccessibilityNodeInfo>()
-        walk(root, found, byId, insideButton = false)
         val label = runCatching {
             context.packageManager.getApplicationLabel(context.packageManager.getApplicationInfo(packageName, 0)).toString()
         }.getOrDefault(packageName)
@@ -109,8 +114,12 @@ class AccessibilityAppDriver(private val context: Context) : AppDriver {
      * reads as one button; fields, switches and buttons inside it are still listed on their own.
      */
     private fun walk(node: AccessibilityNodeInfo, found: MutableList<ScreenElement>, byId: MutableMap<Int, AccessibilityNodeInfo>, insideButton: Boolean) {
-        if (found.size >= MAX_ELEMENTS || !node.isVisibleToUser) return
+        if (found.size >= MAX_ELEMENTS) return
+        // A wrapper can say it isn't visible while its children are on screen, as Amazon's do: its branch is still read,
+        // and an element is listed when it's visible or its bounds are on the screen.
+        val shows = node.isVisibleToUser || onScreen(node)
         fun add(kind: ScreenElement.Kind, label: String, value: String? = null, checked: Boolean? = null) {
+            if (!shows) return
             val id = found.size + 1
             found += ScreenElement(id, kind, label.trim(), value, node.isPassword, checked)
             byId[id] = node
@@ -149,6 +158,13 @@ class AccessibilityAppDriver(private val context: Context) : AppDriver {
         for (i in 0 until node.childCount) node.getChild(i)?.let { walk(it, found, byId, button) }
     }
 
+    /** Whether [node] has a size and lies at least partly on the screen. */
+    private fun onScreen(node: AccessibilityNodeInfo): Boolean {
+        val bounds = Rect().also(node::getBoundsInScreen)
+        val size = context.resources.displayMetrics
+        return bounds.width() > 0 && bounds.height() > 0 && bounds.intersects(0, 0, size.widthPixels, size.heightPixels)
+    }
+
     /** Whether a finger would tap [node] as one thing. */
     private fun tappable(node: AccessibilityNodeInfo): Boolean =
         node.isClickable || node.className?.endsWith("Button") == true
@@ -177,13 +193,20 @@ class AccessibilityAppDriver(private val context: Context) : AppDriver {
     }
 
     /**
-     * A clickable element gets its click action. Any other gets a tap at its center, as a finger would: clicking a
-     * clickable parent instead, as at first, reported success on Amazon's suggestion list and did nothing.
+     * A tap where the element shows, as a finger would. Amazon's suggestions and result cards took the click action,
+     * said it worked, and did nothing, so the click action is kept only for an element that's off the screen.
      */
     override suspend fun tap(id: Int) {
         val node = node(id)
-        if (node.isClickable && node.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return
-        gesture(node, Path().apply { center(node).let { (x, y) -> moveTo(x, y) } }, 60)
+        val bounds = Rect().also(node::getBoundsInScreen)
+        val size = context.resources.displayMetrics
+        if (!bounds.intersect(0, 0, size.widthPixels, size.heightPixels) || bounds.isEmpty) {
+            var target: AccessibilityNodeInfo? = node
+            while (target != null && !target.isClickable) target = target.parent
+            check(target?.performAction(AccessibilityNodeInfo.ACTION_CLICK) == true) { "couldn't tap that" }
+            return
+        }
+        gesture(node, Path().apply { moveTo(bounds.exactCenterX(), bounds.exactCenterY()) }, 60)
     }
 
     override suspend fun type(id: Int, text: String) {
@@ -237,11 +260,6 @@ class AccessibilityAppDriver(private val context: Context) : AppDriver {
         val started = SystemClock.uptimeMillis()
         delay(QUIET_MS)
         while (SystemClock.uptimeMillis() - service.lastChangeAt < QUIET_MS && SystemClock.uptimeMillis() - started < SETTLE_MAX_MS) delay(50)
-    }
-
-    private fun center(node: AccessibilityNodeInfo): Pair<Float, Float> {
-        val bounds = Rect().also(node::getBoundsInScreen)
-        return bounds.exactCenterX() to bounds.exactCenterY()
     }
 
     /** Performs [path] as a touch, with Anu's line letting touches through, so one under it reaches the app. */

@@ -371,7 +371,9 @@ class AppTaskTool(
             // A screen still loading: far fewer elements than the last one, or a search's results showing only the page's top.
             // Amazon's results read 10 elements at first, so the model tapped the search bar again and went round in circles.
             var looks = 0
-            while (looks < LOADING_LOOKS && (searched && screen.elements.size <= FEW || before != null && screen.elements.size * 2 < before.elements.size)) {
+            while (looks < (if (searched) SEARCH_LOOKS else LOADING_LOOKS) &&
+                (searched && screen.elements.size <= FEW || before != null && screen.elements.size * 2 < before.elements.size)
+            ) {
                 delay(LOADING_MS)
                 screen = driver.read() ?: return done("Stopped: Anu couldn't read ${app.label}'s screen.", false)
                 looks++
@@ -515,6 +517,9 @@ class AppTaskTool(
         /** How long a screen that looks half-loaded gets before it's read again. */
         const val LOADING_MS = 1_500L
         private const val LOADING_LOOKS = 3
+
+        /** A search's results get longer: on the Pixel, Amazon's showed to accessibility more than 5 s after enter. */
+        private const val SEARCH_LOOKS = 6
 
         /** About a page's top bar alone: a search's results with no more than this haven't loaded. */
         private const val FEW = 12
