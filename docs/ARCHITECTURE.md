@@ -1,6 +1,6 @@
 # Anu for Android: Architecture
 
-Version 1.59.3 · Draft · 2026-10-24
+Version 1.59.4 · Draft · 2026-10-24
 Status: proposed. OD-1 to OD-4 were resolved on 2026-09-25 (§16).
 Product intent lives in [VISION.md](VISION.md).
 
@@ -1103,6 +1103,22 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 
 **Spike log.** Measured results only, newest first.
 
+- **Anu against AI Edge Gallery, the baseline, 2026-10-24.** Pixel 10 Pro (Tensor G5, Android 17), idle and charging, thermal status 0. Gallery's metrics come from Gallery's own benchmark call (`GalleryParityBenchmarkTest`: LiteRT-LM's `benchmark()`, 256 tokens read and 256 written, 3 runs, a fresh cache). Anu's come from the app's debug speed line, on one real turn: "What is 12 times 9?", a new conversation of 1,390 tokens (system 922, history 2,691 and message 19 characters, no tools).
+
+  | | Gallery's benchmark, E4B on the CPU | Anu, Pro (E4B) on the CPU | Gallery's benchmark, E4B on the GPU | Gallery's benchmark, E2B on the TPU | Anu, Base (E2B) on the TPU |
+  |---|---|---|---|---|---|
+  | Tokens read | 256 | 1,390 | 256 | 256 | 1,390 |
+  | First token | 4.6 s | 17.1 s | 1.25 s | 0.22 s | 1.2 s |
+  | Reading | 59.9 tok/s | 84.1 tok/s | 227.9 tok/s | 1,604 tok/s | 1,271 tok/s |
+  | Writing | 8.7 tok/s | 6.7 tok/s (12 tokens) | 8.0 tok/s | 19.1 tok/s | 19.7 tok/s (12 tokens) |
+  | Load, first / later | 28.6 s / 1.3 s | 6.4 s (switching, cached) | 91.2 s / 20.0 s | 5.1 s / 4.4 s | — |
+
+  - **On the TPU, Anu matches Gallery.** It writes as fast, 19.7 tokens/s against 19.1, and reads about 20% slower: 1,271 against 1,604 tokens/s, which is close to Gallery's first run (1,274). Its first token takes 1.2 s rather than 0.2 s because it read 5.4 times as many tokens. Reading took 1.09 s of the 1.22 s.
+  - **On the CPU,** Anu read faster than the benchmark (84 against 60 tokens/s, since longer prompts read more efficiently) and wrote a little slower (6.7 against 8.7). It wrote only 12 tokens, so that rate includes its start.
+  - **Where Anu's time goes:** reading the chat. History was 72% of what the turn read, and the system prompt 25%. A turn that keeps its conversation (ADR-097) reads only the new message, so its first token comes near Gallery's 0.2 s. A rebuilt one reads everything: about 1 s per 1,300 tokens on the TPU, and 15–20 s on the CPU.
+  - **The GPU** reads 3.8× faster than the CPU and writes no faster, so on this phone the TPU (27× faster reading, 2.2× faster writing) is what matters. The GPU isn't used for chat in Anu (ADR-059).
+  - Each run kept its numbers from the day before within 5%, except the CPU's first load, which was 28.6 s here against 49.4 s on 2026-10-23.
+
 - **Base on the TPU in the app, 2026-10-24.** Pixel 10 Pro (Tensor G5, Android 17), the debug build at 2cb8c95, with E2B's Tensor G5 file installed in Anu's models (its SHA-256 checked on the phone).
   - **A typed turn:** "What is 12 times 9?" got "12 times 9 is 108."
   - **The speed line:** `Base on NPU_TENSOR_G5 read 1390 tokens at 1271.2 tok/s, first token after 1221 ms, wrote 12 at 19.7 tok/s, conversation new`. That's a new conversation, so all 1,390 tokens were read in about 1.1 s. The same read on E4B's CPU would take about 21 s (65.5 tokens/s in Gallery's benchmark).
@@ -1516,6 +1532,7 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 |---|---|---|
 | Project scaffold: Gradle 9.6, AGP 9.4.1, Kotlin 2.4.20; `app` with `personal` and `play` flavors | 0 | Implemented. Both flavors build |
 | CI workflow (`.github/workflows/ci.yml`), including the Play SMS-permission check | 0 | Implemented, and runs on every push to main and on pull requests: unit tests for every module and both flavors, where building a play variant checks that its manifest has no SMS permission. It compiles every module's device tests, which run locally. It passed for `1da4b19` on 2026-09-30 |
+| Gallery baseline (`GalleryParityBenchmarkTest`, AI Edge Gallery's benchmark call) | 0 | Verified on the Pixel 10 Pro, 2026-10-24: Gallery's metrics on the CPU, GPU and TPU beside Anu's in-app turn (spike log). On the TPU, Anu writes as fast as Gallery's benchmark and reads about 20% slower. Its first token waits on reading the chat. Gallery's own app (its Benchmark screen) isn't compared yet |
 | Spike S1 (runtime on device) | 0 | In progress. Run 2 on the Anu emulator passed: contract, tools, schema, cancel, memory. On the reference phone (Pixel 10 Pro), E4B's CPU build passes all 6 tests at 6–7 tokens/s, and its GPU build writes garbage (ADR-059). E2B's CPU build is faster (9–9.5 tokens/s) but missed "I'm vegan" in extraction. The Tensor G5 NPU build runs on the TPU through `Backend.NPU` with Google's Tensor dispatch library (ADR-102). It passes the contract (6 of 6), reads at about 1,600 tokens/s and writes at 18.6 in Gallery's benchmark, but fails extraction like the GPU. Speculative decoding gives no gain on the phone's CPU (ADR-069). On 0.18.1 (ADR-096) the emulator's speed is unchanged, 16-bit activations give no gain on its CPU, and the contract passes. On an idle phone with 0.18.1, E4B's generic file on the GPU passes the contract (6 of 6), reads prompts 4.7× faster and writes 1.2× faster than the CPU, but fails extraction ("I'm vegetarian" gives no fact, twice), so it isn't verified. Peak RAM and context limits are still to measure |
 | Spike S2 (model delivery) | 0 | Partly done: ungated, and per-backend files found |
 | Spike S3 (on-device embeddings) | 0 | Verified on the Anu emulator and the reference phone (Pixel 10 Pro). Its eval (`S3EmbeddingTest`) passes on both: 11 of 12 facts found, 3 wrong in 11 messages, and no small talk with facts. A search takes about 0.19–0.23 s on the emulator and 0.47 s on the phone, on one CPU thread, with the 256-token file (ADR-062) |
@@ -1589,6 +1606,7 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 
 ### Changelog
 
+- **1.59.4** (2026-10-24): AI Edge Gallery as the baseline. On the Pixel 10 Pro, Gallery's benchmark on the CPU, GPU and TPU sits beside Anu's in-app numbers (spike log, component status). On the TPU, Anu writes as fast as Gallery's benchmark, and its first token waits on reading the chat.
 - **1.59.3** (2026-10-24): Base on the TPU answered a typed turn in the app on the Pixel 10 Pro, reading at 1,271 tokens/s with the first token after 1.2 s (ADR-103 status, spike log). Warm start loads Base while Base runs on the TPU.
 - **1.59.2** (2026-10-24): a short follow-up no longer keeps a brief or a request for ADK's agents (ADR-104), which sent plain chat to the agents and lost its context.
 - **1.59.1** (2026-10-24): debug builds' speed line says what a built conversation read, part by part (system, tools, history, message, in characters). The spike log records a rebuilt turn on the emulator: half of what it read was history, a quarter tool definitions.
