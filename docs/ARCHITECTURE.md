@@ -1,6 +1,6 @@
 # Anu for Android: Architecture
 
-Version 1.52.0 · Draft · 2026-10-21
+Version 1.52.1 · Draft · 2026-10-23
 Status: proposed. OD-1 to OD-4 were resolved on 2026-09-25 (§16).
 Product intent lives in [VISION.md](VISION.md).
 
@@ -308,7 +308,7 @@ Application ID: `io.github.sandeepvijayarao09.anu`. It can change until the firs
   - **Backends.** `CPU`, `GPU`, `NPU` and `GOOGLE_TENSOR` (the Pixel TPU) are all available. S1 measures each on the reference device.
   - **CPU until a chip's GPU is verified (ADR-059).** Phones and emulators use the CPU build unless their chip is in `ModelCatalog.GPU_VERIFIED`, which S1 fills and which is empty today. On the Pixel 10 Pro (Tensor G5), E4B's GPU build loaded but wrote garbage.
     - Its generic file on the GPU is how Google's AI Edge Gallery runs Gemma 4. On the same phone, a first run answered correctly: prompts were read about 4× faster and answers written about 15% slower (spike log, 2026-09-28).
-    - It's adopted only after a run on an idle phone passes the contract and extraction tests.
+    - It's adopted only after a run on an idle phone passes the contract and extraction tests. On LiteRT-LM 0.18.1 (2026-10-23), it passed the contract and read prompts 4.7× faster, but its extraction missed "I'm vegetarian" twice, so it isn't adopted yet.
   - **Runtime flags (ADR-068).** LiteRT-LM reads speculative decoding and its benchmark counters from process-wide `ExperimentalFlags` when an engine loads. `EngineHolder` sets them from `EngineOptions` under one lock while an engine loads, then restores them, so engines never read each other's.
   - **Speculative decoding stays off (ADR-069).** Gemma 4's files carry multi-token prediction heads: `ModelInfo.Llm.hasSpeculativeDecodingSupport()` (`Capabilities` before 0.18) is true for E4B's generic file, byte for byte the file the Gallery ships.
     - On the Pixel 10 Pro's CPU it gave no gain: 4.7 against 5.8 tokens/s on a short answer, and 6.6 against 6.4 on a long one, with the same greedy answers.
@@ -989,7 +989,7 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 
 | ID | Question to answer with measurements |
 |---|---|
-| S1 | LiteRT-LM with Gemma 4 E2B and E4B: API surface, load time, time to first token, tokens/s, peak RAM, native tool calling, context limits, how well cancellation works. **E2B and E4B measured** on the reference phone (see the spike log). The Tensor G5 NPU build can't run with LiteRT-LM 0.17.1. Speculative decoding gives no gain on the CPU. E4B's generic file answers correctly on the Tensor G5 GPU in a first run, reading prompts about 4× faster |
+| S1 | LiteRT-LM with Gemma 4 E2B and E4B: API surface, load time, time to first token, tokens/s, peak RAM, native tool calling, context limits, how well cancellation works. **E2B and E4B measured** on the reference phone (see the spike log). The Tensor G5 NPU build can't run with LiteRT-LM 0.17.1 or 0.18.1. Speculative decoding gives no gain on the CPU. E4B's generic file on the Tensor G5 GPU passes the contract and reads prompts 4.7× faster, but fails extraction |
 | S2 | `personal` model delivery: can the app download straight from Hugging Face, or is it gated? `adb push` for development. (Play for On-device AI packs are left to Phase 5.) |
 | S3 | On-device embeddings: EmbeddingGemma on LiteRT, or the fallback. Quality and speed. **Done** on the emulator and the reference phone, a Pixel 10 Pro (see the spike log) |
 | S4 | Gmail through `AuthorizationClient` with restricted scopes, in testing mode. **Partly done:** the flow launches from Anu (Play services 25.26 on the emulator). Consent and the live API wait for the owner's Cloud setup |
@@ -1035,6 +1035,26 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 | Constrained tool calls | `enableConversationConstrainedDecoding` in some tasks | Strict validation, one repair, then escalation (P6) | Planned: measure tool-call validity with it on E4B before adopting |
 
 **Spike log.** Measured results only, newest first.
+
+- **S1, the GPU and the NPU on LiteRT-LM 0.18.1, 2026-10-23.** Pixel 10 Pro (Tensor G5, Android 17), idle and charging, thermal status 0 (1 by the NPU runs).
+  - **GPU, E4B's generic file:**
+    - Contract (`LiteRtLmBrainTest`) passed 6 of 6: streaming, a tool call (`weather_get_current{"city":"Paris"}`), structured output, earlier turns, a kept conversation, and cancel in 186 ms. The first test took 119 s, the GPU's first-load setup included.
+    - Extraction (`MemoryExtractionTest`) failed twice in a row: "I'm vegetarian" gave `{"facts":[]}`, well-formed but empty. The CPU, on the same phone and runtime, extracted all four statements right after.
+  - **GPU against CPU** (`S1BenchmarkTest#measuresLoadPrefillAndDecode`, greedy decoding):
+
+    | | CPU | GPU |
+    |---|---|---|
+    | Short prompt (26 tokens), first token | 4.1 s | 0.77 s |
+    | 814-token prompt, read | 58.7 tok/s | 274.6 tok/s |
+    | 814-token prompt, first token | 14.0 s | 3.1 s |
+    | Short answer | 6.7 tok/s | 8.0 tok/s |
+    | Long answer | 6.8 tok/s | 8.2 tok/s |
+
+    - Loading on the GPU took 100 s.
+    - The two backends' answers began the same and then differed in wording.
+    - The phone was touched 5 s before the CPU run.
+  - **NPU, E2B's Tensor G5 file** (`gemma-4-E2B-it_Google_Tensor_G5.litertlm`, SHA-256 checked): still doesn't run. With `GOOGLE_TENSOR`, both the contract test and the benchmark failed before any answer: "Failed to create engine: INVALID_ARGUMENT: Not recognized backend: 5", the same as 0.17.1.
+  - **So:** the GPU passes the contract and is much faster at reading, but misses a fact the CPU finds, so the Tensor G5 stays out of `GPU_VERIFIED` (ADR-059).
 
 - **Conversation reuse in the app, 2026-10-21.** Anu emulator (anu_api36, CPU), E4B, the debug app with ADR-097's speed line, an existing made-up chat whose window held about 1,300–1,500 tokens.
   - **The first turn after installing:** `conversation new`, read 1,348 tokens, first token after 13.1 s.
@@ -1388,7 +1408,7 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 |---|---|---|
 | Project scaffold: Gradle 9.6, AGP 9.4.1, Kotlin 2.4.20; `app` with `personal` and `play` flavors | 0 | Implemented. Both flavors build |
 | CI workflow (`.github/workflows/ci.yml`), including the Play SMS-permission check | 0 | Implemented, and runs on every push to main and on pull requests: unit tests for every module and both flavors, where building a play variant checks that its manifest has no SMS permission. It compiles every module's device tests, which run locally. It passed for `1da4b19` on 2026-09-30 |
-| Spike S1 (runtime on device) | 0 | In progress. Run 2 on the Anu emulator passed: contract, tools, schema, cancel, memory. On the reference phone (Pixel 10 Pro), E4B's CPU build passes all 6 tests at 6–7 tokens/s, and its GPU build writes garbage (ADR-059). E2B's CPU build is faster (9–9.5 tokens/s) but missed "I'm vegan" in extraction. The Tensor G5 NPU build can't run with LiteRT-LM 0.17.1; 0.18.1 isn't tried on it yet. Speculative decoding gives no gain on the phone's CPU (ADR-069). On 0.18.1 (ADR-096) the emulator's speed is unchanged, 16-bit activations give no gain on its CPU, and the contract passes. E4B's generic file answered correctly on the phone's GPU in a first run, reading prompts about 4× faster; the run is to repeat on an idle phone with the contract and extraction tests. Peak RAM and context limits are still to measure |
+| Spike S1 (runtime on device) | 0 | In progress. Run 2 on the Anu emulator passed: contract, tools, schema, cancel, memory. On the reference phone (Pixel 10 Pro), E4B's CPU build passes all 6 tests at 6–7 tokens/s, and its GPU build writes garbage (ADR-059). E2B's CPU build is faster (9–9.5 tokens/s) but missed "I'm vegan" in extraction. The Tensor G5 NPU build can't run with LiteRT-LM 0.17.1 or 0.18.1 ("Not recognized backend: 5"). Speculative decoding gives no gain on the phone's CPU (ADR-069). On 0.18.1 (ADR-096) the emulator's speed is unchanged, 16-bit activations give no gain on its CPU, and the contract passes. On an idle phone with 0.18.1, E4B's generic file on the GPU passes the contract (6 of 6), reads prompts 4.7× faster and writes 1.2× faster than the CPU, but fails extraction ("I'm vegetarian" gives no fact, twice), so it isn't verified. Peak RAM and context limits are still to measure |
 | Spike S2 (model delivery) | 0 | Partly done: ungated, and per-backend files found |
 | Spike S3 (on-device embeddings) | 0 | Verified on the Anu emulator and the reference phone (Pixel 10 Pro). Its eval (`S3EmbeddingTest`) passes on both: 11 of 12 facts found, 3 wrong in 11 messages, and no small talk with facts. A search takes about 0.19–0.23 s on the emulator and 0.47 s on the phone, on one CPU thread, with the 256-token file (ADR-062) |
 | Spikes S4, S5 and S7 | 0 | Planned |
@@ -1457,6 +1477,7 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 
 ### Changelog
 
+- **1.52.1** (2026-10-23): S1 on the Pixel 10 Pro with LiteRT-LM 0.18.1. E4B's generic file on the GPU passes the contract and reads prompts 4.7× faster than the CPU, but extraction misses a fact, so the GPU stays unverified (ADR-059). The Tensor G5 NPU build still fails to start.
 - **1.52.0** (2026-10-21): two cached conversations per on-device model (ADR-097), so a one-message job no longer makes the chat's next turn read everything again; debug builds' speed line names why a turn read the chat again. The spike log records today's in-app reuse: a skill change took 8.7 s to its first word on the emulator, against about 1 s for a kept turn.
 
 - **1.51.0** (2026-10-21): LiteRT-LM 0.18.1 (ADR-096). `Capabilities` is now `ModelInfo`, the file's context limits are recorded (none declared, fixed), and 16-bit activations on the CPU are measured with no gain, so they stay unset. A contract test checks that a conversation rebuilt from the transcript still reads the model's earlier turns.
