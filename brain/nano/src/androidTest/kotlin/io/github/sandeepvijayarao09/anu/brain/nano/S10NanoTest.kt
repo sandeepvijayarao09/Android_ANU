@@ -1,5 +1,6 @@
 package io.github.sandeepvijayarao09.anu.brain.nano
 
+import android.app.ActivityManager
 import android.app.job.JobScheduler
 import android.content.Context
 import android.content.pm.PackageManager
@@ -7,6 +8,7 @@ import android.net.TrafficStats
 import android.os.Bundle
 import android.os.Process
 import android.util.Log
+import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.google.mlkit.genai.common.FeatureStatus
@@ -33,7 +35,8 @@ import org.junit.runner.RunWith
  *   ANDROID_SERIAL=<serial> ./gradlew :brain:nano:connectedDebugAndroidTest
  *   adb logcat -d -s AnuS10
  *
- * The test process has no screen, so a refusal to run in the background shows up as an error for each task.
+ * AICore blocks use from the background (error 30), so the test first opens `ForegroundActivity`, an empty screen
+ * that shows over the lock screen, and reports the process's importance before the tasks.
  *
  * Runner arguments: `stage` (STABLE, the default, or PREVIEW, the AICore Developer Preview's Gemma 4) and `preference`
  * (FULL, the default, which is E4B in the preview, or FAST, which is E2B). The same tasks run on LiteRT-LM in
@@ -47,6 +50,8 @@ class S10NanoTest {
     fun availabilityApiSpeedAndTraffic() = runBlocking {
         report("aicore_installed", installed("com.google.android.aicore"))
         report("config", "stage=${arg("stage") ?: "STABLE"} preference=${arg("preference") ?: "FULL"}")
+        val screen = ActivityScenario.launch(ForegroundActivity::class.java)
+        report("importance", ActivityManager.RunningAppProcessInfo().also(ActivityManager::getMyMemoryState).importance)
         val model = Generation.getClient(
             generationConfig {
                 modelConfig = modelConfig {
@@ -78,6 +83,7 @@ class S10NanoTest {
             report("pending_jobs", context.getSystemService(JobScheduler::class.java).allPendingJobs.map { it.service.className })
         } finally {
             model.close()
+            screen.close()
         }
     }
 
