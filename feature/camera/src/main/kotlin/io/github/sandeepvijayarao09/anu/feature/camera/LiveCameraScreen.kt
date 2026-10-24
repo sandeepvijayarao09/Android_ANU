@@ -80,8 +80,8 @@ fun LiveCameraScreen(
     onAllowCamera: () -> Unit,
     sentToday: Int,
     onBack: () -> Unit,
-    /** The frozen frame as a JPEG, for Talk's composer. */
-    onAsk: (ByteArray) -> Unit,
+    /** The frozen frame and what the detector found in it, for Talk's composer. */
+    onAsk: (Frozen) -> Unit,
     /** Debug builds only: photo files shown in turn instead of the camera, for emulators whose camera shows a pattern. */
     stills: List<String>? = null,
 ) {

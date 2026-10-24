@@ -21,6 +21,7 @@ import io.github.sandeepvijayarao09.anu.brain.vision.CocoLabels
 import io.github.sandeepvijayarao09.anu.brain.vision.YoloxDetector
 import io.github.sandeepvijayarao09.anu.core.ui.AnuTheme
 import io.github.sandeepvijayarao09.anu.feature.camera.Finder
+import io.github.sandeepvijayarao09.anu.feature.camera.Frozen
 import io.github.sandeepvijayarao09.anu.feature.camera.LabelVectors
 import io.github.sandeepvijayarao09.anu.feature.camera.LiveCameraScreen
 import io.github.sandeepvijayarao09.anu.feature.camera.LiveCameraViewModel
@@ -79,8 +80,8 @@ class LiveCameraActivity : ComponentActivity() {
                     onAllowCamera = { ask.launch(Manifest.permission.CAMERA) },
                     sentToday = ledger.count { it.at.atZone(ZoneId.systemDefault()).toLocalDate() == today },
                     onBack = ::finish,
-                    onAsk = { jpeg ->
-                        LiveFrame.hand(jpeg)
+                    onAsk = { frozen ->
+                        LiveFrame.hand(frozen)
                         setResult(RESULT_OK)
                         finish()
                     },
@@ -112,15 +113,15 @@ class LiveCameraActivity : ComponentActivity() {
 }
 
 /**
- * The frame "Ask Anu about this" hands to Talk (ADR-111): held in memory between the two screens and taken once,
- * never written to a file.
+ * The frame "Ask Anu about this" hands to Talk, with what the detector found in it (ADR-111): held in memory between
+ * the two screens and taken once, never written to a file.
  */
 object LiveFrame {
-    private val frame = AtomicReference<ByteArray?>(null)
+    private val frame = AtomicReference<Frozen?>(null)
 
-    fun hand(jpeg: ByteArray) = frame.set(jpeg)
+    fun hand(frozen: Frozen) = frame.set(frozen)
 
-    fun take(): ByteArray? = frame.getAndSet(null)
+    fun take(): Frozen? = frame.getAndSet(null)
 }
 
 /**

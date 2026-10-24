@@ -29,7 +29,15 @@ sealed interface ChatMessage {
  * at most 1,024 pixels on its longer side, loaded only while a brain needs it. Two photos are the same photo when
  * their ids are. A photo taints every turn that shows it (P4), and never goes to the cloud (MEDIA-1).
  */
-class Photo(val id: Long, val bytes: ByteArray? = null) {
+class Photo(
+    val id: Long,
+    val bytes: ByteArray? = null,
+    /**
+     * For a frame from live camera (ADR-111), what its detector found in it, as the screen showed it: "cup 91%, donut
+     * 90%", or "" for nothing. The model reads it beside the picture (`modelText`). Null for any other photo.
+     */
+    val found: String? = null,
+) {
     override fun equals(other: Any?): Boolean = other is Photo && other.id == id
 
     override fun hashCode(): Int = id.hashCode()

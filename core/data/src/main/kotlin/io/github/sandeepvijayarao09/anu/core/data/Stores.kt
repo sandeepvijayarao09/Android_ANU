@@ -144,7 +144,14 @@ internal object MessageCodec {
     fun encode(conversationId: String, seq: Int, message: ChatMessage, now: Long): MessageEntity = when (message) {
         is ChatMessage.User -> MessageEntity(
             conversationId, seq, "user", message.text, null, null, now,
-            photosJson = message.photos.takeIf { it.isNotEmpty() }?.let { photos -> JsonArray(photos.map { JsonPrimitive(it.id) }).toString() },
+            // Each photo by its id; a live camera frame as {id, found} with what its detector found (ADR-111).
+            photosJson = message.photos.takeIf { it.isNotEmpty() }?.let { photos ->
+                JsonArray(
+                    photos.map { photo ->
+                        photo.found?.let { found -> buildJsonObject { put("id", photo.id); put("found", found) } } ?: JsonPrimitive(photo.id)
+                    },
+                ).toString()
+            },
             voiceNoteJson = message.voiceNote?.let { note ->
                 buildJsonObject {
                     put("words", note.words)
@@ -206,7 +213,15 @@ internal object MessageCodec {
     fun decode(row: MessageEntity): ChatMessage = when (row.role) {
         "user" -> ChatMessage.User(
             row.text,
-            row.photosJson?.let { json -> Json.parseToJsonElement(json).jsonArray.map { Photo(it.jsonPrimitive.content.toLong()) } }.orEmpty(),
+            row.photosJson?.let { json ->
+                Json.parseToJsonElement(json).jsonArray.map { element ->
+                    if (element is JsonObject) {
+                        Photo(element.getValue("id").jsonPrimitive.long, found = element["found"]?.jsonPrimitive?.content)
+                    } else {
+                        Photo(element.jsonPrimitive.content.toLong())
+                    }
+                }
+            }.orEmpty(),
             row.voiceNoteJson?.let { json ->
                 val note = Json.parseToJsonElement(json).jsonObject
                 VoiceNote(

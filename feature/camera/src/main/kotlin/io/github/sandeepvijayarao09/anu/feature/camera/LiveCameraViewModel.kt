@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.updateAndGet
 import kotlinx.coroutines.launch
 import java.nio.ByteBuffer
 import java.util.concurrent.Executors
@@ -21,6 +22,13 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 /** A thing on screen: what YOLOX calls it, how sure it is, where, and how it matches the question, if it does. */
 data class Shown(val id: Long, val name: String, val score: Float, val box: Box, val matched: MatchedBy?)
+
+/** The frame "Ask Anu about this" hands to Talk, and what the detector found in it ("cup 91%, donut 90%"). */
+class Frozen(val jpeg: ByteArray, val found: String)
+
+/** The things in view as Gemma reads them, most certain first: "cup 91%, donut 90%", at most [limit], or "". */
+internal fun foundLine(things: List<Shown>, limit: Int = 12): String =
+    things.sortedByDescending { it.score }.take(limit).joinToString(", ") { "${it.name} ${(it.score * 100).toInt()}%" }
 
 enum class CameraStatus { STARTING, RUNNING, PAUSED_HOT, FROZEN, FAILED }
 
@@ -175,11 +183,14 @@ class LiveCameraViewModel(
         if (!isHot) mutable.update { if (it.status == CameraStatus.PAUSED_HOT) it.copy(status = CameraStatus.STARTING) else it }
     }
 
-    /** Holds the frame on screen for "Ask Anu about this", and returns it as a JPEG for Talk. */
-    fun freeze(): ByteArray? = synchronized(lock) {
+    /**
+     * Holds the frame on screen for "Ask Anu about this", and returns it as a JPEG for Talk with what the detector found
+     * in it, for Gemma to read beside the picture (ADR-111).
+     */
+    fun freeze(): Frozen? = synchronized(lock) {
         val frame = latest ?: return null
-        mutable.update { it.copy(status = CameraStatus.FROZEN) }
-        frame.toJpeg(maxSide = PHOTO_SIDE)
+        val state = mutable.updateAndGet { it.copy(status = CameraStatus.FROZEN) }
+        Frozen(frame.toJpeg(maxSide = PHOTO_SIDE), foundLine(state.things))
     }
 
     fun unfreeze() {

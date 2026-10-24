@@ -21,13 +21,31 @@ data class VoiceNote(
  * the model reads them as content, not as the user typing (P4). With no typed words, the note says what to do: for
  * the user's own note, propose what it asks for, each through a tool the user approves (EXP-3); for a shared one,
  * which can hold other people's words, only summarize it. A PDF's text or notes come last, marked the same way (ADR-095).
+ * A frame from live camera comes first with what its detector found in it, so Gemma can use both (ADR-111).
  */
 val ChatMessage.User.modelText: String
     get() {
-        val said = spokenText
+        val said = liveCameraNote?.let { note -> if (spokenText.isBlank()) note else "$note\n\n$spokenText" } ?: spokenText
         val document = document ?: return said
         val block = documentBlock(document, typed = text.isNotBlank() || voiceNote != null)
         return if (said.isBlank()) block else "$said\n\n$block"
+    }
+
+/**
+ * What live camera's detector found in this message's frames (ADR-111): "Picture 1 is a frame from the user's live
+ * camera. On the phone, an object detector found in it: cup 91%, donut 90%." It names only the 80 everyday things it
+ * knows and can be wrong, so the model is told to go by the picture. Null when no photo is a live camera frame.
+ */
+private val ChatMessage.User.liveCameraNote: String?
+    get() {
+        val frames = photos.withIndex().filter { it.value.found != null }
+        if (frames.isEmpty()) return null
+        val one = photos.size == 1
+        return frames.joinToString("\n") { (i, photo) ->
+            val which = if (one) "The picture" else "Picture ${i + 1}"
+            val found = photo.found.orEmpty().ifBlank { "nothing it knows" }
+            "$which is a frame from the user's live camera. On the phone, an object detector found in it: $found."
+        } + " The detector knows only 80 everyday things and can miss or misname them, so go by the picture."
     }
 
 private val ChatMessage.User.spokenText: String

@@ -150,6 +150,15 @@ class LiveCameraTest {
     }
 
     @Test
+    fun gemmaReadsWhatWasFoundMostCertainFirst() {
+        val box = Box(0f, 0f, 1f, 1f)
+        val things = listOf(Shown(1, "donut", 0.904f, box, null), Shown(2, "cup", 0.91f, box, MatchedBy.LABEL), Shown(3, "cup", 0.38f, box, null))
+        assertEquals("cup 91%, donut 90%, cup 38%", foundLine(things))
+        assertEquals("cup 91%", foundLine(things, limit = 1))
+        assertEquals("", foundLine(emptyList()))
+    }
+
+    @Test
     fun thePanelSaysWhatItFound() {
         val cup = Shown(1, "cup", 0.9f, Box(0f, 0f, 1f, 1f), MatchedBy.LABEL)
         val chair = Shown(2, "chair", 0.8f, Box(0f, 0f, 1f, 1f), null)

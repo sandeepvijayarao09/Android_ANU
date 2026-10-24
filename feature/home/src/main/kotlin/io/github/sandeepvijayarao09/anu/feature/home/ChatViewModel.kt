@@ -337,6 +337,18 @@ class ChatViewModel(
         warm()
     }
 
+    /**
+     * A frame from live camera (ADR-111), with what its detector found in it ("cup 91%, donut 90%"), which the model
+     * reads beside the picture.
+     */
+    fun attachFrame(jpeg: ByteArray, found: String) {
+        foundIn[jpeg] = found
+        attach(jpeg)
+    }
+
+    /** What live camera's detector found in the composer's frames, by the frame itself (each array is one photo). */
+    private val foundIn = java.util.IdentityHashMap<ByteArray, String>()
+
     /** Takes back the photo at [index] in the composer. */
     fun removeAttachment(index: Int) = mutable.update { state ->
         state.copy(attachments = state.attachments.filterIndexed { i, _ -> i != index }, attachmentNote = state.attachmentNote.takeIf { it != FULL })
@@ -496,7 +508,8 @@ class ChatViewModel(
         if ((trimmed.isEmpty() && picked.isEmpty() && voice == null && pdf == null) || state.busy || state.recordingSeconds != null) return
         speakTurn = spoken && !state.muted && speechOut != null
         spokenUpTo = 0
-        val photos = picked.map { Photo(0, it) }
+        val photos = picked.map { Photo(0, it, foundIn[it]) }
+        foundIn.clear()
         val asked = nextId++
         val clip = voice?.let { VoiceClip(it.seconds, it.shared, it.interrupted, writing = true, recording = it) }
         // A question from the card about the screen below it: pointing words, or "Use this screen" (EXP-2, D13).
