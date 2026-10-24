@@ -12,6 +12,11 @@
         <!-- LiteRT-LM's GPU backend needs the vendor OpenCL libraries (spike S1 compares backends). -->
         <uses-native-library android:name="libOpenCL.so" android:required="false" />
         <uses-native-library android:name="libvndksupport.so" android:required="false" />
+        <!-- The Pixel's TPU (Tensor G5 and later) through Backend.NPU: the phone's own Edge TPU libraries, as Google's AI Edge Gallery declares them. -->
+        <uses-native-library android:name="libedgetpu_litert.so" android:required="false" />
+        <uses-native-library android:name="libedgetpu_util.so" android:required="false" />
+        <uses-native-library android:name="libedgetpu_client.google.so" android:required="false" />
+        <uses-native-library android:name="libedgetpu_tachyon.google.so" android:required="false" />
 
         <service
             android:name="androidx.work.impl.foreground.SystemForegroundService"

@@ -11,7 +11,7 @@ import java.io.File
 // Shared setup for spike S1 (ARCHITECTURE §16). These are real-model tests, and they skip themselves
 // when no model is present. Push one first:
 //   adb push gemma-4-E4B-it.litertlm /data/local/tmp/anu/models/
-// Optional instrumentation arguments: modelPath, backend (CPU | GPU | GOOGLE_TENSOR), speculative (on | off)
+// Optional instrumentation arguments: modelPath, backend (CPU | GPU | GOOGLE_TENSOR | NPU), speculative (on | off)
 // for the brain tests' engines, which otherwise keep the runtime's default, and activation (F32 | F16) for the
 // benchmark's engine, which otherwise keeps the backend's default (F32 on the CPU).
 
@@ -44,6 +44,8 @@ internal object S1 {
     fun backend(): Backend = when (backendName) {
         "GPU" -> Backend.GPU()
         "GOOGLE_TENSOR" -> Backend.GOOGLE_TENSOR()
+        // How Google's AI Edge Gallery runs the Pixel's TPU: the NPU backend, with the app's native library folder.
+        "NPU" -> Backend.NPU(InstrumentationRegistry.getInstrumentation().targetContext.applicationInfo.nativeLibraryDir)
         else -> Backend.CPU()
     }
 
