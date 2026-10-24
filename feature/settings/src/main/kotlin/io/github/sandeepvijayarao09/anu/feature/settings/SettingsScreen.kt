@@ -352,7 +352,7 @@ private fun IntelligenceGroup(viewModel: SettingsViewModel, onPage: (SettingsPag
             )
             if (viewModel.canPairMac) {
                 GroupDivider()
-                // Gemma on the user's own Mac, in Gemini's place (ADR-111).
+                // Gemma on the user's own Mac, in Gemini's place (ADR-112).
                 GroupRow(
                     "Your Mac",
                     value = if (mac != null) "Paired" else "Off",

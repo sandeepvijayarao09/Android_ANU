@@ -120,7 +120,7 @@ private fun destinationOf(action: ActionRecord): String = action.destination ?: 
     else -> "a service you added"
 }
 
-/** What the Mac brain reports as its backend, so a past answer still says where it ran after the Mac is unpaired (ADR-111). */
+/** What the Mac brain reports as its backend, so a past answer still says where it ran after the Mac is unpaired (ADR-112). */
 internal const val MAC_BACKEND = "MAC"
 
 private fun backendName(backend: String?): String? = when {

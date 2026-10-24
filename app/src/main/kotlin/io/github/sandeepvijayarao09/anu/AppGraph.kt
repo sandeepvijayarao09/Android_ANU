@@ -196,7 +196,7 @@ class AppGraph(private val context: Context) {
     )
     val geminiKey = GeminiKeySettings(vault, prefs)
 
-    /** Gemma on the user's own Mac, the top model in Gemini's place when paired (ADR-111). */
+    /** Gemma on the user's own Mac, the top model in Gemini's place when paired (ADR-112). */
     val mac = MacBrainSettings(vault, prefs)
     val device = DeviceStateProvider(context, models, geminiKey, mac)
 
@@ -249,7 +249,7 @@ class AppGraph(private val context: Context) {
         when (tier) {
             Tier.BASE -> onDevice.brainFor(BrainId.BASE)
             Tier.PRO -> onDevice.brainFor(BrainId.PRO)
-            // The user's Mac first, when paired (ADR-111); off the phone either way, so the egress gate and consent hold.
+            // The user's Mac first, when paired (ADR-112); off the phone either way, so the egress gate and consent hold.
             Tier.CLOUD -> mac.brain(vault, egress) ?: geminiKey.ref()?.let { GeminiBrain(BrainId.CLOUD_FLASH, GEMINI_MODEL, it, vaultHttp, egress) }
         }
     }
@@ -631,7 +631,7 @@ class GeminiKeySettings(private val vault: Vault, private val prefs: SharedPrefe
 }
 
 /**
- * Pairs the user's Mac (ADR-111). The pairing code's token goes into the vault, bound to the Mac's address and to the Mac
+ * Pairs the user's Mac (ADR-112). The pairing code's token goes into the vault, bound to the Mac's address and to the Mac
  * brain alone (§11); the address, port and certificate pin are kept in the clear. Requests go over HTTPS trusting only
  * that certificate.
  */
@@ -643,7 +643,7 @@ class MacBrainSettings(private val vault: Vault, private val prefs: SharedPrefer
         named()
     }
 
-    /** The UI names the top model by what's paired (ADR-111). */
+    /** The UI names the top model by what's paired (ADR-112). */
     private fun named() {
         TopModel.current = pairing()?.let { TopModel.mac(it.host) } ?: TopModel.GEMINI
     }
@@ -744,7 +744,7 @@ class DeviceStateProvider(
         val capabilities = connectivity.getNetworkCapabilities(connectivity.activeNetwork)
         val internet = capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true &&
             capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
-        // A paired Mac is on the user's own network, which needs Wi-Fi or Ethernet, not the internet (ADR-111).
+        // A paired Mac is on the user's own network, which needs Wi-Fi or Ethernet, not the internet (ADR-112).
         val local = capabilities != null &&
             (capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) || capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET))
         val online = internet || (mac.pairing() != null && local)

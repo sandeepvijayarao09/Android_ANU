@@ -22,11 +22,11 @@ import kotlinx.serialization.json.putJsonObject
  */
 internal object OllamaWire {
 
-    /** Saved with the answer, so "About this answer" says it ran on the Mac (ADR-111). */
+    /** Saved with the answer, so "About this answer" says it ran on the Mac (ADR-112). */
     const val BACKEND = "MAC"
 
     /**
-     * Like Gemini's (ADR-111): [BrainRequest.memory], [BrainRequest.relevant] and [BrainRequest.onDeviceNote] are never
+     * Like Gemini's (ADR-112): [BrainRequest.memory], [BrainRequest.relevant] and [BrainRequest.onDeviceNote] are never
      * sent, since the Mac is off the phone. Only [BrainRequest.sharedFacts], which the user saw on the consent sheet and
      * the egress gate has already redacted, go with the newest message (ADR-054). The model and its context size are
      * the Mac's to choose: `scripts/mac-brain.py` sets both.

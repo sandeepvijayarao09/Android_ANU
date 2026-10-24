@@ -35,7 +35,7 @@ import java.io.IOException
 class MacBrainException(val code: Int, message: String) : IOException("Mac $code: $message")
 
 /**
- * Gemma on the user's own Mac, through Ollama behind `scripts/mac-brain.py` (ARCHITECTURE §5, ADR-111). It is the top
+ * Gemma on the user's own Mac, through Ollama behind `scripts/mac-brain.py` (ARCHITECTURE §5, ADR-112). It is the top
  * tier when paired, in Gemini's place, and it is off the phone, so every rule for the cloud holds:
  * - **Egress.** Every request goes through [EgressGate]: redacted, and ledgered with the Mac as its destination (I3).
  *   Photos, voice notes, screens and PDFs never reach it (MEDIA-1).

@@ -10,7 +10,7 @@ import javax.net.ssl.SSLContext
 import javax.net.ssl.X509TrustManager
 
 /**
- * Where the user's Mac answers and how Anu knows it's that Mac (ADR-111). `scripts/mac-brain.py` prints the pairing code,
+ * Where the user's Mac answers and how Anu knows it's that Mac (ADR-112). `scripts/mac-brain.py` prints the pairing code,
  * `anu-mac://<host>:<port>?pin=<sha-256 of its certificate>&token=<token>`. The token goes straight into the vault; only
  * [host], [port] and [pin] are kept in the clear.
  */
@@ -36,7 +36,7 @@ data class MacPairing(val host: String, val port: Int, val pin: String) {
 }
 
 /**
- * HTTPS that trusts exactly the paired Mac's certificate, by its SHA-256 (ADR-111). The Mac's certificate is its own,
+ * HTTPS that trusts exactly the paired Mac's certificate, by its SHA-256 (ADR-112). The Mac's certificate is its own,
  * made by `scripts/mac-brain.py`, so no authority vouches for it: the pin does, and a host other than the paired one is
  * refused. Everything else about [this] client, the vault's injector included, stays as it was.
  */

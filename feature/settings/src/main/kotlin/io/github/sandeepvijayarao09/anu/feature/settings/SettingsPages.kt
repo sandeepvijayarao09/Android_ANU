@@ -471,7 +471,7 @@ internal fun GeminiSheet(hasKey: Boolean, onSave: (String) -> Unit, onRemove: ()
     }
 }
 
-/** Gemma on the user's Mac (ADR-111). The pairing code's token goes straight into the vault and is never shown again. */
+/** Gemma on the user's Mac (ADR-112). The pairing code's token goes straight into the vault and is never shown again. */
 @Composable
 internal fun MacSheet(paired: String?, onPair: (String) -> Unit, onUnpair: () -> Unit, onDismiss: () -> Unit) {
     // Holds a token: plain remember, so it is never written to saved state.
