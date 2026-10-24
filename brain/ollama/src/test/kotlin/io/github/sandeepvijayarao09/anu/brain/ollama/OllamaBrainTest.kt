@@ -155,7 +155,7 @@ class OllamaBrainTest {
         assertEquals(buildJsonObject { put("type", "object") }, function.getValue("parameters"))
         assertEquals(buildJsonObject { put("type", "object") }, body.getValue("format"))
         assertEquals("256", body.getValue("options").jsonObject.getValue("num_predict").jsonPrimitive.content)
-        assertFalse("think" in body)
+        assertEquals("false", body.getValue("think").jsonPrimitive.content) // Ollama would think by default
         assertFalse("model" in body) // the Mac's gateway chooses it
     }
 

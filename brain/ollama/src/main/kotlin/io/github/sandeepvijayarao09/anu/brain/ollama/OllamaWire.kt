@@ -52,8 +52,9 @@ internal object OllamaWire {
             }
         }
         request.responseSchema?.let { put("format", it) }
-        // Only when asked: a model without thinking refuses the field.
-        if (request.thinking) put("think", true)
+        // Always said: Ollama turns Gemma 4 26B's thinking on when the field is missing, and on the Mac it spent a whole
+        // 80-token answer reasoning and wrote nothing.
+        put("think", request.thinking)
         putJsonObject("options") {
             put("temperature", request.sampling.temperature)
             put("top_p", request.sampling.topP)

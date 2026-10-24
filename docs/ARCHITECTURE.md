@@ -1,6 +1,6 @@
 # Anu for Android: Architecture
 
-Version 1.69.0 · Draft · 2026-10-24
+Version 1.69.1 · Draft · 2026-10-24
 Status: proposed. OD-1 to OD-4 were resolved on 2026-09-25 (§16).
 Product intent lives in [VISION.md](VISION.md).
 
@@ -408,9 +408,9 @@ Application ID: `io.github.sandeepvijayarao09.anu`. It can change until the firs
 - **Mac adapter** (`brain:ollama`, ADR-113):
   - **Where.** Ollama stays on the Mac's `127.0.0.1`. `scripts/mac-brain.py` listens on the network over HTTPS with its own certificate (EC P-256, ten years) and answers only `POST /api/chat` and `GET /anu/ping`, only with the bearer token. It sets the model, its context (`num_ctx`, 32K by default: Gemma 4 26B A4B is about 18 GB, which fits a 24 GB Mac) and `keep_alive`, so the phone can't load anything else. It logs sizes, never content.
   - **Pairing.** The script prints `anu-mac://<address>:<port>?pin=<SHA-256 of its certificate>&token=<token>`; Settings → Your Mac takes it. The token goes into the vault, bound to that address and to `brain:ollama` alone; the address, port and pin are kept in the app's settings. The client trusts exactly the pinned certificate and only the paired host (`pinnedTo`), and the vault's injector still refuses plain HTTP.
-  - **Transport:** NDJSON streaming from `/api/chat`; Ollama applies Gemma's own chat template and tool format (I8). Tools are sent as JSON Schema `function`s and reported, never run (ADR-017); a response schema goes as `format`; sampling and `num_predict` from the request. Reasoning is asked for only with thinking on, and dropped like Gemini's.
+  - **Transport:** NDJSON streaming from `/api/chat`; Ollama applies Gemma's own chat template and tool format (I8). Tools are sent as JSON Schema `function`s and reported, never run (ADR-017); a response schema goes as `format`; sampling and `num_predict` from the request. `think` is always sent, false unless thinking is on: Ollama turns Gemma 4 26B's thinking on when it's missing, and on the Mac an 80-token answer went entirely to reasoning. Reasoning is dropped like Gemini's.
   - **Usage:** the final chunk's counts and Ollama's own read and write times, with backend `MAC`, so About this answer says "on your Mac" after unpairing too.
-  - **Not yet measured:** Gemma 4 26B's speed on the Mac and its quality against Gemini's on the router eval.
+  - **Measured on the owner's 24 GB M5 Pro (2026-10-24):** with the Anu emulator and other sessions running, 5% of memory was free; Ollama kept 69% of Gemma 4 26B on the CPU and wrote 1.2 tokens/s, after a 20.8 s load. The Mac needs its memory for the model: close the emulator, or use `--model gemma4:e4b`. Quality against Gemini's on the router eval is not yet measured.
 - **Extension point.** Additional cloud brains plug in through one OpenAI-compatible adapter, for example Meta Muse Spark, using a key held in the vault. Nothing ships in v1 without a decision-log entry.
 
 ## 6. Router
@@ -1739,6 +1739,7 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 
 ### Changelog
 
+- **1.69.1** (2026-10-24): the Mac brain always sends `think` (ADR-113), since Ollama turns Gemma 4 26B's thinking on by default and an answer went entirely to reasoning; Gemma 4 26B measured on the 24 GB Mac with the emulator running: 1.2 tokens/s, mostly on the CPU.
 - **1.69.0** (2026-10-24): "Ask Anu about this" gives Gemma what live camera's detector found beside the frame (ADR-111): `Photo.found`, saved with the photo's id in its message and read in `modelText`.
 - **1.68.0** (2026-10-24): Gemma on the user's own Mac as the top model (ADR-113): `brain:ollama` and `scripts/mac-brain.py`, a gateway in front of Ollama with a pinned certificate and a vault-held token; Settings → Your Mac pairs it, and the consent sheet, Ask button and About this answer name it.
 - **1.67.2** (2026-10-24): S11 on the Galaxy S26 Ultra's GPU: one photo's first token after 0.7 s and four photos in 5.5 s, with correct answers and 1.1 GB at most.
