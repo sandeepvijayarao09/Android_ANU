@@ -352,7 +352,7 @@ class AppGraph(private val context: Context) {
 
     /**
      * Live camera's EmbeddingGemma 2 (ADR-111), once installed: the Tensor G5 build on that chip's TPU when it's there,
-     * else the CPU build. Checked again until one is.
+     * else the CPU build, on the GPU where S14 measured it. Checked again until one is.
      */
     private var liveModel: Gemma2Embedder? = null
     val visualEmbedder: () -> VisualEmbedder? = {
@@ -361,6 +361,8 @@ class AppGraph(private val context: Context) {
             File(context.noBackupFilesDir, "litertlm-cache"),
             tensorG5 = "tensorg5" in Build.SOC_MODEL.lowercase().replace(" ", ""),
             nativeLibraryDir = context.applicationInfo.nativeLibraryDir,
+            socModel = Build.SOC_MODEL,
+            emulator = Build.HARDWARE == "ranchu" || Build.HARDWARE == "goldfish",
         )?.also { liveModel = it }
     }
 

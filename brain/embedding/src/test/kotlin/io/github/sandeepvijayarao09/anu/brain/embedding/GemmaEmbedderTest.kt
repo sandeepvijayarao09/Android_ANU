@@ -47,6 +47,11 @@ class Gemma2EmbedderTest {
         file(EmbeddingCatalog.VISION_TENSOR_G5.name, EmbeddingCatalog.VISION_TENSOR_G5.bytes)
         assertEquals("CPU", Gemma2Embedder.installed(folder.root, cache, tensorG5 = false)?.backend)
         assertEquals("TPU", Gemma2Embedder.installed(folder.root, cache, tensorG5 = true, nativeLibraryDir = "/lib")?.backend)
+        // The GPU only on a chip S14 measured, and never on an emulator.
+        File(folder.root, EmbeddingCatalog.VISION_TENSOR_G5.name).delete()
+        assertEquals("GPU", Gemma2Embedder.installed(folder.root, cache, socModel = "SM8850")?.backend)
+        assertEquals("CPU", Gemma2Embedder.installed(folder.root, cache, socModel = "SM8850", emulator = true)?.backend)
+        assertEquals("CPU", Gemma2Embedder.installed(folder.root, cache, socModel = "Tensor G5")?.backend)
     }
 
     @Test

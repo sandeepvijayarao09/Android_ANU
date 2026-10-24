@@ -34,7 +34,13 @@ class LiveSearchEvalTest {
         assumeTrue("EmbeddingGemma 2 isn't in /data/local/tmp/anu/models", model.length() == EmbeddingCatalog.VISION.bytes)
         assumeTrue("No photos: run scripts/live-camera-photos.sh", photos.isNotEmpty())
         val context = InstrumentationRegistry.getInstrumentation().targetContext
-        val embedder = Gemma2Embedder(model, File(context.cacheDir, "eg2-cache"))
+        // Runner arguments: `embedBackend=GPU` (else the CPU) and `visionTokens=70` or `140` (else the runtime's default).
+        val args = InstrumentationRegistry.getArguments()
+        val embedder = Gemma2Embedder(
+            model, File(context.cacheDir, "eg2-cache"),
+            gpu = args.getString("embedBackend") == "GPU", visionTokens = args.getString("visionTokens")?.toInt(),
+        )
+        Log.i(TAG, "eval embedder=${embedder.backend} vision_tokens=${args.getString("visionTokens") ?: "default"}")
         val search = LiveSearch(io.github.sandeepvijayarao09.anu.brain.vision.CocoLabels.ALL)
         val queries = listOf("anything to drink", "something to eat", "somewhere to sit", "a computer", "my keys")
         val start = SystemClock.elapsedRealtime()
