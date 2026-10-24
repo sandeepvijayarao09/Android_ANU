@@ -74,6 +74,7 @@ import io.github.sandeepvijayarao09.anu.core.memory.SearchMemoryTool
 import io.github.sandeepvijayarao09.anu.core.memory.extractionBrain
 import io.github.sandeepvijayarao09.anu.core.data.RoomTranscriptStore
 import io.github.sandeepvijayarao09.anu.core.data.RoomVaultAudit
+import io.github.sandeepvijayarao09.anu.core.model.Brain
 import io.github.sandeepvijayarao09.anu.core.model.BrainId
 import io.github.sandeepvijayarao09.anu.core.router.ComplexityScorer
 import io.github.sandeepvijayarao09.anu.core.router.DeviceState
@@ -425,6 +426,12 @@ class AppGraph(private val context: Context) {
         return memory.state.first().facts.filter { it.id in wanted }.associate { it.id to it.text }
     }
 
+    /** The on-device brain ADK's agents use (ADR-104), with its tier: Base when it's on the TPU, else Pro, else Base. */
+    private fun agentBrain(): Pair<Tier, Brain>? {
+        val order = if (models.baseOnTpu) listOf(Tier.BASE to BrainId.BASE, Tier.PRO to BrainId.PRO) else listOf(Tier.PRO to BrainId.PRO, Tier.BASE to BrainId.BASE)
+        return order.firstNotNullOfOrNull { (tier, id) -> onDevice.brainFor(id)?.let { tier to it } }
+    }
+
     private val broker by lazy {
         ToolBroker(tools, approvals, RoomToolResultStore(db.toolResults()), toolAudit, dynamicTools = { mcp.registry.tools() + agents.tools() })
     }
@@ -441,8 +448,10 @@ class AppGraph(private val context: Context) {
             orchestrator = AdkOrchestrator(
                 broker = { broker },
                 available = { (tools.map { it.name } + mcp.registry.tools().map { it.name } + agents.tools().map { it.name }).toSet() },
-                brain = { onDevice.brainFor(BrainId.PRO) ?: onDevice.brainFor(BrainId.BASE) },
-                tier = { if (onDevice.brainFor(BrainId.PRO) != null) Tier.PRO else Tier.BASE },
+                // Base on the Pixel's TPU (ADR-103) answers in about a second where Pro on the CPU takes 15 to 20, and an
+                // agent turn makes several calls, so the agents use it when it's there.
+                brain = { agentBrain()?.second },
+                tier = { agentBrain()?.first ?: Tier.PRO },
             ),
             thinking = { thinking.thinking.value },
             transcriber = onDevice,
