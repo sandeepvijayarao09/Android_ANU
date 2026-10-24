@@ -14,7 +14,8 @@ litertNpuGoogleTensor = "2.3.0"
 # Live object detection (ADR-111): LiteRT's CompiledModel runs YOLOX; the same release as the Tensor NPU runtime.
 litert = "2.3.0"
 # Spike S15 (Qualcomm NPU): Qualcomm's QNN runtime, under the Qualcomm AI Hub Model License, in device tests only.
-qnnRuntime = "2.51.0"
+# 2.50.0 matches what Google's compiled Qualcomm Gemma file embeds; 2.51.0 broke E2B's compile.
+qnnRuntime = "2.50.0"
 camerax = "1.6.2"
 mlkitGenaiPrompt = "1.0.0-beta4"
 localagentsRag = "0.3.0"

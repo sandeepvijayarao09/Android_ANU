@@ -14,6 +14,7 @@ import java.io.File
 // Optional instrumentation arguments: modelPath, backend (CPU | GPU | GOOGLE_TENSOR | NPU), speculative (on | off)
 // for the brain tests' engines, which otherwise keep the runtime's default, and activation (F32 | F16) for the
 // benchmark's engine, which otherwise keeps the backend's default (F32 on the CPU).
+// maxNumTokens sets the contract tests' context (4096 by default).
 
 internal object S1 {
     private val args: Bundle get() = InstrumentationRegistry.getArguments()
@@ -22,6 +23,9 @@ internal object S1 {
         get() = args.getString("modelPath") ?: "/data/local/tmp/anu/models/gemma-4-E4B-it.litertlm"
 
     val backendName: String get() = args.getString("backend") ?: "CPU"
+
+    /** The engine's context, 4,096 as in the app (ADR-040) unless `maxNumTokens` says; an NPU file fixes it when compiled (S15). */
+    val maxNumTokens: Int get() = args.getString("maxNumTokens")?.toInt() ?: 4096
 
     /** Speculative decoding for the brain tests' engines; null leaves the runtime's default. */
     val speculative: Boolean?
