@@ -209,10 +209,10 @@ class ChatSession(
             // The cloud may see only facts the user saw on the consent sheet: relevant ones, never sensitive.
             val consentFacts = relevantFacts.filterNot { it.sensitive }.map { it.text }
             val attached = pictures.map { photo ->
-                if (photo.id != 0L) photo else Photo(photoStore.save(requireNotNull(photo.bytes) { "a new photo needs its bytes" }).also(fresh::add), photo.bytes)
+                if (photo.id != 0L) photo else Photo(photoStore.save(requireNotNull(photo.bytes) { "a new photo needs its bytes" }).also(fresh::add), photo.bytes, photo.found)
             }
             // The saved message keeps the screen's app and time, never its picture (ADR-083).
-            val message = ChatMessage.User(text, attached.map { Photo(it.id) }, note, screen?.let { Screen(it.app, it.atMillis) }, doc)
+            val message = ChatMessage.User(text, attached.map { Photo(it.id, found = it.found) }, note, screen?.let { Screen(it.app, it.atMillis) }, doc)
             // What every turn carries besides the history. The note about left-out messages is counted
             // either way, so adding it can't push a turn over the budget.
             val fixed = Tokens.of(systemPrompt(tools, trimmed = true)) + Tokens.of(memoryBlock) + Tokens.of(relevantBlock) +
@@ -617,7 +617,7 @@ class ChatSession(
             if (message !is ChatMessage.User || message.photos.isEmpty()) {
                 message
             } else {
-                message.copy(photos = message.photos.mapNotNull { photo -> if (photo.bytes != null) photo else loaded[photo.id]?.let { Photo(photo.id, it) } })
+                message.copy(photos = message.photos.mapNotNull { photo -> if (photo.bytes != null) photo else loaded[photo.id]?.let { Photo(photo.id, it, photo.found) } })
             }
         }
     }

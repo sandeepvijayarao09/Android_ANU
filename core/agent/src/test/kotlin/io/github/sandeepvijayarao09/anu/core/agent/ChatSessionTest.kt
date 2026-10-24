@@ -560,6 +560,21 @@ class ChatSessionTest {
     }
 
     @Test
+    fun `a live camera frame keeps what its detector found, for the model now and in later turns`() = runTest {
+        val photos = InMemoryPhotoStore()
+        val chat = ChatSession(agent(mapOf(Tier.BASE to base, Tier.PRO to base)), photoStore = photos)
+        base.enqueue(Step.Reply("A cup of coffee."))
+        chat.send("What is this?", onPhone, photos = listOf(io.github.sandeepvijayarao09.anu.core.model.Photo(0, sign, found = "cup 91%"))).toList()
+        assertEquals("cup 91%", (base.requests.single().transcript.last() as ChatMessage.User).photos.single().found)
+        assertEquals("cup 91%", (chat.history().first() as ChatMessage.User).photos.single().found)
+        base.enqueue(Step.Reply("Yes."))
+        chat.send("Is it hot?", onPhone).toList()
+        val again = base.requests.last().transcript.filterIsInstance<ChatMessage.User>().first().photos.single()
+        assertEquals("cup 91%", again.found)
+        assertEquals(listOf<Byte>(1, 2, 3, 4), again.bytes!!.toList())
+    }
+
+    @Test
     fun `several photos go with one message, and the model sees at most four pictures at once`() = runTest {
         val photos = InMemoryPhotoStore()
         val chat = ChatSession(agent(mapOf(Tier.BASE to base, Tier.PRO to base)), photoStore = photos)

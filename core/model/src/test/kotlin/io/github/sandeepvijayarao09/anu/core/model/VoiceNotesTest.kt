@@ -12,6 +12,23 @@ import java.nio.ByteOrder
 class VoiceNotesTest {
 
     @Test
+    fun `a live camera frame comes with what its detector found, and the model is told to go by the picture`() {
+        val one = ChatMessage.User("Is this coffee?", listOf(Photo(1, found = "cup 91%, donut 90%"))).modelText
+        assertEquals(
+            "The picture is a frame from the user's live camera. On the phone, an object detector found in it: cup 91%, donut 90%. " +
+                "The detector knows only 80 everyday things and can miss or misname them, so go by the picture.\n\nIs this coffee?",
+            one,
+        )
+        val two = ChatMessage.User("", listOf(Photo(1), Photo(2, found = ""))).modelText
+        assertEquals(
+            "Picture 2 is a frame from the user's live camera. On the phone, an object detector found in it: nothing it knows. " +
+                "The detector knows only 80 everyday things and can miss or misname them, so go by the picture.",
+            two,
+        )
+        assertEquals("Just a photo", ChatMessage.User("Just a photo", listOf(Photo(1))).modelText)
+    }
+
+    @Test
     fun `a voice note follows the typed words as a recording, and the typed words say what to do with it`() {
         val note = VoiceNote("Call Maya on Thursday.", seconds = 17)
         val both = ChatMessage.User("Add these to my calendar", voiceNote = note).modelText

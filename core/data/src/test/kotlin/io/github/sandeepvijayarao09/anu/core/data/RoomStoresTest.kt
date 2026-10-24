@@ -163,6 +163,16 @@ class RoomStoresTest {
     }
 
     @Test
+    fun `a live camera frame keeps what its detector found beside its id, and plain ids still read`() = runBlocking {
+        val store = RoomTranscriptStore(db.transcripts(), "main")
+        val asked = ChatMessage.User("What is this?", listOf(Photo(7, found = "cup 91%, donut 90%"), Photo(8), Photo(9, found = "")))
+        store.append(listOf(asked))
+        val photos = (store.load().single() as ChatMessage.User).photos
+        assertEquals(listOf(7L, 8L, 9L), photos.map { it.id })
+        assertEquals(listOf("cup 91%, donut 90%", null, ""), photos.map { it.found })
+    }
+
+    @Test
     fun `truncating then appending keeps the order intact`() = runBlocking {
         val store = RoomTranscriptStore(db.transcripts(), "main")
         store.append(transcript)
