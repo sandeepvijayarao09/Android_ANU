@@ -83,6 +83,23 @@
             </intent-filter>
         </activity>
 
+        <!--
+            Anu's keyboard (ARCHITECTURE §13, ADR-109). Only the system can bind it (BIND_INPUT_METHOD), and only after
+            the user turns it on in Android's keyboard settings. Its AI works on the phone only.
+        -->
+        <service
+            android:name=".AnuKeyboardService"
+            android:exported="true"
+            android:label="@string/anu_keyboard_label"
+            android:permission="android.permission.BIND_INPUT_METHOD">
+            <intent-filter>
+                <action android:name="android.view.InputMethod" />
+            </intent-filter>
+            <meta-data
+                android:name="android.view.im"
+                android:resource="@xml/anu_keyboard" />
+        </service>
+
         <!-- Anu as the digital assistant (ARCHITECTURE §13, ADR-044): the power button or corner swipe opens it. -->
         <service
             android:name=".AnuVoiceInteractionService"

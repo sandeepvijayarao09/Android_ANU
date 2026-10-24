@@ -33,6 +33,7 @@ Most assistants either know nothing about you or send everything about you to a 
 - "Reply to Maya, say yes, and suggest Thursday afternoon." Anu reads the thread, checks your calendar against your preferences (it knows you avoid meetings before 10), and drafts the reply in the tone you use with Maya. You approve it, and it sends.
 - "What's my day?" A short brief covers meetings with context, emails that need you, and anything you promised to do.
 - You select text in any app, tap **Anu → More formal**, and the rewrite replaces your selection.
+- Typing a text with Anu's keyboard, you tap **Fix grammar** or **Reply** above the keys. Gemma writes it on the phone and shows it first; it goes into the field only when you tap Replace. In a password or incognito field, the keyboard reads nothing and offers no AI.
 - Over a long email in any app, you hold the power button and ask "what's this about?". Anu says "Reading Gmail", reads the screen on the phone, and answers. It never looks unless you ask.
 - In an app that has no API, such as a shop's, you ask Anu to add the running shoes in size 10 to your cart. You approve that once, and Anu taps through the app on the phone while a line at the top says what it's doing. It stops before checkout: paying is yours.
 - You tap **+** and pick a photo of a sign, take one with the camera, or share one into Anu from your gallery, and ask what it says. You can add up to four and ask which receipt is bigger. Gemma reads it on the phone; the photo never goes to the cloud.
@@ -50,6 +51,7 @@ Most assistants either know nothing about you or send everything about you to a 
 - Learns from anything you've excluded, such as a contact, a mail label or a topic.
 - Claims to be able to do something before it has been tested.
 - Pays for anything, or handles your card or payment details.
+- Reads, keeps or sends what you type with its keyboard. Its AI reads the field only when you tap an action, works only on the phone, and never touches password or incognito fields.
 - Listens without your say-so. "Hey Anu" is off until you turn it on, works only while the screen is on, and shows a notification while it listens.
 
 ## Scope
@@ -77,6 +79,7 @@ Most assistants either know nothing about you or send everything about you to a 
   - stores that support the Universal Commerce Protocol (UCP): search, and checkouts you approve.
 - A living memory and user profile, with a screen to inspect, edit and add to it.
 - AI features: writing, email, scheduling, messages, shopping, and a daily brief.
+- A keyboard (ADR-109): plain QWERTY typing with AI Writing's actions, Continue and Reply above the keys, on the phone only, each result inserted only on your tap.
 - Several steps at once: "Brief me" gathers your calendar, chats and notes in parallel and writes your day in a few lines, and a request that spans areas ("check my calendar for Friday and text Maya I'm free") is shared out to specialists. They run on Google's Agent Development Kit, on the phone, and every action still asks you as any other does.
 - A prompt lab in Settings, for trying prompts and sampling on the models on the phone, with nothing from your data.
 - A vault for the keys and logins Anu uses for you, such as your Gemini key, a Meta Muse API key or email app passwords. It is not a password manager for other apps.
