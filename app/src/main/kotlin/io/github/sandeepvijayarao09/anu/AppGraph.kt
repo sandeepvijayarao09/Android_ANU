@@ -251,6 +251,9 @@ class AppGraph(private val context: Context) {
     /** Writing from any app's text-selection menu: the cascade with no tools (ADR-042). */
     val writing by lazy { Cascade(router, brains) }
 
+    /** Anu's keyboard: the same cascade with no cloud brain in it, so what's typed never leaves the phone (ADR-109). */
+    val keyboardWriting by lazy { Cascade(router, BrainProvider { tier -> if (tier == Tier.CLOUD) null else brains.brainFor(tier) }) }
+
     /** Speech in and out, on the phone only (ADR-043). */
     val speechIn by lazy { AndroidSpeechInput(context) }
 

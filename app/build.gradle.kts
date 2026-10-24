@@ -65,6 +65,7 @@ dependencies {
     implementation(project(":feature:settings"))
     implementation(project(":feature:memory"))
     implementation(project(":feature:writing"))
+    implementation(project(":feature:keyboard"))
     implementation(project(":brain:litertlm"))
     implementation(project(":brain:gemini"))
     implementation(project(":brain:embedding"))

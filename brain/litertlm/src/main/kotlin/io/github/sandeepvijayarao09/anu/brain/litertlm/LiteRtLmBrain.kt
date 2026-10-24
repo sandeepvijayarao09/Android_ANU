@@ -128,9 +128,11 @@ class LiteRtLmBrain(
                 override fun onDone() {
                     val done = System.nanoTime()
                     active.history = request.transcript + ChatMessage.Model(reply.toString(), calls.toList())
-                    val counters = speed(active.conversation, sent.get(), first.get())?.copy(conversation = active.why)
+                    // A cancel the runtime confirms after the grace can end here once its engine is let go (an unload
+                    // in the background, as when the keyboard hides): the counts are lost, and the app must not be.
+                    val counters = runCatching { speed(active.conversation, sent.get(), first.get()) }.getOrNull()?.copy(conversation = active.why)
                     counters?.let { speed -> onTurn?.invoke(speed) }
-                    val tokens = active.conversation.getTokenCount()
+                    val tokens = runCatching { active.conversation.getTokenCount() }.getOrDefault(active.tokens)
                     trySend(usage(tokens, active.tokens, pieces, counters, sent.get(), first.get(), done))
                     active.tokens = tokens
                     trySend(BrainEvent.Finished(if (calls.isEmpty()) StopReason.COMPLETE else StopReason.TOOL_CALLS))
@@ -250,8 +252,9 @@ class LiteRtLmBrain(
 
                 override fun onDone() {
                     val done = System.nanoTime()
-                    val counters = speed(conversation, sent.get(), first.get())
-                    trySend(Piece.End(usage(conversation.getTokenCount(), 0, pieces, counters, sent.get(), first.get(), done)))
+                    val counters = runCatching { speed(conversation, sent.get(), first.get()) }.getOrNull()
+                    val tokens = runCatching { conversation.getTokenCount() }.getOrDefault(0)
+                    trySend(Piece.End(usage(tokens, 0, pieces, counters, sent.get(), first.get(), done)))
                     finished.complete(true)
                     channel.close()
                 }
