@@ -72,14 +72,48 @@ class ModelManager(
         tpuFailed = true
     }
 
+    /** Set when Pro's GPU engine failed to load: Pro's chat then runs on the CPU until the app restarts (ADR-106). */
+    @Volatile
+    private var gpuFailed = false
+
+    /** Pro's GPU engine didn't load: its chat goes back to the CPU for the rest of this run (ADR-106). */
+    fun gpuFailed() {
+        gpuFailed = true
+    }
+
+    /**
+     * Whether Pro's chat runs its usual file on the GPU (ADR-106): only beside Base on the TPU, on a chip where both
+     * passed S1 together, with the memory for both. Memory's extraction still runs Pro on the CPU ([placement]).
+     */
+    val proOnGpu: Boolean
+        get() = !gpuFailed && !isEmulator() && baseOnTpu && ModelCatalog.proOnGpu(Build.SOC_MODEL) &&
+            installedFile(BrainId.PRO) != null && deviceMemoryGb >= ModelCatalog.minMemoryGb(BrainId.PRO)
+
+    /**
+     * Where [brain] runs, as its build's name: "CPU", "GPU", or a TPU build such as "NPU_TENSOR_G5". With [cpu], Pro runs
+     * on the CPU even where its chat runs on the GPU, as memory's extraction needs (ADR-106).
+     */
+    fun placement(brain: BrainId, cpu: Boolean = false): String = when {
+        brain == BrainId.PRO && !cpu && proOnGpu -> ModelVariant.GPU.name
+        else -> artifactFor(brain).variant.name
+    }
+
+    /** Whether engines at these placements may stay loaded together: Base on the TPU beside Pro on the GPU (ADR-106). */
+    fun together(a: Pair<BrainId, String>, b: Pair<BrainId, String>): Boolean {
+        if (!proOnGpu) return false
+        val pair = setOf(BrainId.BASE to artifactFor(BrainId.BASE).variant.name, BrainId.PRO to ModelVariant.GPU.name)
+        return a != b && a in pair && b in pair
+    }
+
     /** The verified file, if present. Files are renamed into place only after their SHA-256 check. */
     fun installedFile(brain: BrainId): File? {
         val artifact = artifactFor(brain)
         return File(modelsDir, artifact.fileName).takeIf { it.length() == artifact.sizeBytes }
     }
 
+    /** [ModelInfo.variant] is where the model's chat runs ([placement]), so Pro on the GPU says GPU (ADR-106). */
     override fun info(id: BrainId): ModelInfo =
-        artifactFor(id).let { ModelInfo(id, it.fileName, it.sizeBytes, it.variant.name, it.cacheBytes, ModelCatalog.minMemoryGb(id)) }
+        artifactFor(id).let { ModelInfo(id, it.fileName, it.sizeBytes, placement(id), it.cacheBytes, ModelCatalog.minMemoryGb(id)) }
 
     override val deviceMemoryGb: Int by lazy {
         val memory = ActivityManager.MemoryInfo().also { context.getSystemService(ActivityManager::class.java).getMemoryInfo(it) }
@@ -131,9 +165,9 @@ class ModelManager(
      * gets its audio encoder, on the CPU as in Google's Gallery: it loads only when a recording arrives, so it costs
      * nothing until then (S6, ADR-078).
      */
-    fun engineConfig(brain: BrainId, maxNumTokens: Int, vision: Boolean = false): EngineConfig? {
+    fun engineConfig(brain: BrainId, maxNumTokens: Int, vision: Boolean = false, placement: String = placement(brain)): EngineConfig? {
         val file = installedFile(brain) ?: return null
-        val variant = artifactFor(brain).variant
+        val variant = ModelVariant.valueOf(placement)
         return EngineConfig(
             modelPath = file.absolutePath,
             backend = backendFor(variant),

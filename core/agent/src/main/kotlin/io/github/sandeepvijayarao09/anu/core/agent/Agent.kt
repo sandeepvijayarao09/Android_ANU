@@ -34,6 +34,18 @@ import kotlinx.serialization.json.contentOrNull
 /** How an escalation past a tier with no model installed is worded. That tier never tried. */
 internal const val NO_BRAIN = "no brain is wired"
 
+/** Why a turn went to Pro on Base's own opinion (ADR-106). */
+internal const val BEYOND_BASE = "Base judged it needs Pro"
+
+/** Base's opinion, or none if asking failed: the rules' choice then stands. */
+private suspend fun opinion(baseOpinion: BaseOpinion, text: String): Boolean? = try {
+    baseOpinion.beyondBase(text)
+} catch (e: CancellationException) {
+    throw e
+} catch (e: Exception) {
+    null
+}
+
 /** What a cloud brain reads in place of a tool result that can hold sensitive data (ADR-087). */
 internal val KEPT_ON_PHONE = ToolOutcome.Rejected("This result can hold sensitive data, which stays on this phone.").toResultJson()
 
@@ -141,6 +153,8 @@ class Agent(
     private val brains: BrainProvider,
     private val broker: ToolBroker,
     private val budgets: Budgets = Budgets(),
+    /** Base's own opinion of a request the rules gave it, beside Pro on the GPU (ADR-106). */
+    private val baseOpinion: BaseOpinion? = null,
 ) {
 
     /** The final request and answer as estimated, against what the runtime counted after them (ADR-041). */
@@ -236,6 +250,12 @@ class Agent(
         var decision = when (val result = router.route(route, device)) {
             is RouteResult.Unavailable -> return@flow emit(AgentEvent.Failed(result.reasons))
             is RouteResult.Routed -> result.decision
+        }
+        // Beside Pro on the GPU, Base says whether a request the rules gave it is beyond it; if so, Pro answers (ADR-106).
+        if (baseOpinion != null && decision.tier == Tier.BASE && device.baseOnTpu && device.proOnGpu && route.pinnedTier == null &&
+            Tier.PRO in decision.allowed && opinion(baseOpinion, route.text) == true
+        ) {
+            router.escalate(route, decision, BEYOND_BASE)?.let { decision = it }
         }
         val specs = broker.specs(tools)
         val state = RunState(runId, turnKey, BrainLocation.ON_DEVICE, route.cloudConsented, inView)

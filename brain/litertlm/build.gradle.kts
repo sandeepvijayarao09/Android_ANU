@@ -39,6 +39,8 @@ dependencies {
 
     // Memory's extraction eval runs core:memory's extractor on the real model.
     androidTestImplementation(project(":core:memory"))
+    // The hand-off eval scores Base on the router eval's labelled requests (ADR-106).
+    androidTestImplementation(project(":eval"))
     // The voice note eval runs a real chat turn with the real calendar, contacts and alarm tools, approving into fakes.
     androidTestImplementation(project(":core:agent"))
     androidTestImplementation(project(":connector:calendar"))

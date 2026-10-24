@@ -114,6 +114,13 @@ class RouterTest {
     }
 
     @Test
+    fun `with Pro on the GPU beside Base on the TPU, a Pro request stays on Pro (ADR-106)`() {
+        val decision = route(proRequest, everything.copy(baseOnTpu = true, proOnGpu = true))
+        assertEquals(Tier.PRO, decision.tier)
+        assertEquals("a Base request stays on Base", Tier.BASE, route(request("Reply with just the word pong"), everything.copy(baseOnTpu = true, proOnGpu = true)).tier)
+    }
+
+    @Test
     fun `with Base on the TPU, a Pro request goes to Base when it fits, and a failed answer still moves up to Pro`() {
         val tpu = everything.copy(baseOnTpu = true)
         val decision = route(proRequest, tpu)

@@ -31,6 +31,8 @@ data class DeviceState(
      * goes to Base when it fits Base's budget. A failed answer still moves up to Pro (Stage C).
      */
     val baseOnTpu: Boolean = false,
+    /** Pro runs on the GPU, loaded beside Base on the TPU (ADR-106), so a request scored for Pro stays on Pro. */
+    val proOnGpu: Boolean = false,
 ) {
     /** Whether Gemini could be asked right now, as far as the phone knows. */
     val cloudAllowed: Boolean

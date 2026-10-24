@@ -26,6 +26,7 @@ import io.github.sandeepvijayarao09.anu.brain.embedding.GemmaEmbedder
 import io.github.sandeepvijayarao09.anu.brain.litertlm.OnDeviceBrains
 import io.github.sandeepvijayarao09.anu.core.agent.BrainProvider
 import io.github.sandeepvijayarao09.anu.core.agent.Agent
+import io.github.sandeepvijayarao09.anu.core.agent.BaseOpinion
 import io.github.sandeepvijayarao09.anu.core.agent.ApprovalCenter
 import io.github.sandeepvijayarao09.anu.core.agent.Cascade
 import io.github.sandeepvijayarao09.anu.core.agent.ContextWindow
@@ -71,7 +72,6 @@ import io.github.sandeepvijayarao09.anu.core.memory.ForgetMemoryTool
 import io.github.sandeepvijayarao09.anu.core.memory.MemoryPipeline
 import io.github.sandeepvijayarao09.anu.core.memory.RememberTool
 import io.github.sandeepvijayarao09.anu.core.memory.SearchMemoryTool
-import io.github.sandeepvijayarao09.anu.core.memory.extractionBrain
 import io.github.sandeepvijayarao09.anu.core.data.RoomTranscriptStore
 import io.github.sandeepvijayarao09.anu.core.data.RoomVaultAudit
 import io.github.sandeepvijayarao09.anu.core.model.Brain
@@ -342,7 +342,7 @@ class AppGraph(private val context: Context) {
     val memory by lazy {
         MemoryPipeline(
             RoomMemoryStore(db),
-            FactExtractor({ extractionBrain(onDevice::brainFor) }),
+            FactExtractor({ onDevice.memoryBrain() }),
             embedder = embedder,
         )
     }
@@ -439,7 +439,8 @@ class AppGraph(private val context: Context) {
 
     val chat by lazy {
         ChatSession(
-            agent = Agent(router, brains, broker),
+            // Beside Pro on the GPU, Base gives its own opinion of a request the rules gave it (ADR-106).
+            agent = Agent(router, brains, broker, baseOpinion = BaseOpinion.of { onDevice.run(BrainId.BASE, it) }),
             store = RoomTranscriptStore(db.transcripts(), conversationId = "main"),
             answers = RoomAnswerStore(db.answers(), conversationId = "main"),
             photoStore = RoomPhotoStore(db.photos()),
@@ -625,7 +626,7 @@ class DeviceStateProvider(
             batteryPercent = battery.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY),
             charging = battery.isCharging,
         )
-        return DeviceState(online = online, availableTiers = tiers, guard = guard, baseOnTpu = models.baseOnTpu)
+        return DeviceState(online = online, availableTiers = tiers, guard = guard, baseOnTpu = models.baseOnTpu, proOnGpu = models.proOnGpu)
     }
 }
 

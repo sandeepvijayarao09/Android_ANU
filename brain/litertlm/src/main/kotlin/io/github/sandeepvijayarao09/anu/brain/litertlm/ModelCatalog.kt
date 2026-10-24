@@ -51,6 +51,16 @@ object ModelCatalog {
      */
     val TPU_VERIFIED: Set<ModelVariant> = setOf(ModelVariant.NPU_TENSOR_G5)
 
+    /**
+     * Chips where Pro's usual file passed S1's contract on the GPU, and stayed loaded beside Base on the TPU with both
+     * answering correctly (ADR-106). Pro's chat runs there on the GPU. Its extraction missed a fact the CPU finds, so
+     * memory keeps the CPU.
+     */
+    val PRO_GPU_CHIPS: Set<ModelVariant> = setOf(ModelVariant.NPU_TENSOR_G5)
+
+    /** Whether Pro's chat may run on the GPU on the chip [socModel] names (ADR-106). */
+    fun proOnGpu(socModel: String): Boolean = npuFor(socModel) in PRO_GPU_CHIPS
+
     /** [brain]'s TPU build for the chip [socModel] names, if that chip's TPU is verified. */
     fun tpuFor(brain: BrainId, socModel: String, verified: Set<ModelVariant> = TPU_VERIFIED): ModelArtifact? {
         val variant = npuFor(socModel)?.takeIf { it in verified } ?: return null

@@ -7,7 +7,8 @@ import io.github.sandeepvijayarao09.anu.core.model.DataClass
  * - Stage A: hard constraints decide which tiers are allowed.
  * - Stage B: [ComplexityScorer] picks the lowest adequate tier among them. While the phone is guarded (hot, or
  *   low on battery), a request scored for Pro goes to Base when it fits, and Pro gives shorter answers (ADR-072).
- *   So does a request scored for Pro while Base runs on the TPU (ADR-103).
+ *   So does a request scored for Pro while Base runs on the TPU and Pro on the CPU (ADR-103); with Pro on the GPU, it
+ *   stays on Pro (ADR-106).
  * - Stage C: [escalate] moves one tier up when an answer fails validation, but never to the cloud by itself
  *   while the phone is guarded: Retry offers that instead.
  */
@@ -42,7 +43,7 @@ class Router(
             movedDown = true
             reasons += "${guard.reason}: Base instead of Pro"
         }
-        if (device.baseOnTpu && tier == Tier.PRO && Tier.BASE in allowed && request.promptTokens <= scorer.budgets.base) {
+        if (device.baseOnTpu && !device.proOnGpu && tier == Tier.PRO && Tier.BASE in allowed && request.promptTokens <= scorer.budgets.base) {
             tier = Tier.BASE
             reasons += "Base runs on the TPU: Base instead of Pro"
         }
