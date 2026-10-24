@@ -256,7 +256,12 @@ class ChatSession(
             val shield = if (route.hasPhotos || route.hasScreen || route.hasDocument) SecretShield(text, screen?.secrets.orEmpty()) else null
             // A brief or a request across several areas goes to ADK's agents, on the phone only (ADR-104).
             val orchestrated = orchestrator?.takeIf { skill in it.skills && pinned != Tier.CLOUD && !cloudConsented }
-            val events = orchestrated?.run(OrchestratedTurn(skill, asking.allWords, turnKey, sentAt(now, asking.allWords), untrustedIn(shown + message)))
+            val events = orchestrated?.run(
+                OrchestratedTurn(
+                    skill, asking.allWords, turnKey, sentAt(now, asking.allWords), untrustedIn(shown + message),
+                    recent = recentChat(shown), facts = relevantBlock,
+                ),
+            )
                 ?: agent.run(
                     route, device, system, turn, tools, turnKey = turnKey, sentAt = sentAt(now, asking.allWords), memory = memoryBlock,
                     relevant = relevantBlock, sharedFacts = if (cloudConsented) sharedFacts else emptyList(), consentFacts = consentFacts,

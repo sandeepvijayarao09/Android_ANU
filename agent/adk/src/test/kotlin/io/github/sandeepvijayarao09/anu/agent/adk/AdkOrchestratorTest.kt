@@ -192,6 +192,24 @@ class AdkOrchestratorTest {
     }
 
     @Test
+    fun `the coordinator gets the chat's context, and answers a plain question itself without a specialist`() = runBlocking {
+        val calendar = Lookup("calendar_list_events", "Friday: dentist at 3pm")
+        val brain = Actor(listOf("You are Anu" to { _ -> "Miso is a lovely name for a cat." to null }))
+        val adk = AdkOrchestrator({ ToolBroker(listOf(calendar), Gate()) }, { setOf("calendar_list_events") }, { brain }, { Tier.PRO })
+        val turn = OrchestratedTurn(
+            Skill.AGENTS, "What is a good name for a cat?", "turn-2", sentAt = null, inView = emptySet(),
+            recent = "User: I just adopted a kitten\nAnu: Congratulations!", facts = "Facts from memory about this message (the user's own data):\n- likes: Japanese food",
+        )
+        val done = adk.run(turn).toList().last() as AgentEvent.Completed
+
+        assertEquals("Miso is a lovely name for a cat.", done.text)
+        assertEquals(0, calendar.calls)
+        val asked = (brain.requests.single().transcript.last() as ChatMessage.User).text
+        assertTrue(asked, asked.contains("Recent chat, for context:\nUser: I just adopted a kitten") && asked.contains("likes: Japanese food"))
+        assertTrue(brain.requests.single().system.orEmpty().contains("Answer anything else yourself"))
+    }
+
+    @Test
     fun `no on-device model means a failed turn, not a cloud call`() = runBlocking {
         val adk = AdkOrchestrator({ ToolBroker(emptyList(), Gate()) }, { emptySet() }, { null }, { Tier.PRO })
         val events = adk.run(turn(Skill.AGENTS, "Check my calendar and text Maya")).toList()

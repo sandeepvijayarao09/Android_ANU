@@ -427,10 +427,7 @@ class AppGraph(private val context: Context) {
         return memory.state.first().facts.filter { it.id in wanted }.associate { it.id to it.text }
     }
 
-    /**
-     * The on-device brain for many-call work, ADK's agents (ADR-104) and app tasks (ADR-098), with its tier: Base when
-     * it's on the TPU, else Pro, else Base.
-     */
+    /** The on-device brain for app tasks' many calls (ADR-098), with its tier: Base when it's on the TPU, else Pro, else Base. */
     private fun agentBrain(): Pair<Tier, Brain>? {
         val order = if (models.baseOnTpu) listOf(Tier.BASE to BrainId.BASE, Tier.PRO to BrainId.PRO) else listOf(Tier.PRO to BrainId.PRO, Tier.BASE to BrainId.BASE)
         return order.firstNotNullOfOrNull { (tier, id) -> onDevice.brainFor(id)?.let { tier to it } }
@@ -452,10 +449,10 @@ class AppGraph(private val context: Context) {
             orchestrator = AdkOrchestrator(
                 broker = { broker },
                 available = { (tools.map { it.name } + mcp.registry.tools().map { it.name } + agents.tools().map { it.name }).toSet() },
-                // Base on the Pixel's TPU (ADR-103) answers in about a second where Pro on the CPU takes 15 to 20, and an
-                // agent turn makes several calls, so the agents use it when it's there.
-                brain = { agentBrain()?.second },
-                tier = { agentBrain()?.first ?: Tier.PRO },
+                // Pro first: the coordinator plans the specialists' calls. Base on the TPU is faster (ADR-103), and comes
+                // after the agents are checked on Pro.
+                brain = { onDevice.brainFor(BrainId.PRO) ?: onDevice.brainFor(BrainId.BASE) },
+                tier = { if (onDevice.brainFor(BrainId.PRO) != null) Tier.PRO else Tier.BASE },
             ),
             thinking = { thinking.thinking.value },
             transcriber = onDevice,
