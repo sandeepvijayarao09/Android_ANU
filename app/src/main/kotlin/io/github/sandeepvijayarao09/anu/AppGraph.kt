@@ -255,7 +255,7 @@ class AppGraph(private val context: Context) {
     val keyboardWriting by lazy { Cascade(router, BrainProvider { tier -> if (tier == Tier.CLOUD) null else brains.brainFor(tier) }) }
 
     /** Speech in and out, on the phone only (ADR-043). */
-    val speechIn by lazy { AndroidSpeechInput(context) }
+    val speechIn by lazy { AndroidSpeechInput(context).let { if (BuildConfig.DEBUG) ShellSpeech(it) else it } }
 
     /** Records voice notes, in memory only (G3, ADR-078). */
     val recorder by lazy { AndroidVoiceRecorder(context) }
@@ -263,6 +263,9 @@ class AppGraph(private val context: Context) {
 
     /** Anu as the assistant, and "Hey Anu" (ADR-044, ADR-045). */
     val voice by lazy { AnuVoiceSettings(context, prefs) }
+
+    /** Live talk behind other apps, with its microphone service and pill (ADR-108). */
+    val liveTalk by lazy { LiveTalk(context) }
 
     /** The services and stores the user connected in Settings (ADR-046, ADR-047). */
     private val connectorSettings by lazy { RoomConnectorSettings(db.connectors()) }

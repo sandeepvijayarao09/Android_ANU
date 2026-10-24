@@ -7,6 +7,11 @@
             android:name=".DebugAsk"
             android:exported="true"
             android:permission="android.permission.DUMP" />
+        <!-- Debug builds only: adb speaks for the emulator, whose recognizer has no English pack (ShellSpeech). -->
+        <receiver
+            android:name=".DebugVoice"
+            android:exported="true"
+            android:permission="android.permission.DUMP" />
         <!-- Debug builds only: adb adds an agent on the user's network (ADR-105). DUMP keeps other apps out. -->
         <receiver
             android:name=".DebugA2a"

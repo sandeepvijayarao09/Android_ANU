@@ -847,6 +847,10 @@ fun AssistantCard(
         state.readingApp?.let { app ->
             Text("Reading $app", Modifier.padding(top = 6.dp).semantics { liveRegion = LiveRegionMode.Polite }, style = AnuTheme.type.caption, color = colors.textMuted)
         }
+        // The tile asked about the screen, but it couldn't be read from here: the card says why, before any question (ADR-108).
+        state.screenNote?.takeIf { !state.screenOffered }?.let { note ->
+            Text(note, Modifier.padding(top = 10.dp), style = AnuTheme.type.caption, color = colors.textMuted)
+        }
         if (state.screenOffered && state.readingApp == null && !state.busy) {
             AnuPill(
                 if (state.useScreen) "Will use this screen" else "Use this screen",

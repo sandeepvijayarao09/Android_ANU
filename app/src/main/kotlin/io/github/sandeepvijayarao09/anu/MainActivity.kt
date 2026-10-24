@@ -126,11 +126,13 @@ private fun AnuHome(graph: AppGraph, shared: MutableStateFlow<Shared?>) {
     val context = LocalContext.current
     val pager = rememberPagerState(pageCount = { TABS.size })
     val scope = rememberCoroutineScope()
+    // Live talk goes on behind other apps with its notification, and the pill where app control is on (ADR-108).
     val chat = viewModel {
         ChatViewModel(
             graph.chat, graph.device::current, graph.approvals, graph.speechIn, graph.speechOut, facts = graph::factTexts,
             brainStatus = graph.onDevice.status, warm = graph::warmStart, recorder = graph.recorder, hears = graph.onDevice::available,
-        )
+            behind = graph.liveTalk,
+        ).also(graph.liveTalk::attach)
     }
     val memory = viewModel { MemoryViewModel(graph.memory) }
     // The prompt lab runs only the models on this phone, with nothing from the chat (G7, ADR-080).

@@ -9,6 +9,15 @@ interface ScreenSource {
 
     /** The screen with any codes masked, or why it can't be used. Called only when the user asks about it. */
     suspend fun screen(): ScreenLook
+
+    /** Why the user asked about the screen but it wasn't handed over, such as from a tile that can't read it (ADR-108). */
+    fun note(): String? = null
+}
+
+/** Whether live talk can go on while the user is in another app (ADR-108). */
+fun interface LiveBehind {
+    /** Null when it can, with a control on screen or a notification the user can stop it from; otherwise why not. */
+    fun blocked(): String?
 }
 
 /** What the card can do with the screen. */

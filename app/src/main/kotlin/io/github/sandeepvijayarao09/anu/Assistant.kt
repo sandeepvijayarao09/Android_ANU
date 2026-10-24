@@ -34,6 +34,9 @@ class AnuVoiceInteractionService : VoiceInteractionService() {
     companion object {
         const val EXTRA_QUERY = "io.github.sandeepvijayarao09.anu.QUERY"
 
+        /** The Quick Settings tile asked about the screen: the card's next question uses it (ADR-108). */
+        const val EXTRA_USE_SCREEN = "io.github.sandeepvijayarao09.anu.USE_SCREEN"
+
         @Volatile
         private var current: AnuVoiceInteractionService? = null
 
@@ -43,12 +46,15 @@ class AnuVoiceInteractionService : VoiceInteractionService() {
         /**
          * Opens the assistant overlay over whatever is on screen, with what followed "Hey Anu", if anything. It asks
          * Android for the screen as the power button does, so "Hey Anu, what's this?" can use it (EXP-2, ADR-083);
-         * the screen is still read only because the question asks about it.
+         * the screen is still read only because the question asks about it, or because the tile did ([useScreen]).
          */
-        fun show(query: String?): Boolean {
+        fun show(query: String?, useScreen: Boolean = false): Boolean {
             val service = current ?: return false
             service.showSession(
-                Bundle().apply { query?.let { putString(EXTRA_QUERY, it) } },
+                Bundle().apply {
+                    query?.let { putString(EXTRA_QUERY, it) }
+                    if (useScreen) putBoolean(EXTRA_USE_SCREEN, true)
+                },
                 VoiceInteractionSession.SHOW_WITH_ASSIST or VoiceInteractionSession.SHOW_WITH_SCREENSHOT,
             )
             return true
@@ -88,6 +94,7 @@ class AnuSession(context: Context) : VoiceInteractionSession(context) {
         ScreenHandoff.begin(System.currentTimeMillis())
         val intent = Intent(context, AssistantActivity::class.java)
         args?.getString(AnuVoiceInteractionService.EXTRA_QUERY)?.let { intent.putExtra(AnuVoiceInteractionService.EXTRA_QUERY, it) }
+        if (args?.getBoolean(AnuVoiceInteractionService.EXTRA_USE_SCREEN) == true) intent.putExtra(AnuVoiceInteractionService.EXTRA_USE_SCREEN, true)
         startAssistantActivity(intent)
         if (BuildConfig.DEBUG) {
             Log.d("Anu", "Assistant: shown, text ${showFlags and SHOW_WITH_ASSIST != 0}, screenshot ${showFlags and SHOW_WITH_SCREENSHOT != 0}")

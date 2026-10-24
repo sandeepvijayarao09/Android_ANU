@@ -38,6 +38,8 @@ class AssistantActivity : ComponentActivity() {
         // The power button or "Hey Anu": the model loads while the user speaks (EXP-1).
         graph.warmStart()
         val query = intent.getStringExtra(AnuVoiceInteractionService.EXTRA_QUERY)?.takeIf(String::isNotBlank)
+        // From the Quick Settings tile, the screen is attached for the next question (ADR-108).
+        val useScreen = intent.getBooleanExtra(AnuVoiceInteractionService.EXTRA_USE_SCREEN, false)
         setContent {
             AnuTheme {
                 val chat = viewModel {
@@ -55,6 +57,7 @@ class AssistantActivity : ComponentActivity() {
                     if (granted) chat.listenWhenReady()
                 }
                 LaunchedEffect(Unit) {
+                    if (useScreen) chat.useScreen()
                     when {
                         query != null -> chat.sendWhenReady(query)
                         micGranted -> chat.listenWhenReady()

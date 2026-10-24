@@ -180,6 +180,42 @@ class VoiceChatViewModelTest {
     }
 
     @Test
+    fun `leaving Anu keeps live talk going where it can show a control, and it listens again after the answer (ADR-108)`() {
+        var blocked: String? = null
+        val session = ChatSession(Agent(Router(), BrainProvider { if (it == Tier.BASE) base else null }, ToolBroker(emptyList(), ApprovalCenter())))
+        chat = ChatViewModel(session, device = { device }, speechIn = ears, speechOut = mouth, behind = { blocked })
+        ears.events = listOf(SpeechEvent.Final("What's on today?"))
+        base.enqueue(Step.Reply("Your day is clear."), Step.Reply("Goodbye."))
+        chat.toggleListening()
+        chat.leftAnu()
+        assertTrue("it goes on behind the other app", state.live)
+        ears.events = listOf(SpeechEvent.Final("Thanks, bye"))
+        answerEnds()
+        assertEquals(2, ears.listens)
+        assertEquals("Goodbye.", state.bubbles.last().text)
+
+        // Without a control the user can see, leaving ends it, and Talk says why.
+        blocked = "Allow notifications"
+        chat.leftAnu()
+        assertFalse(state.live)
+        assertEquals("Allow notifications", state.voiceProblem)
+        answerEnds()
+        assertEquals(2, ears.listens)
+    }
+
+    @Test
+    fun `without a way to go on behind other apps, leaving Anu ends live talk quietly, as before`() {
+        ears.events = listOf(SpeechEvent.Final("Hi"))
+        base.enqueue(Step.Reply("Hello."))
+        chat.toggleListening()
+        chat.leftAnu()
+        assertFalse(state.live)
+        assertEquals(null, state.voiceProblem)
+        answerEnds()
+        assertEquals(1, ears.listens)
+    }
+
+    @Test
     fun `the assistant card listens for one turn, not live talk`() {
         ears.events = listOf(SpeechEvent.Final("What's on today?"))
         base.enqueue(Step.Reply("Your day is clear."))
