@@ -1,6 +1,6 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
-// Pure Kotlin + OkHttp. Gemma on the user's Mac through Ollama, behind `scripts/mac-brain.py` (ADR-112). The vault's
+// Pure Kotlin + OkHttp. Gemma on the user's Mac through Ollama, behind `scripts/mac-brain.py` (ADR-113). The vault's
 // injector is added to the client by the app, so this module never sees the token (ARCHITECTURE §11).
 plugins {
     alias(libs.plugins.kotlin.jvm)

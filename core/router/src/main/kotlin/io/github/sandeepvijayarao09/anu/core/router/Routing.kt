@@ -6,7 +6,7 @@ import io.github.sandeepvijayarao09.anu.core.model.DataClass
 enum class Tier { BASE, PRO, CLOUD }
 
 /**
- * The top tier's model as the UI names it (ADR-112): Gemini, or the user's own Mac when one is paired, which takes
+ * The top tier's model as the UI names it (ADR-113): Gemini, or the user's own Mac when one is paired, which takes
  * Gemini's place. Either is off the phone, so the same consent and egress rules hold. [name] goes mid-sentence ("Use
  * [name] for this?"), [title] at the start of one, [where] says where the data goes, and [label] tags an answer.
  */

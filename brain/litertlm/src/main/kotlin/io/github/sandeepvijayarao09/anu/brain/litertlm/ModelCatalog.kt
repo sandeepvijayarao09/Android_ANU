@@ -61,6 +61,17 @@ object ModelCatalog {
     /** Whether Pro's chat may run on the GPU on the chip [socModel] names (ADR-106). */
     fun proOnGpu(socModel: String): Boolean = npuFor(socModel) in PRO_GPU_CHIPS
 
+    /**
+     * Chips, as `Build.SOC_MODEL` names them, where Pro's usual file passed S1's contract and extraction on the GPU by
+     * itself (ADR-112). Pro's chat and memory's extraction both run there on the GPU. The Snapdragon 8 Elite Gen 5
+     * (Galaxy S26 Ultra) found every fact the CPU finds, and read prompts 11× faster.
+     */
+    val PRO_GPU_ALONE: Set<String> = setOf("SM8850")
+
+    /** Whether Pro runs its usual file on the GPU, chat and extraction, on the chip [socModel] names (ADR-112). */
+    fun proGpuAlone(socModel: String, verified: Set<String> = PRO_GPU_ALONE): Boolean =
+        socModel.uppercase().replace(" ", "") in verified
+
     /** [brain]'s TPU build for the chip [socModel] names, if that chip's TPU is verified. */
     fun tpuFor(brain: BrainId, socModel: String, verified: Set<ModelVariant> = TPU_VERIFIED): ModelArtifact? {
         val variant = npuFor(socModel)?.takeIf { it in verified } ?: return null

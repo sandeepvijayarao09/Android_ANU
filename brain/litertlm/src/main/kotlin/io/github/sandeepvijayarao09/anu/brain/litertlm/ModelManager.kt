@@ -90,10 +90,19 @@ class ModelManager(
             installedFile(BrainId.PRO) != null && deviceMemoryGb >= ModelCatalog.minMemoryGb(BrainId.PRO)
 
     /**
+     * Whether Pro runs its usual file on the GPU by itself (ADR-112): on a chip where that passed S1's contract and
+     * extraction, so memory's extraction runs there too. A GPU that fails to load sends it back to the CPU.
+     */
+    val proGpuAlone: Boolean
+        get() = !gpuFailed && !isEmulator() && ModelCatalog.proGpuAlone(Build.SOC_MODEL) && installedFile(BrainId.PRO) != null
+
+    /**
      * Where [brain] runs, as its build's name: "CPU", "GPU", or a TPU build such as "NPU_TENSOR_G5". With [cpu], Pro runs
-     * on the CPU even where its chat runs on the GPU, as memory's extraction needs (ADR-106).
+     * on the CPU even where its chat runs on the GPU, as memory's extraction needs (ADR-106), except on a chip where
+     * extraction passed on the GPU (ADR-112).
      */
     fun placement(brain: BrainId, cpu: Boolean = false): String = when {
+        brain == BrainId.PRO && proGpuAlone -> ModelVariant.GPU.name
         brain == BrainId.PRO && !cpu && proOnGpu -> ModelVariant.GPU.name
         else -> artifactFor(brain).variant.name
     }

@@ -7,7 +7,7 @@ import android.util.Log
 import kotlinx.coroutines.launch
 
 /**
- * Debug builds only: pairs the user's Mac (ADR-112) from adb, since typing a 140-character code on an emulator loses
+ * Debug builds only: pairs the user's Mac (ADR-113) from adb, since typing a 140-character code on an emulator loses
  * characters. Only adb can send it (the DUMP permission):
  *   adb shell am broadcast -n io.github.sandeepvijayarao09.anu.personal/io.github.sandeepvijayarao09.anu.DebugMac --es pair 'anu-mac://…'
  *   … --ez unpair true

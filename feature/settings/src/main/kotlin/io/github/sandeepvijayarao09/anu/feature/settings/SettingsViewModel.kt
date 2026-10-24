@@ -40,7 +40,7 @@ interface CloudKeySettings {
 }
 
 /**
- * Gemma on the user's own Mac as the top model, in Gemini's place (ADR-112). [paired] is the Mac's address, or null.
+ * Gemma on the user's own Mac as the top model, in Gemini's place (ADR-113). [paired] is the Mac's address, or null.
  * The pairing code holds a token, which goes straight into the vault and is never shown again (§11).
  */
 interface MacSettings {
@@ -194,7 +194,7 @@ class SettingsViewModel(
     private val speeds: ModelSpeed? = null,
     /** Thinking before answering (ADR-077). Null where the app has none. */
     private val thinkingSetting: ThinkingSetting? = null,
-    /** The user's Mac as the top model (ADR-112). Null where the app has none. */
+    /** The user's Mac as the top model (ADR-113). Null where the app has none. */
     private val mac: MacSettings? = null,
 ) : ViewModel() {
 

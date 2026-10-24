@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Gemma on your Mac as Anu's top model (ADR-112): a small gateway in front of Ollama.
+"""Gemma on your Mac as Anu's top model (ADR-113): a small gateway in front of Ollama.
 
 Ollama stays on 127.0.0.1, where only this Mac can reach it. The gateway listens on the network, over HTTPS with its
 own certificate, and answers only Ollama's chat endpoint, only with a token. The phone trusts exactly this certificate

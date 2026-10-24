@@ -179,6 +179,11 @@ private fun AnuHome(graph: AppGraph, shared: MutableStateFlow<Shared?>) {
             mac = graph.mac,
         )
     }
+    // Live camera (ADR-111): "Ask Anu about this" comes back as a photo in the composer, handed over in memory.
+    val liveCamera = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        val jpeg = LiveFrame.take()
+        if (result.resultCode == android.app.Activity.RESULT_OK && jpeg != null) chat.attach(jpeg)
+    }
     var micGranted by remember { mutableStateOf(context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) }
     // What the user was doing when Anu asked for the microphone: talking, or a voice note. It goes on once allowed.
     var afterMic by remember { mutableStateOf<(() -> Unit)?>(null) }
@@ -238,6 +243,7 @@ private fun AnuHome(graph: AppGraph, shared: MutableStateFlow<Shared?>) {
                             factId?.let(memory::show)
                             scope.launch { pager.animateScrollToPage(1) }
                         },
+                        onLiveCamera = { liveCamera.launch(Intent(context, LiveCameraActivity::class.java)) },
                     )
                     1 -> MemoryScreen(memory, sentToday, onOpenPrivacy = openPrivacy)
                     else -> SettingsScreen(settings, sentToday, onOpenPrivacy = openPrivacy, page = settingsPage, onPage = { settingsPage = it }, lab = lab)

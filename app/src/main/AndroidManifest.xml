@@ -8,6 +8,13 @@
     <!-- Talking to Anu (ADR-043). Recognition runs on the phone's own on-device recognizer. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
+    <!--
+        Live camera (ADR-111): asked for only when the user opens it from "+". Frames are looked at on the phone and
+        never saved. A phone without a camera still installs Anu.
+    -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera.any" android:required="false" />
+
     <!-- "Hey Anu" listens in a foreground service, with a notification while it does (ADR-045). -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
@@ -69,6 +76,13 @@
             label. The selected text is untrusted data (§12.3): it is only edited, with no tools, and replaced
             only on the user's tap.
         -->
+        <!-- Live camera (ADR-111), opened from Talk's "+". Only Anu opens it. -->
+        <activity
+            android:name=".LiveCameraActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize" />
+
         <activity
             android:name=".WritingActivity"
             android:exported="true"

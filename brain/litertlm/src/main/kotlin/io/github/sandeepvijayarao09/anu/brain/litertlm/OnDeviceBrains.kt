@@ -86,7 +86,8 @@ class OnDeviceBrains(
 
     /**
      * The brain memory's extraction uses (§8.2): Pro, else Base, always on the CPU where Pro's chat runs on the GPU,
-     * because on the GPU it missed a fact the CPU finds (ADR-106). Loading it there lets the chat's engines go.
+     * because on the GPU it missed a fact the CPU finds (ADR-106). Loading it there lets the chat's engines go. On a
+     * chip where Pro's extraction passed on the GPU, it stays there with the chat's engine (ADR-112).
      */
     fun memoryBrain(): Brain? {
         val id = listOf(BrainId.PRO, BrainId.BASE).firstOrNull { models.installedFile(it) != null } ?: return null

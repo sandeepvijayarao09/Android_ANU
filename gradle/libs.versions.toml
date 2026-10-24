@@ -11,6 +11,9 @@ coreKtx = "1.19.1"
 # Pinned in Phase 0 (ARCHITECTURE §4.3, §5). Bump only with a changelog entry.
 litertlm = "0.18.1"
 litertNpuGoogleTensor = "2.3.0"
+# Live object detection (ADR-111): LiteRT's CompiledModel runs YOLOX; the same release as the Tensor NPU runtime.
+litert = "2.3.0"
+camerax = "1.6.2"
 mlkitGenaiPrompt = "1.0.0-beta4"
 localagentsRag = "0.3.0"
 protobufJavalite = "4.36.2"
@@ -48,6 +51,10 @@ androidx-compose-ui-test-junit4 = { module = "androidx.compose.ui:ui-test-junit4
 androidx-compose-ui-test-manifest = { module = "androidx.compose.ui:ui-test-manifest" }
 litertlm-android = { module = "com.google.ai.edge.litertlm:litertlm-android", version.ref = "litertlm" }
 litert-npu-google-tensor = { module = "com.google.ai.edge.litert:litert-npu-runtime-google-tensor", version.ref = "litertNpuGoogleTensor" }
+litert-gpu = { module = "com.google.ai.edge.litert:litert-gpu", version.ref = "litert" }
+androidx-camera-camera2 = { module = "androidx.camera:camera-camera2", version.ref = "camerax" }
+androidx-camera-lifecycle = { module = "androidx.camera:camera-lifecycle", version.ref = "camerax" }
+androidx-camera-view = { module = "androidx.camera:camera-view", version.ref = "camerax" }
 mlkit-genai-prompt = { module = "com.google.mlkit:genai-prompt", version.ref = "mlkitGenaiPrompt" }
 localagents-rag = { module = "com.google.ai.edge.localagents:localagents-rag", version.ref = "localagentsRag" }
 protobuf-javalite = { module = "com.google.protobuf:protobuf-javalite", version.ref = "protobufJavalite" }

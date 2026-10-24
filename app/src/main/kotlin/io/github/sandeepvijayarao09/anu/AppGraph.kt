@@ -26,6 +26,8 @@ import io.github.sandeepvijayarao09.anu.core.model.Embedder
 import io.github.sandeepvijayarao09.anu.core.model.ModelInstaller
 import io.github.sandeepvijayarao09.anu.brain.embedding.EmbeddingCatalog
 import io.github.sandeepvijayarao09.anu.brain.embedding.GemmaEmbedder
+import io.github.sandeepvijayarao09.anu.brain.embedding.Gemma2Embedder
+import io.github.sandeepvijayarao09.anu.core.model.VisualEmbedder
 import io.github.sandeepvijayarao09.anu.brain.litertlm.OnDeviceBrains
 import io.github.sandeepvijayarao09.anu.core.agent.BrainProvider
 import io.github.sandeepvijayarao09.anu.core.agent.Agent
@@ -196,7 +198,7 @@ class AppGraph(private val context: Context) {
     )
     val geminiKey = GeminiKeySettings(vault, prefs)
 
-    /** Gemma on the user's own Mac, the top model in Gemini's place when paired (ADR-112). */
+    /** Gemma on the user's own Mac, the top model in Gemini's place when paired (ADR-113). */
     val mac = MacBrainSettings(vault, prefs)
     val device = DeviceStateProvider(context, models, geminiKey, mac)
 
@@ -249,7 +251,7 @@ class AppGraph(private val context: Context) {
         when (tier) {
             Tier.BASE -> onDevice.brainFor(BrainId.BASE)
             Tier.PRO -> onDevice.brainFor(BrainId.PRO)
-            // The user's Mac first, when paired (ADR-112); off the phone either way, so the egress gate and consent hold.
+            // The user's Mac first, when paired (ADR-113); off the phone either way, so the egress gate and consent hold.
             Tier.CLOUD -> mac.brain(vault, egress) ?: geminiKey.ref()?.let { GeminiBrain(BrainId.CLOUD_FLASH, GEMINI_MODEL, it, vaultHttp, egress) }
         }
     }
@@ -358,17 +360,43 @@ class AppGraph(private val context: Context) {
     val embedder: () -> Embedder? = { searchModel ?: GemmaEmbedder.installed(File(context.noBackupFilesDir, "models"))?.also { searchModel = it } }
 
     /**
+     * Live camera's EmbeddingGemma 2 (ADR-111), once installed: the Tensor G5 build on that chip's TPU when it's there,
+     * else the CPU build, on the GPU where S14 measured it. Checked again until one is.
+     */
+    private var liveModel: Gemma2Embedder? = null
+    val visualEmbedder: () -> VisualEmbedder? = {
+        liveModel ?: Gemma2Embedder.installed(
+            File(context.noBackupFilesDir, "models"),
+            File(context.noBackupFilesDir, "litertlm-cache"),
+            tensorG5 = "tensorg5" in Build.SOC_MODEL.lowercase().replace(" ", ""),
+            nativeLibraryDir = context.applicationInfo.nativeLibraryDir,
+            socModel = Build.SOC_MODEL,
+            emulator = Build.HARDWARE == "ranchu" || Build.HARDWARE == "goldfish",
+        )?.also { liveModel = it }
+    }
+
+    /**
+     * Frees EmbeddingGemma 2 when live camera closes, once a picture being named is done: with its vision encoder it
+     * holds about 0.7 GB, which the chat model needs (ADR-111).
+     */
+    fun releaseVisualEmbedder() {
+        liveModel?.let { scope.launch { it.release() } }
+    }
+
+    /**
      * Installs a model file the user already has, if it's one this phone uses (ADR-067): a chat model's chosen build,
-     * or one of search by meaning's two files, which then get their vectors at once.
+     * one of search by meaning's two files, which then get their vectors at once, or live camera's EmbeddingGemma 2.
      */
     val installer: ModelInstaller by lazy {
         val search = EmbeddingCatalog.MODEL.let { KnownFile(it.name, it.bytes, it.sha256, "EmbeddingGemma 300M", pairedWith = EmbeddingCatalog.TOKENIZER.name) }
         val tokenizer = EmbeddingCatalog.TOKENIZER.let { KnownFile(it.name, it.bytes, it.sha256, "EmbeddingGemma's tokenizer", pairedWith = EmbeddingCatalog.MODEL.name) }
+        val live = EmbeddingCatalog.VISION.let { KnownFile(it.name, it.bytes, it.sha256, "EmbeddingGemma 2") }
+        val liveTpu = EmbeddingCatalog.VISION_TENSOR_G5.let { KnownFile(it.name, it.bytes, it.sha256, "EmbeddingGemma 2's Tensor G5 build") }
         fun chat(artifact: ModelArtifact, what: String) = KnownFile(artifact.fileName, artifact.sizeBytes, artifact.sha256, what)
         CatalogInstaller(
             File(context.noBackupFilesDir, "models"),
-            wanted = { listOf(chat(models.artifactFor(BrainId.BASE), "Gemma 4 E2B"), chat(models.artifactFor(BrainId.PRO), "Gemma 4 E4B"), search, tokenizer) },
-            known = ModelCatalog.all.map { chat(it, "${if (it.brain == BrainId.BASE) "Gemma 4 E2B" else "Gemma 4 E4B"}'s ${buildName(it.variant)}") } + listOf(search, tokenizer),
+            wanted = { listOf(chat(models.artifactFor(BrainId.BASE), "Gemma 4 E2B"), chat(models.artifactFor(BrainId.PRO), "Gemma 4 E4B"), search, tokenizer, live, liveTpu) },
+            known = ModelCatalog.all.map { chat(it, "${if (it.brain == BrainId.BASE) "Gemma 4 E2B" else "Gemma 4 E4B"}'s ${buildName(it.variant)}") } + listOf(search, tokenizer, live, liveTpu),
             onInstalled = { file -> if (file == search || file == tokenizer) scope.launch { runCatching { memory.index() } } },
         )
     }
@@ -631,7 +659,7 @@ class GeminiKeySettings(private val vault: Vault, private val prefs: SharedPrefe
 }
 
 /**
- * Pairs the user's Mac (ADR-112). The pairing code's token goes into the vault, bound to the Mac's address and to the Mac
+ * Pairs the user's Mac (ADR-113). The pairing code's token goes into the vault, bound to the Mac's address and to the Mac
  * brain alone (§11); the address, port and certificate pin are kept in the clear. Requests go over HTTPS trusting only
  * that certificate.
  */
@@ -643,7 +671,7 @@ class MacBrainSettings(private val vault: Vault, private val prefs: SharedPrefer
         named()
     }
 
-    /** The UI names the top model by what's paired (ADR-112). */
+    /** The UI names the top model by what's paired (ADR-113). */
     private fun named() {
         TopModel.current = pairing()?.let { TopModel.mac(it.host) } ?: TopModel.GEMINI
     }
@@ -744,7 +772,7 @@ class DeviceStateProvider(
         val capabilities = connectivity.getNetworkCapabilities(connectivity.activeNetwork)
         val internet = capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true &&
             capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
-        // A paired Mac is on the user's own network, which needs Wi-Fi or Ethernet, not the internet (ADR-112).
+        // A paired Mac is on the user's own network, which needs Wi-Fi or Ethernet, not the internet (ADR-113).
         val local = capabilities != null &&
             (capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) || capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET))
         val online = internet || (mac.pairing() != null && local)
