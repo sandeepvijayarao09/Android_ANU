@@ -5,4 +5,9 @@
         the personal build asks; the play build uses SCHEDULE_EXACT_ALARM, which the user allows in Settings.
     -->
     <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+
+    <application>
+        <!-- Live camera on the Snapdragon's NPU (ADR-115): QNN reaches it through the vendor's FastRPC library. -->
+        <uses-native-library android:name="libcdsprpc.so" android:required="false" />
+    </application>
 </manifest>

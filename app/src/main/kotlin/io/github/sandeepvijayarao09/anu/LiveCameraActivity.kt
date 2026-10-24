@@ -2,6 +2,7 @@ package io.github.sandeepvijayarao09.anu
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.os.BatteryManager
 import android.os.Bundle
 import android.os.PowerManager
 import android.util.Log
@@ -16,8 +17,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.sandeepvijayarao09.anu.brain.vision.CocoLabels
+import io.github.sandeepvijayarao09.anu.brain.vision.QualcommLibraries
 import io.github.sandeepvijayarao09.anu.brain.vision.YoloxDetector
 import io.github.sandeepvijayarao09.anu.core.ui.AnuTheme
 import io.github.sandeepvijayarao09.anu.feature.camera.Finder
@@ -32,6 +35,7 @@ import java.io.File
 import java.time.LocalDate
 import java.time.ZoneId
 import java.util.concurrent.atomic.AtomicReference
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
@@ -45,6 +49,8 @@ class LiveCameraActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        // A viewfinder stays on while it's open, as camera apps do.
+        window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         val graph = (application as AnuApp).graph
         // The chat models leave memory while the camera runs, after any answer still being written (ADR-111): on the
         // emulator, E4B resident beside it made the phone swap and detection 25 times slower. Talk's warm start loads
@@ -57,12 +63,20 @@ class LiveCameraActivity : ComponentActivity() {
         } else {
             null
         }
+        // Debug builds only, to compare backends (ADR-115): `--es backend GPU` (or NPU, CPU) and `--es npuMode
+        // SUSTAINED_HIGH_PERFORMANCE` (or another HTP mode) on the activity's intent.
+        val backend = intent.getStringExtra("backend")?.takeIf { BuildConfig.DEBUG }
+        val npuMode = intent.getStringExtra("npuMode")?.takeIf { BuildConfig.DEBUG }
+        if (BuildConfig.DEBUG) logPower()
         setContent {
             // Dark over the camera whatever the system setting, as camera apps are.
             AnuTheme(dark = true) {
                 val live = viewModel {
                     LiveCameraViewModel(
-                        openDetector = { YoloxDetector.open(assets) },
+                        openDetector = {
+                            val npu = QualcommLibraries.folder(applicationInfo.nativeLibraryDir, File(noBackupFilesDir, "qualcomm-npu"))
+                            YoloxDetector.openNamed(assets, npu, backend, npuMode)
+                        },
                         finder = Finder(LiveSearch(CocoLabels.ALL), graph.visualEmbedder, FileLabelVectors(File(noBackupFilesDir, "live-camera"))),
                         labels = CocoLabels.ALL.map { it.name },
                         log = if (BuildConfig.DEBUG) { line -> Log.d("Anu", line) } else null,
@@ -98,6 +112,23 @@ class LiveCameraActivity : ComponentActivity() {
         val listener = PowerManager.OnThermalStatusChangedListener { live.setHot(it >= PowerManager.THERMAL_STATUS_SEVERE) }
         power.addThermalStatusListener(mainExecutor, listener)
         thermal = listener
+    }
+
+    /**
+     * Debug builds: the battery's current every 5 seconds while live camera is open, for comparing backends' power
+     * (ADR-115). On a charger it's the net current, so compare runs on the same charger and level.
+     */
+    private fun logPower() {
+        val battery = getSystemService(BatteryManager::class.java)
+        lifecycleScope.launch {
+            while (true) {
+                delay(5_000)
+                val microamps = battery.getLongProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_NOW)
+                val volts = registerReceiver(null, android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED))
+                    ?.getIntExtra(BatteryManager.EXTRA_VOLTAGE, 0) ?: 0
+                Log.d("Anu", "Live camera power: battery ${microamps / 1000} mA at $volts mV")
+            }
+        }
     }
 
     private companion object {
