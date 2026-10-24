@@ -533,7 +533,14 @@ class ChatSession(
                 append(" Never say an order is placed or paid.")
             }
             if ("phone_set_alarm" in tools) {
-                append(" phone_set_alarm rings at the next time of day it's given; for another day, make a calendar event instead.")
+                append(" phone_set_alarm rings at the next time of day it's given; for another day, ")
+                append(if ("phone_set_reminder" in tools) "set a reminder instead." else "make a calendar event instead.")
+            }
+            if ("phone_set_reminder" in tools) {
+                append(" To be reminded of something at a time, call phone_set_reminder with what, in the user's words, and when.")
+            }
+            if ("phone_call" in tools) {
+                append(" phone_call only opens the dialer with the number, for the user to tap call. Find a person's number with contacts_find first.")
             }
             if ("notes_create" in tools) {
                 append(" Notes are kept in Anu on this phone. To add to a note the user names, call notes_append with its title; for a new one, notes_create.")

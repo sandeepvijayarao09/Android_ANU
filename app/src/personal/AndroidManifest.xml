@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!--
+        Reminders on the minute (ADR-107). Granted at install, but Play allows it only for alarm and calendar apps, so only
+        the personal build asks; the play build uses SCHEDULE_EXACT_ALARM, which the user allows in Settings.
+    -->
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+</manifest>

@@ -280,6 +280,23 @@ class RouterTest {
     }
 
     @Test
+    fun `reminders, calls, apps, directions and sharing are the phone's, and the calendar keeps its words (ADR-107)`() {
+        assertEquals(Skill.PHONE, SkillDetector.detect("Remind me on Friday to pay the rent"))
+        assertEquals(Skill.PHONE, SkillDetector.detect("Remind me to water the plants in a bit"))
+        assertEquals(Skill.PHONE, SkillDetector.detect("What reminders do I have?"))
+        assertEquals(Skill.PHONE, SkillDetector.detect("Call Maya"))
+        assertEquals(Skill.PHONE, SkillDetector.detect("Open Spotify and play something calm"))
+        assertEquals(Skill.PHONE, SkillDetector.detect("Get me directions to the nearest pharmacy"))
+        assertEquals(Skill.PHONE, SkillDetector.detect("Share this recipe with my sister"))
+        assertEquals("a meeting is still an event", Skill.SCHEDULING, SkillDetector.detect("Remind me about the meeting with Raj on Monday"))
+        assertEquals("app control needs the word app", Skill.APPS, SkillDetector.detect("Open the Test Shop app and add socks to the cart"))
+        assertEquals("not a call", Skill.CHAT, SkillDetector.detect("Call me Sam from now on"))
+        assertEquals("not a reminder", Skill.CHAT, SkillDetector.detect("Remind me what a haiku is"))
+        assertEquals("not an area for the agents", Skill.SCHEDULING, SkillDetector.detect("Check my calendar for Friday and call Maya"))
+        assertEquals(Tier.BASE, route(request("Remind me on Friday to pay the rent").copy(skill = Skill.PHONE)).tier)
+    }
+
+    @Test
     fun `a brief, and a request across areas, go to ADK's agents (ADR-104)`() {
         assertEquals(Skill.BRIEF, SkillDetector.detect("Brief me"))
         assertEquals(Skill.BRIEF, SkillDetector.detect("What does my day look like?"))
