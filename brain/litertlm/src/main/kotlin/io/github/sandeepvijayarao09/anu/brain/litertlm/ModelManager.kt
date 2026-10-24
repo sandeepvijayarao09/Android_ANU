@@ -46,7 +46,31 @@ class ModelManager(
     private val modelsDir = File(context.noBackupFilesDir, "models")
     private val weightCacheDir = File(context.noBackupFilesDir, "litertlm-cache")
 
-    fun artifactFor(brain: BrainId): ModelArtifact = ModelCatalog.choose(brain, Build.SOC_MODEL, preferred)
+    /** Set when a TPU engine failed to load: Base then uses its CPU build until the app restarts (ADR-103). */
+    @Volatile
+    private var tpuFailed = false
+
+    /**
+     * The file [brain] uses. On a chip whose TPU is verified (ADR-103), that's its TPU build when it's installed, or
+     * when the usual build isn't either, so a new download fetches the TPU build. Otherwise the usual build (ADR-059).
+     */
+    fun artifactFor(brain: BrainId): ModelArtifact {
+        val usual = ModelCatalog.choose(brain, Build.SOC_MODEL, preferred)
+        if (tpuFailed || isEmulator()) return usual
+        val tpu = ModelCatalog.tpuFor(brain, Build.SOC_MODEL) ?: return usual
+        return if (complete(tpu) || !complete(usual)) tpu else usual
+    }
+
+    private fun complete(artifact: ModelArtifact) = File(modelsDir, artifact.fileName).length() == artifact.sizeBytes
+
+    /** Whether Base runs on the TPU now, so the router may send it heavier requests (ADR-103). */
+    val baseOnTpu: Boolean
+        get() = artifactFor(BrainId.BASE).variant in ModelCatalog.TPU_VERIFIED && installedFile(BrainId.BASE) != null
+
+    /** A TPU engine didn't load: Base goes back to its CPU build for the rest of this run (ADR-103). */
+    fun tpuFailed() {
+        tpuFailed = true
+    }
 
     /** The verified file, if present. Files are renamed into place only after their SHA-256 check. */
     fun installedFile(brain: BrainId): File? {
@@ -109,11 +133,12 @@ class ModelManager(
      */
     fun engineConfig(brain: BrainId, maxNumTokens: Int, vision: Boolean = false): EngineConfig? {
         val file = installedFile(brain) ?: return null
-        val backend = backendFor(artifactFor(brain).variant)
+        val variant = artifactFor(brain).variant
         return EngineConfig(
             modelPath = file.absolutePath,
-            backend = backend,
-            visionBackend = if (vision) backendFor(artifactFor(brain).variant) else null,
+            backend = backendFor(variant),
+            // A TPU build's vision encoder runs on the GPU, the default in Google's Gallery (ADR-103).
+            visionBackend = if (!vision) null else if (variant in ModelCatalog.TPU_VERIFIED) Backend.GPU() else backendFor(variant),
             audioBackend = if (hears(brain)) Backend.CPU() else null,
             maxNumTokens = maxNumTokens,
             maxNumImages = if (vision) MAX_PHOTOS else null,
@@ -135,8 +160,9 @@ class ModelManager(
     private fun backendFor(variant: ModelVariant): Backend = when (variant) {
         ModelVariant.CPU -> Backend.CPU()
         ModelVariant.GPU -> Backend.GPU()
-        ModelVariant.NPU_TENSOR_G5, ModelVariant.NPU_TENSOR_G6 -> Backend.GOOGLE_TENSOR()
-        ModelVariant.NPU_SNAPDRAGON_SM8750 -> Backend.NPU(context.applicationInfo.nativeLibraryDir)
+        // The Pixel's TPU runs through the NPU backend, with Google's Tensor dispatch library in the app (ADR-102).
+        ModelVariant.NPU_TENSOR_G5, ModelVariant.NPU_TENSOR_G6, ModelVariant.NPU_SNAPDRAGON_SM8750 ->
+            Backend.NPU(context.applicationInfo.nativeLibraryDir)
     }
 
     internal companion object {

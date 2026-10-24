@@ -91,6 +91,7 @@ private fun destinationOf(action: ActionRecord): String = action.destination ?: 
 
 private fun backendName(backend: String?): String? = when {
     backend == null -> null
+    backend.startsWith("NPU_TENSOR") -> "Tensor TPU"
     backend.startsWith("NPU") -> "NPU"
     else -> backend
 }

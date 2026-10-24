@@ -420,7 +420,7 @@ private fun ModelRowView(row: ModelRow, onDownload: () -> Unit, onDelete: () -> 
     val colors = AnuTheme.colors
     val name = modelName(row.info.id)
     val size = gigabytes(row.info.sizeBytes)
-    val about = "${modelTier(row.info.id)} · ${row.info.variant.uppercase()} · ${modelSpace(row)}" + (memoryNote(row)?.let { "\n$it" } ?: "")
+    val about = "${modelTier(row.info.id)} · ${chipName(row.info.variant)} · ${modelSpace(row)}" + (memoryNote(row)?.let { "\n$it" } ?: "")
     when (val state = row.state) {
         ModelState.NotInstalled -> GroupRow(name, subtitle = about, trailing = { AnuTextButton("Download", onClick = onDownload) })
         is ModelState.Downloading -> Column {

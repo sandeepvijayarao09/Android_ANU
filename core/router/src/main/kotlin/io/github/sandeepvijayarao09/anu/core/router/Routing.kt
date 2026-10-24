@@ -26,6 +26,11 @@ data class DeviceState(
     val availableTiers: Set<Tier>,
     /** Why the phone is guarded right now, if it is: heat forecast, or a low battery (§6, Stage A; ADR-072). */
     val guard: Guard? = null,
+    /**
+     * Base runs on the phone's TPU (ADR-103), several times faster than Pro on the CPU, so a request scored for Pro
+     * goes to Base when it fits Base's budget. A failed answer still moves up to Pro (Stage C).
+     */
+    val baseOnTpu: Boolean = false,
 ) {
     /** Whether Gemini could be asked right now, as far as the phone knows. */
     val cloudAllowed: Boolean

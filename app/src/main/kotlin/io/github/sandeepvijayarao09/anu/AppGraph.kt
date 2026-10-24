@@ -609,6 +609,6 @@ class DeviceStateProvider(
             batteryPercent = battery.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY),
             charging = battery.isCharging,
         )
-        return DeviceState(online = online, availableTiers = tiers, guard = guard)
+        return DeviceState(online = online, availableTiers = tiers, guard = guard, baseOnTpu = models.baseOnTpu)
     }
 }

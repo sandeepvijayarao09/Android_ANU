@@ -114,6 +114,19 @@ class RouterTest {
     }
 
     @Test
+    fun `with Base on the TPU, a Pro request goes to Base when it fits, and a failed answer still moves up to Pro`() {
+        val tpu = everything.copy(baseOnTpu = true)
+        val decision = route(proRequest, tpu)
+        assertEquals(Tier.BASE, decision.tier)
+        assertEquals(false, decision.guarded)
+        assertTrue(decision.reasons.toString(), decision.reasons.contains("Base runs on the TPU: Base instead of Pro"))
+        assertEquals(Tier.PRO, router.escalate(proRequest, decision, "invalid tool call")?.tier)
+        assertEquals("too long for Base", Tier.PRO, route(proRequest.copy(promptTokens = 2_300), tpu).tier)
+        assertEquals("no Base installed", Tier.PRO, route(proRequest, tpu.copy(availableTiers = setOf(Tier.PRO))).tier)
+        assertEquals("pinned by the user", Tier.PRO, route(proRequest.copy(pinnedTier = Tier.PRO), tpu).tier)
+    }
+
+    @Test
     fun `a Base request isn't changed by the guard`() {
         val decision = route(request("Reply with just the word pong"), everything.copy(guard = Guard.HEAT))
         assertEquals(Tier.BASE, decision.tier)

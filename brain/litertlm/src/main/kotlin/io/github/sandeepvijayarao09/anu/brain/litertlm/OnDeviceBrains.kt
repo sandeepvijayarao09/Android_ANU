@@ -15,6 +15,7 @@ import io.github.sandeepvijayarao09.anu.core.model.TestStep
 import io.github.sandeepvijayarao09.anu.core.model.TestUpdate
 import io.github.sandeepvijayarao09.anu.core.model.Transcriber
 import io.github.sandeepvijayarao09.anu.core.model.Wav
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -37,8 +38,11 @@ class OnDeviceBrains(
     private val onTurn: ((BrainId, TurnSpeed) -> Unit)? = null,
 ) : Transcriber, PromptLab, DocumentReader {
 
-    /** The loaded model. [vision] says its engine has the vision encoder, which photos need (ADR-075). */
-    private class Slot(val id: BrainId, val holder: EngineHolder, val brain: LiteRtLmBrain, val vision: Boolean)
+    /**
+     * The loaded model. [vision] says its engine has the vision encoder, which photos need (ADR-075). [tpu] says it
+     * runs on the TPU, which falls back to the CPU if it doesn't load (ADR-103).
+     */
+    private class Slot(val id: BrainId, val holder: EngineHolder, val brain: LiteRtLmBrain, val vision: Boolean, val tpu: Boolean)
 
     private val residency = Mutex()
     private var slot: Slot? = null
@@ -196,8 +200,9 @@ class OnDeviceBrains(
             val holder = EngineHolder(config, models.engineOptions(id, benchmark = onTurn != null))
             val report = onTurn?.let { told -> { speed: TurnSpeed -> told(id, speed) } }
             val reading = { now: Boolean -> mutableStatus.value = if (now) BrainStatus.Reading(id) else BrainStatus.Idle }
-            val brain = LiteRtLmBrain(id, capabilities, holder, onTurn = report, backend = models.info(id).variant, onReading = reading)
-            Slot(id, holder, brain, keepVision).also { slot = it }
+            val variant = models.artifactFor(id).variant
+            val brain = LiteRtLmBrain(id, capabilities, holder, onTurn = report, backend = variant.name, onReading = reading)
+            Slot(id, holder, brain, keepVision, tpu = variant in ModelCatalog.TPU_VERIFIED).also { slot = it }
         }
         if (!ready.holder.isLoaded) {
             mutableStatus.value = when {
@@ -207,6 +212,17 @@ class OnDeviceBrains(
             }
             try {
                 ready.holder.get()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                if (!ready.tpu) throw e
+                // The TPU didn't load (ADR-103): Base uses its CPU build from now on, if it's installed. Without it,
+                // this turn fails and the router stops offering Base, so Pro answers on the CPU.
+                models.tpuFailed()
+                release()
+                if (models.installedFile(id) == null) throw e
+                mutableStatus.value = BrainStatus.Idle
+                return loaded(id, vision)
             } finally {
                 mutableStatus.value = BrainStatus.Idle
             }

@@ -46,6 +46,18 @@ object ModelCatalog {
     val GPU_VERIFIED: Set<String> = emptySet()
 
     /**
+     * TPU builds that have passed S1's contract on their chip (ADR-102, ADR-103). Base runs on one when its file is
+     * installed. Memory extraction stays on Pro, on the CPU, because the TPU missed a fact the CPU finds.
+     */
+    val TPU_VERIFIED: Set<ModelVariant> = setOf(ModelVariant.NPU_TENSOR_G5)
+
+    /** [brain]'s TPU build for the chip [socModel] names, if that chip's TPU is verified. */
+    fun tpuFor(brain: BrainId, socModel: String, verified: Set<ModelVariant> = TPU_VERIFIED): ModelArtifact? {
+        val variant = npuFor(socModel)?.takeIf { it in verified } ?: return null
+        return all.firstOrNull { it.brain == brain && it.variant == variant }
+    }
+
+    /**
      * The memory a phone should have for each model, in GB, as Google's AI Edge Gallery asks (`minDeviceMemoryInGb`
      * in its 1.0.19 model list). Below it a model still runs, but Android closes other apps to make room, and it may
      * be slow (ADR-066).

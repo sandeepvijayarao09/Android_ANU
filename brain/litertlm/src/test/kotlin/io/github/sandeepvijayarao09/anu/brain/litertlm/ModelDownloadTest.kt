@@ -116,6 +116,14 @@ class ModelDownloadTest {
     }
 
     @Test
+    fun `Base has a TPU build only on a verified chip, and Pro has none (ADR-103)`() {
+        assertEquals("gemma-4-E2B-it_Google_Tensor_G5.litertlm", ModelCatalog.tpuFor(BrainId.BASE, "Tensor G5")?.fileName)
+        assertEquals("not verified yet", null, ModelCatalog.tpuFor(BrainId.BASE, "Tensor G6"))
+        assertEquals("E4B has no TPU build", null, ModelCatalog.tpuFor(BrainId.PRO, "Tensor G5"))
+        assertEquals(null, ModelCatalog.tpuFor(BrainId.BASE, "Tensor G3"))
+    }
+
+    @Test
     fun `catalog entries are pinned to a commit and carry a full hash`() {
         ModelCatalog.all.forEach {
             assertTrue(it.url, Regex("https://huggingface\\.co/litert-community/.+/resolve/[0-9a-f]{40}/.+").matches(it.url))

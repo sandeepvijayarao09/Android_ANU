@@ -102,7 +102,14 @@ internal fun modelTier(id: BrainId): String = if (id == BrainId.BASE) "Base" els
 internal fun gigabytes(bytes: Long, locale: Locale = Locale.getDefault()): String = String.format(locale, "%.1f GB", bytes / 1e9)
 
 /** The model's build, as the sheet says it (ADR-073): "Runs on the GPU". */
-internal fun buildLine(variant: String): String = "Runs on the " + if (variant.startsWith("NPU")) "NPU" else variant.uppercase()
+internal fun buildLine(variant: String): String = "Runs on the " + chipName(variant)
+
+/** The chip a build runs on, in words: "Tensor TPU" for the Pixel's TPU builds (ADR-103), "NPU" for others, else CPU or GPU. */
+internal fun chipName(variant: String): String = when {
+    variant.startsWith("NPU_TENSOR") -> "Tensor TPU"
+    variant.startsWith("NPU") -> "NPU"
+    else -> variant.uppercase()
+}
 
 /**
  * A speed as one line (design review D12): "first word 1.2 s · reads 271/s · writes 5.3/s". Estimated rates say

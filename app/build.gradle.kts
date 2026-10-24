@@ -46,6 +46,9 @@ android {
     packaging {
         jniLibs {
             excludes += setOf("**/libgecko_embedding_model_jni.so", "**/libsqlite_vector_store_jni.so", "**/libtext_chunker_jni.so")
+            // Native libraries are extracted on install, because LiteRT-LM looks for the TPU's dispatch library as a
+            // file in the app's native library folder (ADR-103).
+            useLegacyPackaging = true
         }
         // ADK's Google libraries (ADR-104) each carry these build listings, which nothing reads at run time.
         resources {

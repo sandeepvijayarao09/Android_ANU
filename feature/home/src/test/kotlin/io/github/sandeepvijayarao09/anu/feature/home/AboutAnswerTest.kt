@@ -27,7 +27,8 @@ class AboutAnswerTest {
     @Test
     fun `the second line names the model and where it ran`() {
         assertEquals("Gemma 4 E4B · GPU, on this phone", whoAnswered(AnswerDetails(Tier.PRO, backend = "GPU")))
-        assertEquals("Gemma 4 E2B · NPU, on this phone", whoAnswered(AnswerDetails(Tier.BASE, backend = "NPU_TENSOR_G5")))
+        assertEquals("Gemma 4 E2B · Tensor TPU, on this phone", whoAnswered(AnswerDetails(Tier.BASE, backend = "NPU_TENSOR_G5")))
+        assertEquals("Gemma 4 E2B · NPU, on this phone", whoAnswered(AnswerDetails(Tier.BASE, backend = "NPU_SNAPDRAGON_SM8750")))
         assertEquals("Gemma 4 E2B · on this phone", whoAnswered(AnswerDetails(Tier.BASE)))
         assertEquals("Gemini · in the cloud", whoAnswered(AnswerDetails(Tier.CLOUD)))
     }
