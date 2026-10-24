@@ -251,6 +251,15 @@ class RouterTest {
     }
 
     @Test
+    fun `brightness and volume are the phone's, and a text draft is messages' (ADR-099)`() {
+        assertEquals(Skill.PHONE, SkillDetector.detect("Make the screen a bit brighter and turn the volume down"))
+        assertEquals(Skill.PHONE, SkillDetector.detect("Set the ringer to half and wake me at 7"))
+        assertEquals(Skill.MESSAGES, SkillDetector.detect("Write a draft for a message to Maya saying I'm running late"))
+        assertEquals(Skill.MESSAGES, SkillDetector.detect("Draft a text to Raj about dinner"))
+        assertEquals("an email stays email", Skill.EMAIL, SkillDetector.detect("Draft an email to Maya about the message she sent"))
+    }
+
+    @Test
     fun `a request that names an app to act in gets app control, on Base (ADR-098)`() {
         assertEquals(Skill.APPS, SkillDetector.detect("In the Test Shop app, add the trail runner to my cart"))
         assertEquals(Skill.APPS, SkillDetector.detect("Open the Clock app and set an alarm for 7"))

@@ -33,6 +33,19 @@ class PhoneCommandsTest {
     }
 
     @Test
+    fun `brightness and volume as a level (ADR-099)`() {
+        fun call(text: String) = PhoneCommands.match(text)?.let { it.name to it.arguments }
+        assertEquals("phone_brightness" to buildJsonObject { put("percent", 40) }, call("Set brightness to 40%"))
+        assertEquals("phone_brightness" to buildJsonObject { put("percent", 100) }, call("turn the screen brightness to max"))
+        assertEquals("phone_brightness" to buildJsonObject { put("percent", 25) }, call("brightness 25 percent"))
+        assertEquals("phone_volume" to buildJsonObject { put("percent", 30); put("stream", "media") }, call("Set the volume to 30%"))
+        assertEquals("phone_volume" to buildJsonObject { put("percent", 0); put("stream", "ring") }, call("set the ringer volume to minimum"))
+        assertEquals("phone_volume" to buildJsonObject { put("percent", 80); put("stream", "alarm") }, call("alarm volume 80"))
+        assertNull("over 100", call("set brightness to 140%"))
+        assertNull("not a level: the model decides", call("turn the volume up a bit"))
+    }
+
+    @Test
     fun `the flashlight and settings pages`() {
         assertEquals(buildJsonObject { put("on", true) }, PhoneCommands.match("Turn on the flashlight")?.arguments)
         assertEquals(buildJsonObject { put("on", false) }, PhoneCommands.match("torch off!")?.arguments)

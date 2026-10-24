@@ -44,6 +44,12 @@ object SkillDetector {
     }
 
     /** Words for either. They follow the conversation, and mean email when nothing says otherwise. */
+    /** A text written for the user to send from the phone: "draft a message to Maya", "write a text for Raj" (ADR-099). */
+    private val TEXT_DRAFT = Regex(
+        "\\b(draft|write|compose|prepare|type up)\\b(\\s+\\S+){0,3}?\\s+(text|message|sms)\\b",
+        RegexOption.IGNORE_CASE,
+    )
+
     private val CORRESPONDENCE = Regex(
         "\\b(repl(y|ies|ied)|draft|forward (it|this|that|them)|unread|sent me|wrote (to )?me|get back to)\\b",
         RegexOption.IGNORE_CASE,
@@ -69,7 +75,10 @@ object SkillDetector {
      * The phone's own controls (G6, ADR-076). A whole command never reaches here: it runs with no model. This is for
      * the rest, such as "wake me at 6:30 and turn the flashlight off", so the model has the tools.
      */
-    private val PHONE_CONTROLS = Regex("\\b(timers?|alarms?|wake me|flashlight|torch|do not disturb|dnd)\\b", RegexOption.IGNORE_CASE)
+    private val PHONE_CONTROLS = Regex(
+        "\\b(timers?|alarms?|wake me|flashlight|torch|do not disturb|dnd|brightness|brighter|dimmer|volume|ringer|sound level)\\b",
+        RegexOption.IGNORE_CASE,
+    )
 
     /**
      * The user's notes and address book, which the device skill also offers (ADR-093): "add eggs to my groceries note",
@@ -141,6 +150,8 @@ object SkillDetector {
         IN_AN_APP.containsMatchIn(text) -> Skill.APPS
         EMAIL.containsMatchIn(text) -> Skill.EMAIL
         MESSAGES.containsMatchIn(text) || TEXT_COMMAND.containsMatchIn(text) -> Skill.MESSAGES
+        // "Draft a text to Maya": the draft goes in the phone's messaging app, which the messages skill offers (ADR-099).
+        TEXT_DRAFT.containsMatchIn(text) -> Skill.MESSAGES
         // Before scheduling: a reply that proposes a time needs the reply tools, which include the calendar lookups.
         CORRESPONDENCE.containsMatchIn(text) ->
             if (previous == Skill.MESSAGES || hasPhoneNumber(text)) Skill.MESSAGES else Skill.EMAIL

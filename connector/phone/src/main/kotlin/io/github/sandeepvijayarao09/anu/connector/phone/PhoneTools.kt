@@ -6,8 +6,11 @@ import android.content.Context
 import android.content.Intent
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
+import android.media.AudioManager
+import android.net.Uri
 import android.provider.AlarmClock
 import android.provider.Settings
+import io.github.sandeepvijayarao09.anu.core.agent.EditableField
 import io.github.sandeepvijayarao09.anu.core.agent.RiskTier
 import io.github.sandeepvijayarao09.anu.core.agent.Tool
 import io.github.sandeepvijayarao09.anu.core.agent.ToolContext
@@ -32,6 +35,21 @@ data class FlashlightInput(@Description("true to turn the flashlight on, false t
 
 @Serializable
 data class DoNotDisturbInput(@Description("true to turn Do Not Disturb on, false to turn it off") val on: Boolean)
+
+@Serializable
+data class BrightnessInput(@Description("Screen brightness, 0 to 100 percent") val percent: Int)
+
+@Serializable
+data class VolumeInput(
+    @Description("Volume, 0 to 100 percent") val percent: Int,
+    @Description("One of: media, ring, alarm, notification") val stream: String = "media",
+)
+
+@Serializable
+data class TextDraftInput(
+    @Description("The phone number to text, such as +15551234567. Find a person's number with contacts_find first") val to: String,
+    @Description("The message, in the user's words") val text: String,
+)
 
 @Serializable
 data class SettingsInput(
@@ -142,6 +160,99 @@ class DoNotDisturbTool(context: Context) : PhoneTool<DoNotDisturbInput>(context)
     }
 }
 
+/**
+ * The screen's brightness, set by hand: auto-brightness goes off, as when the user moves the slider. Android asks the user
+ * once to let Anu change system settings, on a page of its own; until then the tool opens that page and fails.
+ */
+class BrightnessTool(context: Context) : PhoneTool<BrightnessInput>(context) {
+    override val name = "phone_brightness"
+    override val description = "Set the screen's brightness"
+    override val input: KSerializer<BrightnessInput> = BrightnessInput.serializer()
+    override fun risk(input: BrightnessInput) = RiskTier.WRITE_PRIVATE
+
+    override fun describe(input: BrightnessInput): String {
+        require(input.percent in 0..100) { "brightness is 0 to 100 percent" }
+        return "Set the screen brightness to ${input.percent}%"
+    }
+
+    override suspend fun invoke(input: BrightnessInput, context: ToolContext): Done {
+        if (!Settings.System.canWrite(this.context)) {
+            start(Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS, Uri.parse("package:${this.context.packageName}")), "Settings app")
+            error("Changing brightness needs your OK first. Allow Anu to modify system settings on the page that opened, then ask again")
+        }
+        val settings = this.context.contentResolver
+        Settings.System.putInt(settings, Settings.System.SCREEN_BRIGHTNESS_MODE, Settings.System.SCREEN_BRIGHTNESS_MODE_MANUAL)
+        Settings.System.putInt(settings, Settings.System.SCREEN_BRIGHTNESS, brightnessLevel(input.percent))
+        return Done("Brightness set to ${input.percent}%. Auto-brightness is off.")
+    }
+}
+
+/** A volume of the phone's own, as its volume panel sets it; the panel shows so the user sees the change. */
+class VolumeTool(context: Context) : PhoneTool<VolumeInput>(context) {
+    override val name = "phone_volume"
+    override val description = "Set the phone's media, ring, alarm or notification volume"
+    override val input: KSerializer<VolumeInput> = VolumeInput.serializer()
+    override fun risk(input: VolumeInput) = RiskTier.WRITE_PRIVATE
+
+    override fun describe(input: VolumeInput): String {
+        require(input.percent in 0..100) { "volume is 0 to 100 percent" }
+        require(input.stream in STREAMS) { "the volumes are ${STREAMS.keys.joinToString()}" }
+        return "Set the ${input.stream} volume to ${input.percent}%"
+    }
+
+    override suspend fun invoke(input: VolumeInput, context: ToolContext): Done {
+        val audio = this.context.getSystemService(AudioManager::class.java)
+        val stream = STREAMS.getValue(input.stream)
+        val low = audio.getStreamMinVolume(stream)
+        val high = audio.getStreamMaxVolume(stream)
+        val index = low + Math.round((high - low) * input.percent / 100f)
+        try {
+            audio.setStreamVolume(stream, index, AudioManager.FLAG_SHOW_UI)
+        } catch (_: SecurityException) {
+            // Android refuses ring and notification changes while Do Not Disturb is on, unless Anu may change it.
+            error("Do Not Disturb is on, so Android doesn't let Anu change the ${input.stream} volume")
+        }
+        return Done("${input.stream.replaceFirstChar(Char::uppercase)} volume set to ${input.percent}%.")
+    }
+
+    private companion object {
+        val STREAMS = mapOf(
+            "media" to AudioManager.STREAM_MUSIC,
+            "ring" to AudioManager.STREAM_RING,
+            "alarm" to AudioManager.STREAM_ALARM,
+            "notification" to AudioManager.STREAM_NOTIFICATION,
+        )
+    }
+}
+
+/**
+ * A text, ready to send, in the phone's messaging app. Nothing leaves the phone: the user reads it there and taps send,
+ * or doesn't. So it changes only the user's own screen, like a draft email, and asks only while the turn is tainted.
+ */
+class DraftTextTool(context: Context) : PhoneTool<TextDraftInput>(context) {
+    override val name = "phone_draft_text"
+    override val description = "Open the phone's messaging app with a text ready to send. Nothing is sent until the user taps send there"
+    override val input: KSerializer<TextDraftInput> = TextDraftInput.serializer()
+    override fun risk(input: TextDraftInput) = RiskTier.WRITE_PRIVATE
+    override val editable = listOf(EditableField("text", "Message", EditableField.Kind.TEXT))
+
+    override fun describe(input: TextDraftInput): String {
+        require(PHONE_NUMBER.matches(input.to.trim())) { "“${input.to}” isn't a phone number; find the person's number with contacts_find first" }
+        require(input.text.isNotBlank()) { "the message is empty" }
+        return "Open a text to ${input.to.trim()} in Messages: “${input.text.trim()}”"
+    }
+
+    override suspend fun invoke(input: TextDraftInput, context: ToolContext): Done {
+        val number = input.to.trim().filter { it.isDigit() || it == '+' }
+        start(Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:$number")).putExtra("sms_body", input.text.trim()), "messaging app")
+        return Done("Your text to ${input.to.trim()} is ready in Messages. Nothing is sent until you tap send there.")
+    }
+
+    private companion object {
+        val PHONE_NUMBER = Regex("\\+?[\\d ().-]{3,20}")
+    }
+}
+
 /** A page of the phone's Settings app. It only opens the page; nothing changes until the user does. */
 class OpenSettingsTool(context: Context) : PhoneTool<SettingsInput>(context) {
     override val name = "phone_open_settings"
@@ -173,6 +284,12 @@ class OpenSettingsTool(context: Context) : PhoneTool<SettingsInput>(context) {
         )
     }
 }
+
+/**
+ * The system's brightness value, 1 to 255, for [percent] of the slider. The slider is perceptual, so the value grows
+ * with a gamma of 2.2: 50% is about 55, not 128, which looked almost full on the emulator's scale. 0% is the dimmest, 1.
+ */
+internal fun brightnessLevel(percent: Int): Int = (255 * Math.pow(percent / 100.0, 2.2)).toInt().coerceIn(1, 255)
 
 /** "10 minutes", "1 hour 30 minutes", "45 seconds". */
 internal fun duration(seconds: Int): String {

@@ -4,4 +4,14 @@
     <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
     <!-- Do Not Disturb. A normal permission, but Android also asks the user to allow Anu on a page of its own. -->
     <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
+    <!-- Brightness (ADR-099). A special permission: Android asks the user to allow Anu on a page of its own. -->
+    <uses-permission android:name="android.permission.WRITE_SETTINGS" />
+
+    <!-- A text ready to send opens in the phone's messaging app (package visibility, API 30+). -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.SENDTO" />
+            <data android:scheme="smsto" />
+        </intent>
+    </queries>
 </manifest>

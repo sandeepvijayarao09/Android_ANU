@@ -114,7 +114,7 @@ class AppControlTest {
         val shop = FakeShop(mutableListOf(home, results, product, product, added))
         val brain = ScriptedBrain(
             BrainId.PRO,
-            steps = listOf(
+            steps = listOf(NO_PLAN, 
                 step("type", 1, "trail runner"),
                 step("tap", 2),
                 step("tap", 1),
@@ -138,10 +138,10 @@ class AppControlTest {
     @Test
     fun `each step shows the model the screen and the steps so far, held to a schema`() = runTest {
         val shop = FakeShop(mutableListOf(home, results))
-        val brain = ScriptedBrain(BrainId.PRO, steps = listOf(step("type", 1, "trail runner"), step("stuck", note = "No such shoe.")))
+        val brain = ScriptedBrain(BrainId.PRO, steps = listOf(NO_PLAN, step("type", 1, "trail runner"), step("stuck", note = "No such shoe.")))
         setUp(shop, brain).execute(task("find the trail runner"), run())
 
-        val second = brain.requests[1]
+        val second = brain.requests[2]
         val asked = (second.transcript.single() as ChatMessage.User).text
         assertTrue(asked.contains("1. Type “trail runner” into “Search” in Test Shop"))
         assertTrue(asked.contains("[2] button \"Trail Runner 2 · \$120\""))
@@ -152,7 +152,7 @@ class AppControlTest {
     @Test
     fun `a purchase button is never tapped`() = runTest {
         val shop = FakeShop(mutableListOf(product))
-        val brain = ScriptedBrain(BrainId.PRO, steps = listOf(step("tap", 3)))
+        val brain = ScriptedBrain(BrainId.PRO, steps = listOf(NO_PLAN, step("tap", 3)))
         val result = result(setUp(shop, brain).execute(task("buy the trail runner"), run()))
 
         assertTrue(shop.actions.isEmpty())
@@ -164,7 +164,7 @@ class AppControlTest {
     fun `a delete button asks for that exact tap, and a no stops the task`() = runTest {
         val cart = screen(ScreenElement(1, ScreenElement.Kind.TEXT, "Trail Runner 2"), button(2, "Remove"))
         val shop = FakeShop(mutableListOf(cart))
-        val brain = ScriptedBrain(BrainId.PRO, steps = listOf(step("tap", 2)))
+        val brain = ScriptedBrain(BrainId.PRO, steps = listOf(NO_PLAN, step("tap", 2)))
         val gate = object : ApprovalGate {
             val requests = mutableListOf<ApprovalRequest>()
             override suspend fun request(request: ApprovalRequest): ApprovalDecision {
@@ -189,7 +189,7 @@ class AppControlTest {
     fun `enter outside a search box counts as sending`() = runTest {
         val chat = screen(field(1, "Message", "On my way"), button(2, "Send"))
         val shop = FakeShop(mutableListOf(chat))
-        val brain = ScriptedBrain(BrainId.PRO, steps = listOf(step("enter", 1), step("done", note = "Sent.")))
+        val brain = ScriptedBrain(BrainId.PRO, steps = listOf(NO_PLAN, step("enter", 1), step("done", note = "Sent.")))
         setUp(shop, brain).execute(task("tell Maya I'm on my way"), run())
 
         assertEquals(RiskTier.WRITE_EXTERNAL, gate.requests.last().risk)
@@ -202,7 +202,7 @@ class AppControlTest {
         assertEquals("[1] field \"Email\" = \"maya@example.com\"\n[2] password field \"Password\"", login.forModel())
 
         val shop = FakeShop(mutableListOf(login))
-        val brain = ScriptedBrain(BrainId.PRO, steps = listOf(step("type", 2, "hunter2"), step("stuck", note = "It needs your password.")))
+        val brain = ScriptedBrain(BrainId.PRO, steps = listOf(NO_PLAN, step("type", 2, "hunter2"), step("stuck", note = "It needs your password.")))
         val result = result(setUp(shop, brain).execute(task("sign in"), run()))
         assertTrue(shop.actions.isEmpty())
         assertTrue(result["steps"].toString().contains("Anu doesn't type into password fields"))
@@ -225,7 +225,7 @@ class AppControlTest {
     @Test
     fun `Stop ends the task at once`() = runTest {
         val shop = FakeShop(mutableListOf(home))
-        val brain = ScriptedBrain(BrainId.PRO, steps = listOf(ScriptedBrain.Step.Hang()))
+        val brain = ScriptedBrain(BrainId.PRO, steps = listOf(NO_PLAN, ScriptedBrain.Step.Hang()))
         val broker = setUp(shop, brain)
         val outcome = coroutineScope {
             val running = async { broker.execute(task("add milk to the cart"), run()) }
@@ -241,7 +241,7 @@ class AppControlTest {
     @Test
     fun `the same step on the same screen three times stops the task`() = runTest {
         val shop = FakeShop(mutableListOf(home))
-        val brain = ScriptedBrain(BrainId.PRO, steps = List(3) { step("tap", 2) })
+        val brain = ScriptedBrain(BrainId.PRO, steps = listOf(NO_PLAN) + List(3) { step("tap", 2) })
         val result = result(setUp(shop, brain).execute(task("open the cart"), run()))
         assertEquals(2, shop.actions.size)
         assertTrue(result["said"]!!.jsonPrimitive.content.startsWith("Stopped: Anu kept trying the same thing"))
@@ -313,8 +313,104 @@ class AppControlTest {
         assertTrue(broker.execute(buy, granted) is ToolOutcome.Invalid)
     }
 
+    @Test
+    fun `a plan whose words match the screen runs with one model call, and its done words finish it`() = runTest {
+        val home = screen(field(1, "Search"), button(2, "Trail Runner 2 · Running shoe · \$120"), button(3, "Road Glide · Running shoe · \$95"))
+        val added = screen(button(1, "Size 10"), button(2, "Add to cart"), ScreenElement(3, ScreenElement.Kind.TEXT, "Added to cart: Trail Runner 2, size 10."))
+        val shop = FakeShop(mutableListOf(home, product, product, added))
+        val plan = Reply(
+            """{"steps":[{"action":"tap","target":"Trail Runner 2"},{"action":"tap","target":"Size 10"},{"action":"tap","target":"Add to cart"}],""" +
+                """"done":"Added to cart","note":"Added the Trail Runner 2 in size 10 to your cart."}""",
+        )
+        val brain = ScriptedBrain(BrainId.PRO, steps = listOf(plan))
+        val result = result(setUp(shop, brain).execute(task("add the trail runner in size 10 to the cart"), run()))
+
+        assertEquals(1, brain.requests.size)
+        assertEquals(listOf("tap Trail Runner 2 · Running shoe · \$120", "tap Size 10", "tap Add to cart"), shop.actions)
+        assertEquals("Added the Trail Runner 2 in size 10 to your cart.", result["said"]!!.jsonPrimitive.content)
+        assertTrue(result["finished"]!!.jsonPrimitive.boolean)
+    }
+
+    @Test
+    fun `a planned step that matches nothing goes to the model, and the plan goes on after it`() = runTest {
+        val shop = FakeShop(mutableListOf(home, results, product, added))
+        val plan = Reply("""{"steps":[{"action":"tap","target":"Blue Mug"},{"action":"tap","target":"Trail Runner 2"},{"action":"tap","target":"Add to cart"}],"done":"Added to cart","note":"Added it."}""")
+        val brain = ScriptedBrain(BrainId.PRO, steps = listOf(plan, step("type", 1, "trail runner")))
+        val result = result(setUp(shop, brain).execute(task("add the trail runner to the cart"), run()))
+
+        assertEquals(2, brain.requests.size)
+        assertEquals(listOf("type trail runner", "tap Trail Runner 2 · \$120", "tap Add to cart"), shop.actions)
+        assertEquals("Added it.", result["said"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun `a planned purchase is never tapped either`() = runTest {
+        val shop = FakeShop(mutableListOf(product))
+        val brain = ScriptedBrain(BrainId.PRO, steps = listOf(Reply("""{"steps":[{"action":"tap","target":"Buy now"}]}""")))
+        val result = result(setUp(shop, brain).execute(task("buy the trail runner"), run()))
+        assertTrue(shop.actions.isEmpty())
+        assertTrue(result["said"]!!.jsonPrimitive.content.startsWith("Stopped before “Buy now”"))
+    }
+
+    @Test
+    fun `a planned choice that's already on isn't tapped off, and a skipped step needs the model to have acted`() = runTest {
+        val chosen = screen(ScreenElement(1, ScreenElement.Kind.CHECKBOX, "Size 10", checked = true), button(2, "Add to cart"))
+        val shop = FakeShop(mutableListOf(chosen, chosen, added))
+        val plan = Reply("""{"done":"Added to cart","steps":[{"action":"tap","target":"Size 10"},{"action":"tap","target":"Add to cart"}]}""")
+        val brain = ScriptedBrain(BrainId.PRO, steps = listOf(plan))
+        setUp(shop, brain).execute(task("add size 10 to the cart"), run())
+        assertEquals(listOf("tap Add to cart"), shop.actions)
+
+        // "Size 10" fits two elements equally, so it isn't matched, and "Add to cart" isn't jumped to without a size.
+        val twice = screen(button(1, "Size 10"), button(2, "Size 10"), button(3, "Add to cart"))
+        val unsure = FakeShop(mutableListOf(twice, added))
+        val asks = ScriptedBrain(BrainId.PRO, steps = listOf(plan, step("tap", 1)))
+        setUp(unsure, asks).execute(task("add size 10 to the cart"), run())
+        assertEquals(listOf("tap Size 10"), unsure.actions)
+    }
+
+    @Test
+    fun `typing into a button taps it, then types into the field it opens, with no model call`() = runTest {
+        val results = screen(button(1, "Search Amazon"), button(2, "Amazon Basics AA 20-Pack · \$9.99"))
+        val searching = screen(field(1, "Search Amazon"), button(2, "Clear search keywords"))
+        val shop = FakeShop(mutableListOf(results, searching, searching))
+        val brain = ScriptedBrain(BrainId.PRO, steps = listOf(NO_PLAN, step("type", 1, "aa batteries"), step("stuck", note = "Stop here.")))
+        setUp(shop, brain).execute(task("search for aa batteries"), run())
+        assertEquals(listOf("tap Search Amazon", "type aa batteries"), shop.actions)
+        assertEquals(3, brain.requests.size)
+    }
+
+    @Test
+    fun `words find one element, or none when two fit as well`() {
+        val twice = screen(button(1, "Add to cart"), button(2, "Add to cart"))
+        assertNull(ScreenMatch.find(twice, PlanStep(StepAction.TAP, "Add to cart")))
+        assertEquals(2, ScreenMatch.find(product, PlanStep(StepAction.TAP, "add to Cart")))
+        assertEquals(1, ScreenMatch.find(home, PlanStep(StepAction.TYPE, "search", "milk")))
+        assertNull("a field isn't a button", ScreenMatch.find(home, PlanStep(StepAction.TAP, "Search")))
+        assertEquals(1, ScreenMatch.find(screen(button(1, "AA Battery 24-pack · \$12")), PlanStep(StepAction.TAP, "AA batteries")))
+        assertNull(ScreenMatch.find(product, PlanStep(StepAction.TAP, "Size 1")))
+        assertEquals(0, ScreenMatch.find(product, PlanStep(StepAction.SCROLL_DOWN)))
+        assertEquals("a button wins over its own words as text", 2, ScreenMatch.find(screen(ScreenElement(1, ScreenElement.Kind.TEXT, "Size 10"), button(2, "Size 10")), PlanStep(StepAction.TAP, "Size 10")))
+        assertTrue(ScreenMatch.shows(added, "added to cart"))
+        assertFalse(ScreenMatch.shows(product, "added to cart"))
+    }
+
+    @Test
+    fun `a long screen is cut to its fields and the elements that share the goal's words, keeping their numbers`() {
+        val ads = (1..40).map { button(it, "Deal of the day $it") }
+        val long = AppScreen("Amazon", "com.amazon", listOf(field(41, "Search Amazon")) + ads + button(42, "Duracell AA batteries 24"))
+        val focused = ScreenMatch.focus(long, "add AA batteries to my cart", limit = 5)
+        assertEquals(5, focused.elements.size)
+        assertEquals(listOf(1, 2, 3, 41, 42), focused.elements.map { it.id }.sorted())
+        assertTrue(focused.forModel().contains("[42] button \"Duracell AA batteries 24\""))
+        assertEquals(screen(button(1, "a")), ScreenMatch.focus(screen(button(1, "a")), "anything"))
+    }
+
     private companion object {
         const val SHOP = "io.github.sandeepvijayarao09.anu.testshop"
+
+        /** A plan that failed or had no steps: every step is then the model's. */
+        val NO_PLAN = Reply("""{"steps":[]}""")
     }
 }
 

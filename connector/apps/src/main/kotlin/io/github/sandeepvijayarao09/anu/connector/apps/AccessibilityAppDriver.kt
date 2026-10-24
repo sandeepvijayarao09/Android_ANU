@@ -16,6 +16,7 @@ import io.github.sandeepvijayarao09.anu.core.agent.AppDriver
 import io.github.sandeepvijayarao09.anu.core.agent.AppScreen
 import io.github.sandeepvijayarao09.anu.core.agent.LaunchedApp
 import io.github.sandeepvijayarao09.anu.core.agent.ScreenElement
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -23,6 +24,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * App control on Android (ADR-098): opens apps by the name their launcher icon shows, reads the active app's screen
@@ -75,16 +77,31 @@ class AccessibilityAppDriver(private val context: Context) : AppDriver {
 
     override suspend fun read(): AppScreen? {
         settle()
+        // Compose doesn't always report a change as it draws: on the emulator a read 400 ms after a tap caught a list
+        // whose tapped row was gone and whose next page wasn't drawn. Two reads that agree mean it has settled.
+        var screen = snapshot() ?: return null
+        val started = SystemClock.uptimeMillis()
+        while (SystemClock.uptimeMillis() - started < SETTLE_MAX_MS) {
+            delay(AGREE_MS)
+            val again = snapshot() ?: return null
+            if (again.first == screen.first) break
+            screen = again
+        }
+        nodes = screen.second
+        return screen.first.also { current = it }
+    }
+
+    /** The active app's screen now, with the nodes behind its numbers. */
+    private fun snapshot(): Pair<AppScreen, Map<Int, AccessibilityNodeInfo>>? {
         val root = activeWindow()?.root ?: service?.rootInActiveWindow ?: return null
         val packageName = root.packageName?.toString() ?: return null
         val found = mutableListOf<ScreenElement>()
         val byId = mutableMapOf<Int, AccessibilityNodeInfo>()
         walk(root, found, byId, insideButton = false)
-        nodes = byId
         val label = runCatching {
             context.packageManager.getApplicationLabel(context.packageManager.getApplicationInfo(packageName, 0)).toString()
         }.getOrDefault(packageName)
-        return AppScreen(label, packageName, found).also { current = it }
+        return AppScreen(label, packageName, found) to byId
     }
 
     /**
@@ -103,17 +120,23 @@ class AccessibilityAppDriver(private val context: Context) : AppDriver {
         when {
             node.isEditable -> {
                 val showingHint = node.isShowingHintText
+                // Compose draws a field's label as its child, with no hint: those words name it.
                 val label = node.hintText?.toString() ?: node.contentDescription?.toString() ?: node.labeledBy?.text?.toString()
-                    ?: node.viewIdResourceName?.substringAfterLast('/')?.replace('_', ' ') ?: "Text field"
+                    ?: words(node).takeIf { it.isNotEmpty() } ?: node.viewIdResourceName?.substringAfterLast('/')?.replace('_', ' ') ?: "Text field"
                 // A password field's text is never read (I1).
                 val value = if (node.isPassword || showingHint) null else node.text?.toString()
                 add(ScreenElement.Kind.FIELD, label, value)
+                button = true
             }
             node.isCheckable -> {
                 val kind = if (node.className?.contains("Switch") == true) ScreenElement.Kind.SWITCH else ScreenElement.Kind.CHECKBOX
                 add(kind, own.ifEmpty { words(node) }.ifEmpty { "Option" }, checked = node.isChecked)
+                // Its words are its label: listing them again as text gave two "Size 10"s, and a tap on the text toggled it.
+                button = true
             }
-            node.isClickable && !insideButton -> {
+            // Amazon's suggestions are Buttons that say they aren't clickable: the app handles the touch itself.
+            // A clickable container with buttons inside isn't one button: on Amazon's results, one held the whole list.
+            tappable(node) && !insideButton && !holdsTappable(node, CONTAINER_DEPTH) -> {
                 val label = own.ifEmpty { words(node) }.ifEmpty { node.viewIdResourceName?.substringAfterLast('/')?.replace('_', ' ').orEmpty() }
                 if (label.isNotEmpty()) {
                     add(ScreenElement.Kind.BUTTON, label)
@@ -126,11 +149,26 @@ class AccessibilityAppDriver(private val context: Context) : AppDriver {
         for (i in 0 until node.childCount) node.getChild(i)?.let { walk(it, found, byId, button) }
     }
 
+    /** Whether a finger would tap [node] as one thing. */
+    private fun tappable(node: AccessibilityNodeInfo): Boolean =
+        node.isClickable || node.className?.endsWith("Button") == true
+
+    /** Whether something under [node], at most [depth] levels down, can be tapped or typed into on its own. */
+    private fun holdsTappable(node: AccessibilityNodeInfo, depth: Int): Boolean {
+        if (depth == 0) return false
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i) ?: continue
+            if (tappable(child) || child.isEditable || child.isCheckable || holdsTappable(child, depth - 1)) return true
+        }
+        return false
+    }
+
     /** The words under [node], joined, for a button whose words are its children's: "Trail Runner 2 · $120". */
     private fun words(node: AccessibilityNodeInfo, limit: Int = 4): String {
+        // A field's own text is its value, never its label; a password's is never read (I1).
         val out = mutableListOf<String>()
         fun collect(n: AccessibilityNodeInfo) {
-            if (out.size >= limit || !n.isVisibleToUser || n.isPassword) return
+            if (out.size >= limit || !n.isVisibleToUser || n.isPassword || n.isEditable) return
             (n.text ?: n.contentDescription)?.toString()?.trim()?.takeIf { it.isNotEmpty() }?.let(out::add)
             for (i in 0 until n.childCount) n.getChild(i)?.let(::collect)
         }
@@ -138,11 +176,13 @@ class AccessibilityAppDriver(private val context: Context) : AppDriver {
         return out.joinToString(" · ")
     }
 
+    /**
+     * A clickable element gets its click action. Any other gets a tap at its center, as a finger would: clicking a
+     * clickable parent instead, as at first, reported success on Amazon's suggestion list and did nothing.
+     */
     override suspend fun tap(id: Int) {
         val node = node(id)
-        var target: AccessibilityNodeInfo? = node
-        while (target != null && !target.isClickable) target = target.parent
-        if (target?.performAction(AccessibilityNodeInfo.ACTION_CLICK) == true) return
+        if (node.isClickable && node.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return
         gesture(node, Path().apply { center(node).let { (x, y) -> moveTo(x, y) } }, 60)
     }
 
@@ -204,18 +244,37 @@ class AccessibilityAppDriver(private val context: Context) : AppDriver {
         return bounds.exactCenterX() to bounds.exactCenterY()
     }
 
-    private fun gesture(node: AccessibilityNodeInfo?, path: Path, millis: Long) {
+    /** Performs [path] as a touch, with Anu's line letting touches through, so one under it reaches the app. */
+    private suspend fun gesture(node: AccessibilityNodeInfo?, path: Path, millis: Long) {
         val service = checkNotNull(service) { "app control is off" }
         val stroke = GestureDescription.StrokeDescription(path, 0, millis)
-        check(service.dispatchGesture(GestureDescription.Builder().addStroke(stroke).build(), null, null)) {
-            if (node != null) "couldn't tap that" else "couldn't scroll"
+        val finished = CompletableDeferred<Boolean>()
+        val callback = object : AccessibilityService.GestureResultCallback() {
+            override fun onCompleted(gestureDescription: GestureDescription?) {
+                finished.complete(true)
+            }
+
+            override fun onCancelled(gestureDescription: GestureDescription?) {
+                finished.complete(false)
+            }
+        }
+        withContext(Dispatchers.Main) { service.pill.touchable(false) }
+        try {
+            val sent = withContext(Dispatchers.Main) { service.dispatchGesture(GestureDescription.Builder().addStroke(stroke).build(), callback, null) }
+            check(sent && withTimeoutOrNull(millis + 2_000) { finished.await() } == true) { if (node != null) "couldn't tap that" else "couldn't scroll" }
+        } finally {
+            withContext(Dispatchers.Main) { service.pill.touchable(true) }
         }
     }
 
     private companion object {
-        /** About a screenful, which keeps each step's prompt small on the phone. */
-        const val MAX_ELEMENTS = 60
+        /** Enough for a busy page such as Amazon's results; the model sees only the part that bears on the goal. */
+        const val MAX_ELEMENTS = 150
+
+        /** How deep a clickable's children are searched for buttons of their own. */
+        const val CONTAINER_DEPTH = 4
         const val QUIET_MS = 400L
+        const val AGREE_MS = 250L
         const val SETTLE_MAX_MS = 2_500L
     }
 }

@@ -28,7 +28,7 @@ object PhoneCommands {
 
     fun match(message: String): ToolCall? {
         val text = message.lowercase().trim().trimEnd('.', '!', '?').removePrefix("please ").removeSuffix(" please").trim()
-        return timer(text) ?: alarm(text) ?: flashlight(text) ?: doNotDisturb(text) ?: settings(text)
+        return timer(text) ?: alarm(text) ?: flashlight(text) ?: doNotDisturb(text) ?: brightness(text) ?: volume(text) ?: settings(text)
     }
 
     private val TIMER = listOf(
@@ -90,6 +90,45 @@ object PhoneCommands {
     private fun doNotDisturb(text: String): ToolCall? {
         val found = DO_NOT_DISTURB.firstNotNullOfOrNull { it.find(text) } ?: return null
         return ToolCall("phone_do_not_disturb", buildJsonObject { put("on", found.groupValues[1] == "on") })
+    }
+
+    /** A level: "40", "40%", "40 percent", or max, min and their kin (ADR-099). */
+    private const val LEVEL = "(\\d{1,3})\\s*(?:%|percent)?|max|maximum|full|highest|min|minimum|lowest"
+
+    private fun level(word: String): Int? = when (word) {
+        "max", "maximum", "full", "highest" -> 100
+        "min", "minimum", "lowest" -> 0
+        else -> word.removeSuffix("percent").trimEnd('%', ' ').toIntOrNull()?.takeIf { it in 0..100 }
+    }
+
+    private val BRIGHTNESS = listOf(
+        Regex("^(?:set|change|turn|put|make)(?: the| my)?(?: screen)? brightness (?:to |at |up to |down to )?($LEVEL)$"),
+        Regex("^(?:screen )?brightness (?:to |at )?($LEVEL)$"),
+    )
+
+    private fun brightness(text: String): ToolCall? {
+        val found = BRIGHTNESS.firstNotNullOfOrNull { it.find(text) } ?: return null
+        val percent = level(found.groupValues[1]) ?: return null
+        return ToolCall("phone_brightness", buildJsonObject { put("percent", percent) })
+    }
+
+    private const val STREAM = "media|music|ring|ringer|ringtone|alarm|notification|notifications"
+
+    private val VOLUME = listOf(
+        Regex("^(?:set|change|turn|put)(?: the| my)?(?: ($STREAM))? volume (?:to |at |up to |down to )?($LEVEL)$"),
+        Regex("^(?:($STREAM) )?volume (?:to |at )?($LEVEL)$"),
+    )
+
+    private fun volume(text: String): ToolCall? {
+        val found = VOLUME.firstNotNullOfOrNull { it.find(text) } ?: return null
+        val percent = level(found.groupValues[2]) ?: return null
+        val stream = when (found.groupValues[1]) {
+            "ring", "ringer", "ringtone" -> "ring"
+            "alarm" -> "alarm"
+            "notification", "notifications" -> "notification"
+            else -> "media"
+        }
+        return ToolCall("phone_volume", buildJsonObject { put("percent", percent); put("stream", stream) })
     }
 
     private val SETTINGS = Regex("^(?:open|show)(?: the| my)? (wi-?fi|bluetooth|battery|display|sound|location|notifications?|accessibility) settings$")

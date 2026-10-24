@@ -127,6 +127,9 @@ import java.io.File
 import java.time.ZoneId
 import io.github.sandeepvijayarao09.anu.connector.phone.SetTimerTool
 import io.github.sandeepvijayarao09.anu.connector.phone.SetAlarmTool
+import io.github.sandeepvijayarao09.anu.connector.phone.BrightnessTool
+import io.github.sandeepvijayarao09.anu.connector.phone.DraftTextTool
+import io.github.sandeepvijayarao09.anu.connector.phone.VolumeTool
 import io.github.sandeepvijayarao09.anu.connector.phone.FlashlightTool
 import io.github.sandeepvijayarao09.anu.connector.phone.OpenSettingsTool
 import io.github.sandeepvijayarao09.anu.core.agent.AppCommands
@@ -370,6 +373,9 @@ class AppGraph(private val context: Context) {
             FlashlightTool(context),
             DoNotDisturbTool(context),
             OpenSettingsTool(context),
+            BrightnessTool(context),
+            VolumeTool(context),
+            DraftTextTool(context),
             // Notes kept in Anu, on the phone (ADR-093).
             CreateNoteTool(notes),
             SearchNotesTool(notes),
@@ -385,7 +391,7 @@ class AppGraph(private val context: Context) {
         )
         Skill.MESSAGES -> listOf(
             "messages_list_conversations", "messages_read_conversation", "messages_reply",
-            "contacts_find", "calendar_find_free_slots",
+            "contacts_find", "calendar_find_free_slots", "phone_draft_text",
         ) + if (Flavor.HAS_SMS) listOf("sms_search") else emptyList()
         Skill.MEMORY -> listOf("memory_remember", "memory_search", "memory_forget")
         Skill.SHOPPING -> listOf("shop_search", "shop_checkout")
@@ -397,6 +403,7 @@ class AppGraph(private val context: Context) {
         // With notes and contacts, the device skill (ADR-093): each is one small call, so it routes to Base.
         Skill.PHONE -> listOf(
             "phone_set_timer", "phone_set_alarm", "phone_flashlight", "phone_do_not_disturb", "phone_open_settings",
+            "phone_brightness", "phone_volume", "phone_draft_text",
             "notes_create", "notes_search", "notes_append", "contacts_find", "contacts_add",
         )
         // One call that names the app and the goal; the task picks each step itself (ADR-098). Personal build only.

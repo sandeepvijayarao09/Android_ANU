@@ -1,6 +1,7 @@
 package io.github.sandeepvijayarao09.anu
 
 import android.content.Context
+import android.util.Log
 import io.github.sandeepvijayarao09.anu.connector.apps.AccessibilityAppDriver
 import io.github.sandeepvijayarao09.anu.connector.sms.ProviderSms
 import io.github.sandeepvijayarao09.anu.connector.sms.SmsSearchTool
@@ -19,6 +20,6 @@ internal object Flavor {
     /** [appBrain] picks an app task's steps; [broker] runs them, the broker these tools join. */
     fun tools(context: Context, zone: () -> ZoneId, appBrain: () -> Brain?, broker: () -> ToolBroker): List<Tool<*, *>> {
         val apps = AccessibilityAppDriver(context)
-        return listOf(SmsSearchTool(ProviderSms(context.contentResolver), zone), AppTaskTool(apps, appBrain, broker), AppStepTool(apps))
+        return listOf(SmsSearchTool(ProviderSms(context.contentResolver), zone), AppTaskTool(apps, appBrain, broker, log = { if (BuildConfig.DEBUG) Log.d("Anu", it) }), AppStepTool(apps))
     }
 }

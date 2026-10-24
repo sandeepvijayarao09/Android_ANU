@@ -42,6 +42,14 @@ internal class ProgressPill(private val context: Context) {
         line = null
     }
 
+    /** Lets touches through the line, or takes them again. Call on the main thread, before and after Anu's own tap. */
+    fun touchable(on: Boolean) {
+        val shown = view ?: return
+        val params = shown.layoutParams as WindowManager.LayoutParams
+        params.flags = if (on) params.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv() else params.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+        windows.updateViewLayout(shown, params)
+    }
+
     private fun add(onStop: () -> Unit) {
         val dark = context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES
         val ink = if (dark) TEXT_DARK else TEXT
