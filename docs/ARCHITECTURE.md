@@ -1,6 +1,6 @@
 # Anu for Android: Architecture
 
-Version 1.67.1 · Draft · 2026-10-24
+Version 1.67.2 · Draft · 2026-10-24
 Status: proposed. OD-1 to OD-4 were resolved on 2026-09-25 (§16).
 Product intent lives in [VISION.md](VISION.md).
 
@@ -339,7 +339,7 @@ Application ID: `io.github.sandeepvijayarao09.anu`. It can change until the firs
     - It needs no TPU build: Hugging Face publishes no Gemma 4 build for this chip's NPU. Base stays on its CPU build.
     - The router's `proOnGpu` (ADR-106) stays the Pixel's pair, so routing doesn't change.
     - A GPU engine that fails to load sends Pro back to the CPU until the app restarts, as in ADR-106.
-    - Photos use the vision encoder on the GPU, on the model's own backend; that isn't measured on this chip yet.
+    - Photos use the vision encoder on the GPU, on the model's own backend. S11 passes there: one picture's first token after 0.7 s, and four pictures read in 5.5 s (spike log).
   - **CPU until a chip's GPU is verified (ADR-059).** Phones and emulators use the CPU build unless their chip is in `ModelCatalog.GPU_VERIFIED`, which S1 fills and which is empty today. On the Pixel 10 Pro (Tensor G5), E4B's GPU build loaded but wrote garbage.
     - Its generic file on the GPU is how Google's AI Edge Gallery runs Gemma 4. On the same phone, a first run answered correctly: prompts were read about 4× faster and answers written about 15% slower (spike log, 2026-09-28).
     - It's adopted only after a run on an idle phone passes the contract and extraction tests. On LiteRT-LM 0.18.1 (2026-10-23), it passed the contract and read prompts 4.7× faster, but its extraction missed "I'm vegetarian" twice, so it isn't adopted yet.
@@ -1173,6 +1173,8 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 
   - **Contract** (`LiteRtLmBrainTest`), both backends: the tool call `weather_get_current{"city":"Paris"}` and its answer, the router's JSON in its schema, a follow-up that read 16 new tokens, a second conversation (74 MB on the CPU, 13 MB on the GPU), and the cancel all passed.
   - **Extraction** (`MemoryExtractionTest`), both backends: all four statements gave their facts, "I'm vegetarian" included, which the Pixel's GPU missed. The GPU's vegan fact had no `single` flag, the CPU's did.
+  - **S11, photos with vision on the GPU** (`S11PhotoTest`, `backend=GPU`, the default `visionBackend=GPU`; thermal status 0): the made-up sign took 289 tokens, read at 451 tok/s with the first token after 0.71 s, written at 14.3 tok/s, and E4B answered "LUNCH 12:30" beside a red circle. The engine with vision loaded in 10.7 s and peaked at 1.09 GB, against 4.6 s to the first token and 5.65 GB on the emulator's CPU. Four numbered pictures were read 4 of 4 in 5.5 s (17.4 s on the emulator), and a fifth in a later turn; five in one prefill were read too, so the GPU runtime doesn't enforce `maxNumImages` either.
+  - **A photo shared from adb** (`am start -a SEND` with a MediaStore URI) showed "This photo can't be read": the shell can't grant a URI it doesn't own, so `readPhoto` got a refusal. That's the test's limit, not the app's; the picker and real shares grant their own.
   - **Speculative decoding on the GPU:** long answers were written at 31.2 tok/s against 20.7 off (1.5×), short ones at 22.6 against 19.9, with the same greedy answers. Not adopted yet (ADR-069): this is one run on a warm phone.
   - **In the app** (the debug build with ADR-112, E4B copied into Anu's models on the phone): "What is 12 times 9?" answered "108" on the CPU (first token 2.8 s, the load included), and a follow-up "1188." kept the conversation. On the GPU, a Kyoto plan read 241 tokens at 427 tok/s, its first token after 0.9 s, and wrote 103 at 19.4 tok/s. Memory → Learn now, also on the GPU, learned "Vegetarian", "Priya, your sister" and "Boston, Priya's residence" from one message.
   - **Connecting it:** with Auto Blocker on, the phone offered only MTP and a modem over USB, and adb saw nothing. Turning it off and allowing the computer's key fixed that.
@@ -1724,6 +1726,7 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 
 ### Changelog
 
+- **1.67.2** (2026-10-24): S11 on the Galaxy S26 Ultra's GPU: one photo's first token after 0.7 s and four photos in 5.5 s, with correct answers and 1.1 GB at most.
 - **1.67.1** (2026-10-24): S10's first results on the Pixel 10 Pro. AICore's preview Gemma 4 isn't available to Anu (error 606). Stable Nano (`nano-v4-full`, 8,192 tokens) is, but only in the foreground (error 30 from the background), so `S10NanoTest` now opens a screen first. There it did every writing task correctly, with the first chunk in 0.1–0.5 s against E2B's 4 s on the TPU, and wrote at 44 tok/s against 19. Nothing was sent during the run, and the library scheduled its usage-log upload.
 - **1.67.0** (2026-10-24): Live camera on the Galaxy S26 Ultra (ADR-111, S14): YOLOX-Nano at 5.7 ms a frame on its GPU, 30–32 fps on its real camera. EmbeddingGemma 2 now takes pictures as 70 soft tokens and runs on the GPU on the SM8850, 132 ms a crop instead of 1,334, with the same matches.
 - **1.65.0** (2026-10-24): Live camera (ADR-111): YOLOX-Nano on LiteRT draws boxes on the back camera's preview, EmbeddingGemma 2 matches a question such as "anything to drink" to them by meaning and by picture, and "Ask Anu about this" sends the frame to Talk for Gemma 4 E4B. New: `brain:vision`, `feature:camera`, `ObjectDetector`, `VisualEmbedder`, `Gemma2Embedder`, MEDIA-4, spike S14 and its results, the CAMERA permission.
