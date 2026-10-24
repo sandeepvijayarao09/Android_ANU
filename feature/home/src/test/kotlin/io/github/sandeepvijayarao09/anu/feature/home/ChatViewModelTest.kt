@@ -685,6 +685,24 @@ class ChatViewModelTest {
     }
 
     @Test
+    fun `the tile's screen is used for the next question, and a tile that couldn't read one says why (ADR-108)`() {
+        val given = cardChat(FakeScreens(ScreenLook.Ready(io.github.sandeepvijayarao09.anu.core.model.Screen("Files", 5, byteArrayOf(1)))))
+        given.useScreen()
+        assertTrue(given.state.value.useScreen)
+        assertNull(given.state.value.screenNote)
+
+        val none = object : ScreenSource {
+            override fun offered() = false
+            override suspend fun screen(): ScreenLook = ScreenLook.Unavailable("Turn on app control")
+            override fun note() = "Turn on app control"
+        }
+        val explained = cardChat(none)
+        explained.useScreen()
+        assertFalse("nothing to use", explained.state.value.useScreen)
+        assertEquals("Turn on app control", explained.state.value.screenNote)
+    }
+
+    @Test
     fun `a pointing question from the card reads the screen, and other questions don't`() {
         val screens = FakeScreens(ScreenLook.Ready(io.github.sandeepvijayarao09.anu.core.model.Screen("Messages", 5, byteArrayOf(1))))
         val card = cardChat(screens)

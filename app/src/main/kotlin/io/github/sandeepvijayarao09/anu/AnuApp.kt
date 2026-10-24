@@ -40,10 +40,13 @@ class AnuApp : Application() {
         registerActivityLifecycleCallbacks(Visibility())
     }
 
-    /** Models are unloaded when the app goes to the background (P8). They load again on the next request. */
+    /**
+     * Models are unloaded when the app goes to the background (P8). They load again on the next request. Live talk
+     * behind another app keeps them, since the user is still talking to Anu (ADR-108).
+     */
     override fun onTrimMemory(level: Int) {
         super.onTrimMemory(level)
-        if (level >= ComponentCallbacks2.TRIM_MEMORY_BACKGROUND) graph.scope.launch { graph.onDevice.unloadAll() }
+        if (level >= ComponentCallbacks2.TRIM_MEMORY_BACKGROUND && !graph.liveTalk.on.value) graph.scope.launch { graph.onDevice.unloadAll() }
     }
 
     /** Counts started screens. Leaving the app, but not rotating it, starts memory learning (ADR-037). */

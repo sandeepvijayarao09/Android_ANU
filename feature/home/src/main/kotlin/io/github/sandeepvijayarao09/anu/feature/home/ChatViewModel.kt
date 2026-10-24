@@ -168,6 +168,8 @@ data class ChatUiState(
     val screenOffered: Boolean = false,
     /** The user tapped "Use this screen" for the next question. */
     val useScreen: Boolean = false,
+    /** Why the card wasn't handed the screen when the user asked for it, from the Quick Settings tile (ADR-108). */
+    val screenNote: String? = null,
     /** The app whose screen is being read for the running answer, for the card's "Reading <app>" line. */
     val readingApp: String? = null,
     /** The oldest action waiting for the user's approval (I2). */
@@ -182,8 +184,8 @@ data class ChatUiState(
     val speaking: Boolean = false,
     val muted: Boolean = false,
     /**
-     * Live talk (ADR-101): after each spoken answer Anu listens again by itself, until the user ends it, leaves Anu,
-     * or [LIVE_MISSES] listens in a row hear nothing.
+     * Live talk (ADR-101): after each spoken answer Anu listens again by itself, until the user ends it, leaves Anu
+     * where it can't go on behind other apps (ADR-108), or [LIVE_MISSES] listens in a row hear nothing.
      */
     val live: Boolean = false,
     /** Why voice didn't work this time, such as "Didn't catch that." */
@@ -237,10 +239,15 @@ class ChatViewModel(
     private val screens: ScreenSource? = null,
     /** Whether a chat can still be answered from Anu, for a reply drafted on the card (ADR-092). */
     private val replies: ReplyTargets? = null,
+    /** Whether live talk can go on behind other apps (ADR-108). Without it, leaving Anu ends live talk. */
+    private val behind: LiveBehind? = null,
 ) : ViewModel() {
 
     private val mutable = MutableStateFlow(
-        ChatUiState(voiceAvailable = speechIn?.available == true, cloudAllowed = device().cloudAllowed, screenOffered = screens?.offered() == true),
+        ChatUiState(
+            voiceAvailable = speechIn?.available == true, cloudAllowed = device().cloudAllowed, screenOffered = screens?.offered() == true,
+            screenNote = screens?.note(),
+        ),
     )
     val state: StateFlow<ChatUiState> = mutable.asStateFlow()
 
@@ -364,6 +371,9 @@ class ChatViewModel(
     /** "Use this screen": the next question goes with the screen under the card, whatever its words (design review D13). */
     fun toggleUseScreen() = mutable.update { it.copy(useScreen = !it.useScreen) }
 
+    /** The Quick Settings tile asked about the screen (ADR-108): the next question uses it, when the card was handed one. */
+    fun useScreen() = mutable.update { it.copy(useScreen = it.screenOffered) }
+
     /** Whether a voice note could be written down now, for the "+" sheet (ADR-078). */
     fun canHear(): Boolean = hears()
 
@@ -410,11 +420,15 @@ class ChatViewModel(
     /**
      * Anu left the screen: a voice note ends there, kept and marked as stopped early. Android keeps the microphone
      * open in the background for an app with a foreground service, such as "Hey Anu"'s, so Anu doesn't wait for it to.
+     * Live talk goes on behind the other app only where [behind] shows a control the user can see and stop (ADR-108);
+     * otherwise it ends here, and says why when it could have gone on.
      */
     fun leftAnu() {
         if (recording?.isActive == true) recorder?.cutShort()
-        // Live talk never goes on behind another app.
-        if (mutable.value.live) endLive()
+        if (!mutable.value.live) return
+        val blocked = behind?.let { it.blocked() ?: return }
+        endLive()
+        blocked?.let { why -> mutable.update { it.copy(voiceProblem = why) } }
     }
 
     /** Ends live talk: stops listening and speaking, and doesn't listen again. */

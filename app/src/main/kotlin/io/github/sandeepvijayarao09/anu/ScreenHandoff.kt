@@ -29,7 +29,8 @@ import kotlin.math.roundToInt
 /**
  * The screen under the assistant card, as Android handed it to the session (EXP-2, ADR-083): its text structure and
  * its screenshot, held in memory only, never in an Intent or a file. The next summon replaces it, and the card drops
- * it when it closes. It's read only when the user asks about the screen.
+ * it when it closes. It's read only when the user asks about the screen. The Quick Settings tile hands over a screen
+ * it read through app control instead, masked the same way, or why it couldn't read one ([give], ADR-108).
  */
 object ScreenHandoff : ScreenSource {
     private class Parts(val atMillis: Long) {
@@ -40,6 +41,9 @@ object ScreenHandoff : ScreenSource {
     }
 
     @Volatile private var parts: Parts? = null
+
+    /** The tile's screen, already masked, or why there's none (ADR-108). */
+    @Volatile private var given: ScreenLook? = null
 
     /** How long a question waits for parts still arriving, since Android hands them over just after the summon. */
     private const val WAIT_MS = 2_000L
@@ -54,7 +58,14 @@ object ScreenHandoff : ScreenSource {
     }
 
     fun begin(atMillis: Long) {
+        given = null
         parts = Parts(atMillis)
+    }
+
+    /** The tile's screen, or why it couldn't be read, for the card it opens next (ADR-108). */
+    fun give(look: ScreenLook) {
+        parts = null
+        given = look
     }
 
     fun structure(value: AssistStructure?) {
@@ -72,29 +83,45 @@ object ScreenHandoff : ScreenSource {
     }
 
     /** Whether a summon handed over anything, for the card's "Use this screen". */
-    override fun offered(): Boolean = parts != null
+    override fun offered(): Boolean = parts != null || given is ScreenLook.Ready
+
+    override fun note(): String? = (given as? ScreenLook.Unavailable)?.reason
 
     fun clear() {
         parts = null
+        given = null
     }
 
     override suspend fun screen(): ScreenLook {
+        given?.let { return it }
         val held = parts ?: return ScreenLook.Unavailable(CANT_SEE)
         withTimeoutOrNull(WAIT_MS) { while (!(held.structureDone && held.screenshotDone)) delay(50) }
         val screenshot = held.screenshot ?: return ScreenLook.Unavailable(CANT_SEE)
         // Without the screen's text, Anu can't find codes on it to mask, so it won't read it (SECRETS-1, ADR-082).
         val structure = held.structure ?: return ScreenLook.Unavailable(CANT_CHECK)
-        val pkg = structure.activityComponent?.packageName
+        val masked = withContext(Dispatchers.Default) { masked(structure, screenshot) }
+        return ready(structure.activityComponent?.packageName, held.atMillis, masked)
+    }
+
+    /**
+     * A screen read through app control for the tile (ADR-108): [texts] and [secrets] are placed in [screenshot]'s
+     * pixels, as the assist structure's are once walked, and masked the same way.
+     */
+    suspend fun fromTile(packageName: String, texts: List<Pair<String, Rect>>, secrets: List<Rect>, screenshot: Bitmap): ScreenLook {
+        val masked = withContext(Dispatchers.Default) { masked(texts, secrets, screenshot) }
+        return ready(packageName, System.currentTimeMillis(), masked)
+    }
+
+    private fun ready(pkg: String?, atMillis: Long, masked: Masked): ScreenLook.Ready {
         val app = pkg?.let { name ->
             runCatching { appContext.packageManager.let { it.getApplicationLabel(it.getApplicationInfo(name, 0)).toString() } }.getOrNull()
         } ?: "this app"
-        val masked = withContext(Dispatchers.Default) { masked(structure, screenshot) }
         // The chat the screen shows, among those seen in notifications, for a reply drafted about it (ADR-092).
         val chat = pkg?.let { MessagingHub.store.shownIn(it, masked.texts) }
         // Whether one was found and could be answered, never which (the plan's pass bar counts these).
         if (BuildConfig.DEBUG) Log.d("Anu", "Screen: chat ${if (chat != null) "found" else "not found"}, reply action ${if (chat?.reply != null) "yes" else "no"}")
         return ScreenLook.Ready(
-            Screen(app, held.atMillis, jpeg(masked.picture), secrets = masked.codes),
+            Screen(app, atMillis, jpeg(masked.picture), secrets = masked.codes),
             chat?.let { ScreenChat(it.key, it.title, it.appLabel) },
         )
     }
@@ -115,22 +142,28 @@ object ScreenHandoff : ScreenSource {
             val window = structure.getWindowNodeAt(i)
             walk(window.rootViewNode, Matrix().apply { setTranslate(window.left.toFloat(), window.top.toFloat()) }, texts, secrets)
         }
-        val verification = OneTimeCodes.looksLikeVerification(texts.joinToString("\n") { it.first })
-        val coded = if (verification) texts.filter { OneTimeCodes.containsCode(it.first) } else emptyList()
-        val hidden = secrets + coded.map { it.second }
+        if (BuildConfig.DEBUG) {
+            val windows = (0 until structure.windowNodeCount).map { structure.getWindowNodeAt(it) }.joinToString { "${it.left},${it.top} ${it.width}x${it.height}" }
+            Log.d("Anu", "Screen: windows $windows")
+        }
+        return masked(texts, secrets, screenshot)
+    }
+
+    /** [screenshot] with [secrets] and the texts [ScreenSecrets] finds blacked out. */
+    private fun masked(texts: List<Pair<String, Rect>>, secrets: List<Rect>, screenshot: Bitmap): Masked {
+        val found = ScreenSecrets.find(texts, secrets)
         // Counts and places only, never what the screen says.
         if (BuildConfig.DEBUG) {
-            Log.d("Anu", "Screen: ${texts.size} texts, ${hidden.size} masked, ${screenshot.width}x${screenshot.height}")
-            val windows = (0 until structure.windowNodeCount).map { structure.getWindowNodeAt(it) }.joinToString { "${it.left},${it.top} ${it.width}x${it.height}" }
-            Log.d("Anu", "Screen: windows $windows; masked ${hidden.joinToString { it.toShortString() }}")
+            Log.d("Anu", "Screen: ${texts.size} texts, ${found.hidden.size} masked, ${screenshot.width}x${screenshot.height}")
+            Log.d("Anu", "Screen: masked ${found.hidden.joinToString { it.toShortString() }}")
         }
         val out = screenshot.copy(Bitmap.Config.ARGB_8888, true)
-        if (hidden.isNotEmpty()) {
+        if (found.hidden.isNotEmpty()) {
             val canvas = Canvas(out)
             val paint = Paint().apply { color = Color.BLACK }
-            for (rect in hidden) canvas.drawRect(Rect(rect.left - PAD, rect.top - PAD, rect.right + PAD, rect.bottom + PAD), paint)
+            for (rect in found.hidden) canvas.drawRect(Rect(rect.left - PAD, rect.top - PAD, rect.right + PAD, rect.bottom + PAD), paint)
         }
-        return Masked(out, coded.flatMap { OneTimeCodes.codes(it.first) }.distinct(), texts.map { it.first })
+        return Masked(out, found.codes, texts.map { it.first })
     }
 
     /**
@@ -185,6 +218,22 @@ object ScreenHandoff : ScreenSource {
         InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD,
     )
 
+    const val PRIVATE = "Anu can't see this screen: the app keeps it private."
     const val CANT_SEE = "Anu can't see this screen: the app keeps it private, or the assistant's \"Use screenshot\" setting is off."
     const val CANT_CHECK = "Anu can't check this screen for codes, so it won't read it. Turn on the assistant's \"Use text from screen\" setting."
+}
+
+/**
+ * What to black out of a screen, found from its own texts (SECRETS-1, ADR-082): every password field, and every text
+ * that holds a code when the screen speaks of one, as `OneTimeCodes` masks messages; and the codes, for masking an
+ * answer that repeats one. [B] is where each sits on the screen.
+ */
+internal object ScreenSecrets {
+    class Found<B>(val hidden: List<B>, val codes: List<String>)
+
+    fun <B> find(texts: List<Pair<String, B>>, secrets: List<B>): Found<B> {
+        val verification = OneTimeCodes.looksLikeVerification(texts.joinToString("\n") { it.first })
+        val coded = if (verification) texts.filter { OneTimeCodes.containsCode(it.first) } else emptyList()
+        return Found(secrets + coded.map { it.second }, coded.flatMap { OneTimeCodes.codes(it.first) }.distinct())
+    }
 }

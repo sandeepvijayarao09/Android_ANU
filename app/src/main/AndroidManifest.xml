@@ -116,6 +116,35 @@
                 android:name="android.speech"
                 android:resource="@xml/recognition_service" />
         </service>
+        <!--
+            Live talk behind other apps (ADR-108): started while the Talk page's live talk is on, with its notification,
+            so Android lets the microphone go on when the user switches apps. Stop is always in the notification.
+        -->
+        <service
+            android:name=".LiveTalkService"
+            android:exported="false"
+            android:foregroundServiceType="microphone" />
+        <!--
+            "Ask Anu about this screen" in Quick Settings (ADR-108). Nothing is read until the tap; the step activity
+            closes the panel and hands the screen, masked, to the card.
+        -->
+        <service
+            android:name=".ScreenTileService"
+            android:exported="true"
+            android:icon="@drawable/ic_tile_anu"
+            android:label="Ask Anu about this screen"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+        <activity
+            android:name=".ScreenTileActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@style/Theme.Anu.Invisible" />
         <!-- "Hey Anu": opt-in, screen-on only, paused while Anu is open (ADR-045). -->
         <service
             android:name=".WakeWordService"
