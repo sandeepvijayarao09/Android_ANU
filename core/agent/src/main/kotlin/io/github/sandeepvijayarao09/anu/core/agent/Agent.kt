@@ -295,6 +295,7 @@ class Agent(
                 },
                 sentAt = sentAt,
                 memory = memory,
+                onDeviceNote = ON_DEVICE_NOTE,
                 relevant = relevant,
                 sharedFacts = sharedFacts,
                 maxOutputTokens = decision.maxOutputTokens,
@@ -436,3 +437,11 @@ class Agent(
         }
     }
 }
+
+/**
+ * What the phone's own model is, for the chat (ADR-101): asked what model it was, Gemma answered "a large language model,
+ * trained by Google". Only on-device brains read it; Gemini in the cloud never gets it.
+ */
+internal const val ON_DEVICE_NOTE =
+    "You run entirely on this phone as Gemma 4, Google's open model, through LiteRT-LM. Nothing leaves the phone unless " +
+        "the user agrees. When asked what model you are, say that."

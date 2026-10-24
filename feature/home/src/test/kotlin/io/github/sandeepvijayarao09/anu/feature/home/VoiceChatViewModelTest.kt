@@ -19,6 +19,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.test.TestCoroutineScheduler
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
@@ -61,9 +62,12 @@ class VoiceChatViewModelTest {
     private val mouth = FakeSpeechOut()
     private lateinit var chat: ChatViewModel
 
+    /** Virtual time, so live talk's pause before listening again can pass. */
+    private val clock = TestCoroutineScheduler()
+
     @Before
     fun setUp() {
-        Dispatchers.setMain(UnconfinedTestDispatcher())
+        Dispatchers.setMain(UnconfinedTestDispatcher(clock))
         val session = ChatSession(Agent(Router(), BrainProvider { if (it == Tier.BASE) base else null }, ToolBroker(emptyList(), ApprovalCenter())))
         chat = ChatViewModel(session, device = { device }, speechIn = ears, speechOut = mouth)
     }
@@ -129,5 +133,59 @@ class VoiceChatViewModelTest {
         chat.sendWhenReady("What's on today?")
         assertEquals(listOf("What's on today?", "Your day is clear."), state.bubbles.map { it.text })
         assertEquals(listOf("Your day is clear."), mouth.spoken)
+    }
+
+    /** Anu finishes reading its answer aloud, then live talk's pause passes. */
+    private fun answerEnds() {
+        mouth.speaking.value = false
+        clock.advanceTimeBy(LIVE_PAUSE_MS + 1)
+        clock.runCurrent()
+    }
+
+    @Test
+    fun `live talk listens again once Anu has spoken, and enough silent listens in a row end it (ADR-101)`() {
+        ears.events = listOf(SpeechEvent.Final("What's the weather like?"))
+        base.enqueue(Step.Reply("It's sunny today."), Step.Reply("You're welcome."))
+        chat.toggleListening()
+        assertTrue(state.live)
+        assertEquals(VoicePhase.SPEAKING, state.voice)
+
+        ears.events = listOf(SpeechEvent.Final("Thanks!"))
+        answerEnds()
+        assertEquals(2, ears.listens)
+        assertEquals(listOf("What's the weather like?", "It's sunny today.", "Thanks!", "You're welcome."), state.bubbles.map { it.text })
+
+        ears.events = listOf(SpeechEvent.Error("Didn't catch that.", heardNothing = true))
+        repeat(LIVE_MISSES - 1) {
+            answerEnds()
+            assertTrue("a silent listen keeps it going", state.live)
+        }
+        answerEnds()
+        assertEquals(2 + LIVE_MISSES, ears.listens)
+        assertFalse(state.live)
+        assertEquals(LIVE_ENDED, state.voiceProblem)
+        answerEnds()
+        assertEquals(2 + LIVE_MISSES, ears.listens)
+    }
+
+    @Test
+    fun `ending live talk stops it listening again`() {
+        ears.events = listOf(SpeechEvent.Final("Hi"))
+        base.enqueue(Step.Reply("Hello."))
+        chat.toggleListening()
+        chat.endLive()
+        answerEnds()
+        assertEquals(1, ears.listens)
+        assertFalse(state.live)
+    }
+
+    @Test
+    fun `the assistant card listens for one turn, not live talk`() {
+        ears.events = listOf(SpeechEvent.Final("What's on today?"))
+        base.enqueue(Step.Reply("Your day is clear."))
+        chat.listenWhenReady()
+        answerEnds()
+        assertEquals(1, ears.listens)
+        assertFalse(state.live)
     }
 }

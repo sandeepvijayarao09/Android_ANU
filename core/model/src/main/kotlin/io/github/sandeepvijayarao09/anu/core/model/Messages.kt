@@ -98,6 +98,11 @@ data class BrainRequest(
      */
     val sentAt: String? = null,
     /**
+     * What an on-device brain is, for the chat: on-device brains add it to the system instruction ([onDeviceSystem]),
+     * cloud brains never send it. Asked what model it is, Gemma said "a large language model, trained by Google".
+     */
+    val onDeviceNote: String? = null,
+    /**
      * What Anu remembers about the user, as a ready-to-read block (§8.3). On-device brains add it to
      * the system instruction ([onDeviceSystem]). Cloud brains never send it: the profile stays on the
      * phone (§8.4, ADR-038).
@@ -179,6 +184,6 @@ fun factsBlock(facts: List<String>): String? =
  */
 data class RelevantFact(val text: String, val sensitive: Boolean, val id: Long? = null)
 
-/** The system instruction an on-device brain uses: [BrainRequest.system], then [BrainRequest.memory]. */
+/** The system instruction an on-device brain uses: [BrainRequest.system], [BrainRequest.onDeviceNote], then [BrainRequest.memory]. */
 val BrainRequest.onDeviceSystem: String?
-    get() = listOfNotNull(system, memory).takeIf { it.isNotEmpty() }?.joinToString("\n\n")
+    get() = listOfNotNull(system, onDeviceNote, memory).takeIf { it.isNotEmpty() }?.joinToString("\n\n")

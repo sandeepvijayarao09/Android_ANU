@@ -26,7 +26,7 @@ Most assistants either know nothing about you or send everything about you to a 
 
 ## What it feels like (v1 stories)
 
-- You open Anu and talk to the orb. It swells as you speak, swirls while it thinks, and answers out loud. Swipe for Memory and Settings.
+- You open Anu and talk to the orb. It swells as you speak, swirls while it thinks, and answers out loud, then listens again, so you can keep talking as on a call until you tap Stop. Swipe for Memory and Settings.
 - In any app, you hold the power button, or say "Hey Anu, what's on my calendar today?" while the screen is on. Anu opens over the app, listens and answers.
 - "Find running shoes under $150." Anu searches the stores you added. "Buy the blue ones in size 10." You approve the exact order and its estimated total, then tap **Finish** to review and pay on the store's site.
 - "Add 'buy oat milk' to my Notes." Anu uses the notes service you connected, and asks before it adds anything.

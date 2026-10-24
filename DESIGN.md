@@ -291,6 +291,7 @@ It's always visible and never hidden by scrolling.
 - **Recording a voice note:** the pill becomes the recording bar: "Cancel" in `text-muted` at the start; in the middle the level bars, the time in mono ("0:12") and "Recording" in `text-muted` callout; at the end Stop, a 42dp `primary` circle (TalkBack: "Stop recording"). The sphere shows Listening, following the voice. No red: red means an error here. At 5 minutes it stops by itself and says so.
 - **With a voice note:** a `full` pill above the composer, `surface-2`, with the mic glyph and "Voice note · 0:17", and a 48dp Remove button. The mic becomes Send, so a voice note can go on its own, or with words that say what to do with it. When it stopped early, or couldn't be used, one `text-muted` caption line above the composer says why, with OK.
 - **Listening:** the page switches to the listening layout: a large sphere, live speech, "Listening" with a level meter, a 64dp Stop button, "Type instead" and Mute.
+- **Live talk (ADR-101):** the mic starts a conversation, not one turn. After each spoken answer the page goes back to listening by itself; the Stop button ends live talk (TalkBack: "End live talk"), as do "Type instead" and leaving Anu. When enough quiet listens in a row end it, a `text-muted` line says "Live talk ended. Tap the mic to talk again.", a note, not an error.
 
 ### Receipts
 One row per action, written by the app from the Tool Broker's record, never by the model:

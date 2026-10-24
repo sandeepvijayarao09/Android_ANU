@@ -197,11 +197,12 @@ fun TalkScreen(
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                AnuTextButton("Type instead", onClick = { viewModel.toggleListening(); runCatching { typing.requestFocus() } })
+                AnuTextButton("Type instead", onClick = { viewModel.endLive(); runCatching { typing.requestFocus() } })
+                // Live talk (ADR-101): Stop ends the conversation, not just this listen.
                 Box(
-                    Modifier.size(64.dp).clip(AnuShapes.full).background(colors.surface2).clickable(onClickLabel = "Stop listening") { viewModel.toggleListening() },
+                    Modifier.size(64.dp).clip(AnuShapes.full).background(colors.surface2).clickable(onClickLabel = "End live talk") { viewModel.endLive() },
                     contentAlignment = Alignment.Center,
-                ) { Icon(AnuIcons.Stop, contentDescription = "Stop", Modifier.size(22.dp), tint = colors.text) }
+                ) { Icon(AnuIcons.Stop, contentDescription = "End live talk", Modifier.size(22.dp), tint = colors.text) }
                 AnuTextButton(if (state.muted) "Unmute" else "Mute", onClick = viewModel::toggleMute, color = colors.textMuted)
             }
         } else {
