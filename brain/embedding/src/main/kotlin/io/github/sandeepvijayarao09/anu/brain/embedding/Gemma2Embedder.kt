@@ -61,6 +61,9 @@ class Gemma2Embedder(
         return EmbeddingEngine(config).also { it.initialize() }
     }
 
+    /** Frees the engine once any embedding in progress is done; the next use loads it again. */
+    suspend fun release() = lock.withLock { close() }
+
     override fun close() {
         loaded?.close()
         loaded = null

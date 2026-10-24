@@ -105,6 +105,8 @@ class LiveCameraActivity : ComponentActivity() {
 
     override fun onDestroy() {
         thermal?.let { getSystemService(PowerManager::class.java).removeThermalStatusListener(it) }
+        // Leaving live camera frees EmbeddingGemma 2 for the chat model (ADR-111).
+        if (isFinishing) (application as AnuApp).graph.releaseVisualEmbedder()
         super.onDestroy()
     }
 }

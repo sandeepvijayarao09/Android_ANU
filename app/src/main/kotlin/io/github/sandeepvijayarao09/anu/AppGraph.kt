@@ -365,6 +365,14 @@ class AppGraph(private val context: Context) {
     }
 
     /**
+     * Frees EmbeddingGemma 2 when live camera closes, once a picture being named is done: with its vision encoder it
+     * holds about 0.7 GB, which the chat model needs (ADR-111).
+     */
+    fun releaseVisualEmbedder() {
+        liveModel?.let { scope.launch { it.release() } }
+    }
+
+    /**
      * Installs a model file the user already has, if it's one this phone uses (ADR-067): a chat model's chosen build,
      * one of search by meaning's two files, which then get their vectors at once, or live camera's EmbeddingGemma 2.
      */
