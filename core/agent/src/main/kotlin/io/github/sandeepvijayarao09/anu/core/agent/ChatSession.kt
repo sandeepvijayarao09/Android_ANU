@@ -90,6 +90,8 @@ class ChatSession(
     private val transcriber: Transcriber? = null,
     /** Reads long PDFs in pieces on the phone (ADR-095). Null when no model can. */
     private val documentReader: DocumentReader? = null,
+    /** Sub-agents and workflows (ADR-104): turns routed to one of its skills go to it instead of [agent]. */
+    private val orchestrator: Orchestrator? = null,
     /** Times the first word and the whole answer. */
     private val nanoTime: () -> Long = System::nanoTime,
     private val millis: () -> Long = System::currentTimeMillis,
@@ -252,12 +254,16 @@ class ChatSession(
             // A photo or a screen in view can show a code or a password: the answer about it is guarded (I1, ADR-082).
             // A PDF's text can too, such as a statement's account PIN (ADR-095).
             val shield = if (route.hasPhotos || route.hasScreen || route.hasDocument) SecretShield(text, screen?.secrets.orEmpty()) else null
-            agent.run(
-                route, device, system, turn, tools, turnKey = turnKey, sentAt = sentAt(now, asking.allWords), memory = memoryBlock,
-                relevant = relevantBlock, sharedFacts = if (cloudConsented) sharedFacts else emptyList(), consentFacts = consentFacts,
-                inView = untrustedIn(shown + message),
-                thinking = thinking(),
-            ).collect { raw ->
+            // A brief or a request across several areas goes to ADK's agents, on the phone only (ADR-104).
+            val orchestrated = orchestrator?.takeIf { skill in it.skills && pinned != Tier.CLOUD && !cloudConsented }
+            val events = orchestrated?.run(OrchestratedTurn(skill, asking.allWords, turnKey, sentAt(now, asking.allWords), untrustedIn(shown + message)))
+                ?: agent.run(
+                    route, device, system, turn, tools, turnKey = turnKey, sentAt = sentAt(now, asking.allWords), memory = memoryBlock,
+                    relevant = relevantBlock, sharedFacts = if (cloudConsented) sharedFacts else emptyList(), consentFacts = consentFacts,
+                    inView = untrustedIn(shown + message),
+                    thinking = thinking(),
+                )
+            events.collect { raw ->
                 when (raw) {
                     is AgentEvent.TextDelta -> if (firstWord == null && raw.text.isNotEmpty()) firstWord = nanoTime()
                     is AgentEvent.Thinking -> if (firstThought == null) firstThought = nanoTime()

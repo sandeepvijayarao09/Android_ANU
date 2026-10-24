@@ -2,6 +2,7 @@
 agp = "9.4.1"
 kotlin = "2.4.20"
 coroutines = "1.11.0"
+adk = "1.4.0"
 serialization = "1.11.0"
 composeBom = "2026.09.00"
 activityCompose = "1.13.0"
@@ -30,6 +31,7 @@ androidxTestExtJunit = "1.3.0"
 androidxTestRules = "1.7.0"
 
 [libraries]
+google-adk-core = { module = "com.google.adk:google-adk-kotlin-core", version.ref = "adk" }
 kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
 kotlinx-coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "coroutines" }
 kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "coroutines" }

@@ -74,6 +74,8 @@ class ComplexityScorer(val budgets: TierBudgets = TierBudgets()) {
         Skill.CHAT, Skill.MEMORY, Skill.MESSAGES, Skill.PHONE -> 0
         // One call that names the app and the goal; the steps in the app are the task's own model calls (ADR-098).
         Skill.APPS -> 0
+        // Each specialist and workflow step is its own call (ADR-104); the coordinator needs Pro to plan them.
+        Skill.AGENTS -> 2
         Skill.WRITING, Skill.EMAIL, Skill.SHOPPING -> 1
         // A voice note usually holds several things to do, each with a date to work out (ADR-078).
         Skill.BRIEF, Skill.SCHEDULING, Skill.VOICE_NOTE -> 2

@@ -47,6 +47,10 @@ android {
         jniLibs {
             excludes += setOf("**/libgecko_embedding_model_jni.so", "**/libsqlite_vector_store_jni.so", "**/libtext_chunker_jni.so")
         }
+        // ADK's Google libraries (ADR-104) each carry these build listings, which nothing reads at run time.
+        resources {
+            excludes += setOf("META-INF/INDEX.LIST", "META-INF/DEPENDENCIES", "META-INF/io.netty.versions.properties")
+        }
     }
 }
 
@@ -71,6 +75,8 @@ dependencies {
     implementation(project(":connector:shopping"))
     implementation(project(":connector:phone"))
     implementation(project(":connector:notes"))
+    // Sub-agents and workflows on Google's ADK for Kotlin (ADR-104).
+    implementation(project(":agent:adk"))
     // SMS is Play-restricted, so only the owner's build links it (ADR-012, ADR-032).
     "personalImplementation"(project(":connector:sms"))
     // So is app control's accessibility service (ADR-098).

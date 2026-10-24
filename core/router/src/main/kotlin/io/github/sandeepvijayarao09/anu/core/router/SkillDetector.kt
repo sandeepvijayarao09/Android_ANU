@@ -143,11 +143,36 @@ object SkillDetector {
         RegexOption.IGNORE_CASE,
     )
 
+    /** A daily brief (ADR-104): "brief me", "my daily brief", "what's my day look like". */
+    private val BRIEF = Regex(
+        "\\b(brief me|(daily|morning|evening) brief(ing)?|what('?s| is| does) my day( look(s)? like)?|catch me up on (my|the) day)\\b",
+        RegexOption.IGNORE_CASE,
+    )
+
+    /**
+     * The areas a request can span. Two or more in one message, such as "check my calendar and text Maya I'm late", go to
+     * ADK's coordinator and its specialists (ADR-104). Email isn't counted: its skill already offers the calendar.
+     */
+    private fun areas(text: String): Set<Skill> = buildSet {
+        // As below: "what's on my groceries note" is a note, not the calendar, unless the calendar is named.
+        val noteOnly = NOTE_WORDS.containsMatchIn(text) && !CALENDAR_WORDS.containsMatchIn(text)
+        if (!noteOnly && (SCHEDULING.containsMatchIn(text) || CALENDAR_WORDS.containsMatchIn(text))) add(Skill.SCHEDULING)
+        if (MESSAGES.containsMatchIn(text) || TEXT_COMMAND.containsMatchIn(text) || TEXT_DRAFT.containsMatchIn(text) || TEXT_TO.containsMatchIn(text)) add(Skill.MESSAGES)
+        // "Add a note to my 3pm meeting on the calendar" is the meeting's note, so with the calendar named notes don't count.
+        if (PHONE_CONTROLS.containsMatchIn(text) || NOTES_AND_CONTACTS.containsMatchIn(text) && !CALENDAR_WORDS.containsMatchIn(text)) add(Skill.PHONE)
+    }
+
+    /** "text Maya", "message Raj" in the middle of a request. */
+    private val TEXT_TO = Regex("\\b(text|message) [A-Z][a-z]+\\b")
+
     private fun byKeywords(text: String, previous: Skill?): Skill? = when {
         // First: "Remember Maya's email is…" is about memory, not email.
         MEMORY.containsMatchIn(text) -> Skill.MEMORY
         // Before email, messages and shopping: "in the Gmail app, archive…" means tapping in that app.
         IN_AN_APP.containsMatchIn(text) -> Skill.APPS
+        BRIEF.containsMatchIn(text) -> Skill.BRIEF
+        // Before each single area: a request across two of them gets the specialists of both (ADR-104).
+        !EMAIL.containsMatchIn(text) && areas(text).size >= 2 -> Skill.AGENTS
         EMAIL.containsMatchIn(text) -> Skill.EMAIL
         MESSAGES.containsMatchIn(text) || TEXT_COMMAND.containsMatchIn(text) -> Skill.MESSAGES
         // "Draft a text to Maya": the draft goes in the phone's messaging app, which the messages skill offers (ADR-099).

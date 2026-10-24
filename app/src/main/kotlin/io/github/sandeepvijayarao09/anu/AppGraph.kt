@@ -132,6 +132,7 @@ import io.github.sandeepvijayarao09.anu.connector.phone.DraftTextTool
 import io.github.sandeepvijayarao09.anu.connector.phone.VolumeTool
 import io.github.sandeepvijayarao09.anu.connector.phone.FlashlightTool
 import io.github.sandeepvijayarao09.anu.connector.phone.OpenSettingsTool
+import io.github.sandeepvijayarao09.anu.agent.adk.AdkOrchestrator
 import io.github.sandeepvijayarao09.anu.core.agent.AppCommands
 import io.github.sandeepvijayarao09.anu.core.agent.AppTaskTool
 import io.github.sandeepvijayarao09.anu.core.agent.PhoneCommands
@@ -430,6 +431,13 @@ class AppGraph(private val context: Context) {
             photoStore = RoomPhotoStore(db.photos()),
             // A whole phone command, or a message that names an app to act in (ADR-098): each needs no model to start.
             commands = { text -> PhoneCommands.match(text) ?: if (Flavor.HAS_APP_CONTROL) AppCommands.match(text) else null },
+            // A daily brief, or a request across areas, goes to sub-agents and workflows on Google's ADK (ADR-104).
+            orchestrator = AdkOrchestrator(
+                broker = { broker },
+                available = { (tools.map { it.name } + mcp.registry.tools().map { it.name }).toSet() },
+                brain = { onDevice.brainFor(BrainId.PRO) ?: onDevice.brainFor(BrainId.BASE) },
+                tier = { if (onDevice.brainFor(BrainId.PRO) != null) Tier.PRO else Tier.BASE },
+            ),
             thinking = { thinking.thinking.value },
             transcriber = onDevice,
             documentReader = onDevice,

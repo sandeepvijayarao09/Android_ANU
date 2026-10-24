@@ -260,6 +260,18 @@ class RouterTest {
     }
 
     @Test
+    fun `a brief, and a request across areas, go to ADK's agents (ADR-104)`() {
+        assertEquals(Skill.BRIEF, SkillDetector.detect("Brief me"))
+        assertEquals(Skill.BRIEF, SkillDetector.detect("What does my day look like?"))
+        assertEquals(Skill.AGENTS, SkillDetector.detect("Check my calendar for Friday and text Maya I'm free"))
+        assertEquals(Skill.AGENTS, SkillDetector.detect("Set an alarm for 7 and find a free slot tomorrow for the dentist"))
+        assertEquals("one area stays its own skill", Skill.PHONE, SkillDetector.detect("Wake me at 6:30 and turn the flashlight off"))
+        assertEquals("email keeps its calendar", Skill.EMAIL, SkillDetector.detect("Set an alarm and email Maya the agenda"))
+        assertEquals("a note isn't the calendar", Skill.PHONE, SkillDetector.detect("What's on my groceries note?"))
+        assertEquals(Tier.PRO, route(request("Check my calendar for Friday and text Maya I'm free").copy(skill = Skill.AGENTS)).tier)
+    }
+
+    @Test
     fun `a request that names an app to act in gets app control, on Base (ADR-098)`() {
         assertEquals(Skill.APPS, SkillDetector.detect("In the Test Shop app, add the trail runner to my cart"))
         assertEquals(Skill.APPS, SkillDetector.detect("Open the Clock app and set an alarm for 7"))

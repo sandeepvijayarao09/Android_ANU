@@ -175,23 +175,25 @@ fun TalkScreen(
 
     Column(modifier.fillMaxSize().background(colors.background).imePadding()) {
         Row(Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
-            if (state.bubbles.isNotEmpty() || state.listening) {
+            if (state.bubbles.isNotEmpty() || state.listening || state.live) {
                 Sphere(state.voice.sphere(), 26.dp, level = state.level, awayPulse = awayPulse, errorPulse = state.failures)
                 Spacer(Modifier.width(10.dp))
             }
             Text("Anu", Modifier.weight(1f), style = AnuTheme.type.wordmark, color = colors.text)
             PrivacyIndicator(sentToday, onOpenPrivacy)
         }
-        val showThread = !state.listening && state.bubbles.isNotEmpty()
+        // Live talk keeps one screen through listening, thinking and speaking (ADR-101); the chat shows when it ends.
+        val inLive = state.listening || state.live
+        val showThread = !inLive && state.bubbles.isNotEmpty()
         HorizontalDivider(thickness = 0.5.dp, color = if (showThread && scrolled) colors.separator else Color.Transparent)
         Box(Modifier.weight(1f).fillMaxWidth()) {
             when {
-                state.listening -> Listening(state)
+                inLive -> Live(state)
                 state.bubbles.isEmpty() -> Welcome(state, awayPulse, onSuggestion = { viewModel.send(it) }, onTalk = talk)
                 else -> Thread(state, list, onRetry = viewModel::retryWithPro, onAskGemini = viewModel::askGemini, onAbout = viewModel::openAbout, loadPhoto = viewModel::photo)
             }
         }
-        if (state.listening) {
+        if (inLive) {
             Row(
                 Modifier.fillMaxWidth().padding(bottom = 20.dp, top = 8.dp),
                 horizontalArrangement = Arrangement.SpaceEvenly,
@@ -293,22 +295,42 @@ private fun greeting(now: LocalTime = LocalTime.now()): String = when (now.hour)
     else -> "Good evening"
 }
 
+/**
+ * Live talk's one screen (ADR-101): the sphere in each phase, and one caption, what the user is saying while Anu listens,
+ * what they said while it thinks, and its answer while it speaks.
+ */
 @Composable
-private fun Listening(state: ChatUiState) {
+private fun Live(state: ChatUiState) {
     val colors = AnuTheme.colors
+    val asked = state.bubbles.lastOrNull { it.fromUser }?.text.orEmpty()
+    val answer = state.bubbles.lastOrNull()?.takeIf { !it.fromUser }?.text.orEmpty().replace("**", "").replace("*", "")
+    val (caption, faint) = when (state.voice) {
+        VoicePhase.LISTENING -> state.heard.ifEmpty { "Say something…" } to state.heard.isEmpty()
+        VoicePhase.THINKING -> asked to true
+        else -> answer.ifEmpty { asked } to answer.isEmpty()
+    }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), horizontalAlignment = Alignment.CenterHorizontally) {
         Spacer(Modifier.height(44.dp))
-        Sphere(SphereState.LISTENING, 200.dp, level = state.level, errorPulse = state.failures, shadow = true)
+        Sphere(state.voice.sphere(), 200.dp, level = state.level, errorPulse = state.failures, shadow = true)
         Spacer(Modifier.height(36.dp))
         Text(
-            state.heard.ifEmpty { "Say something…" },
+            caption,
             Modifier.fillMaxWidth().padding(horizontal = 28.dp),
-            style = AnuTheme.type.liveSpeech,
-            color = if (state.heard.isEmpty()) colors.textFaint else colors.text,
+            style = if (state.voice == VoicePhase.SPEAKING || state.voice == VoicePhase.IDLE) AnuTheme.type.body else AnuTheme.type.liveSpeech,
+            color = if (faint) colors.textFaint else colors.text,
         )
         Row(Modifier.padding(top = 24.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            LevelBars(state.level)
-            Text("Listening", style = AnuTheme.type.callout, color = colors.textMuted)
+            if (state.voice == VoicePhase.LISTENING) LevelBars(state.level)
+            Text(
+                when (state.voice) {
+                    VoicePhase.LISTENING -> "Listening"
+                    VoicePhase.THINKING -> THINKING
+                    VoicePhase.SPEAKING -> "Speaking"
+                    VoicePhase.IDLE -> "Live"
+                },
+                style = AnuTheme.type.callout,
+                color = colors.textMuted,
+            )
         }
     }
 }
