@@ -17,5 +17,10 @@
             android:name=".DebugA2a"
             android:exported="true"
             android:permission="android.permission.DUMP" />
+        <!-- Debug builds only: adb pairs the user's Mac (ADR-111). DUMP keeps other apps out. -->
+        <receiver
+            android:name=".DebugMac"
+            android:exported="true"
+            android:permission="android.permission.DUMP" />
     </application>
 </manifest>

@@ -335,6 +335,8 @@ private fun IntelligenceGroup(viewModel: SettingsViewModel, onPage: (SettingsPag
     val thinking by viewModel.thinking.collectAsStateWithLifecycle()
     val haptics = LocalHapticFeedback.current
     var gemini by rememberSaveable { mutableStateOf(false) }
+    val mac by viewModel.macPaired.collectAsStateWithLifecycle()
+    var macSheet by rememberSaveable { mutableStateOf(false) }
     Column {
         SectionHeader("Intelligence")
         Group {
@@ -348,6 +350,18 @@ private fun IntelligenceGroup(viewModel: SettingsViewModel, onPage: (SettingsPag
                 chevron = true,
                 onClick = { gemini = true },
             )
+            if (viewModel.canPairMac) {
+                GroupDivider()
+                // Gemma on the user's own Mac, in Gemini's place (ADR-111).
+                GroupRow(
+                    "Your Mac",
+                    value = if (mac != null) "Paired" else "Off",
+                    leadingDot = if (mac != null) true else null,
+                    valueDescription = if (mac != null) "Paired, reached over your Wi-Fi" else null,
+                    chevron = true,
+                    onClick = { macSheet = true },
+                )
+            }
             if (viewModel.canThink) {
                 GroupDivider()
                 // Reasoning first helps on hard questions and costs seconds before the answer (G4, ADR-077).
@@ -367,7 +381,10 @@ private fun IntelligenceGroup(viewModel: SettingsViewModel, onPage: (SettingsPag
                 GroupRow("Prompt lab", chevron = true, onClick = { onPage(SettingsPage.LAB) })
             }
         }
-        GroupFooter("Answers from the models on this phone never leave it. Anu asks before anything personal goes to Gemini.")
+        GroupFooter(
+            if (mac != null) "Answers from the models on this phone never leave it. Anu asks before anything personal goes to your Mac."
+            else "Answers from the models on this phone never leave it. Anu asks before anything personal goes to Gemini.",
+        )
     }
     if (gemini) {
         GeminiSheet(
@@ -375,6 +392,14 @@ private fun IntelligenceGroup(viewModel: SettingsViewModel, onPage: (SettingsPag
             onSave = { viewModel.saveCloudKey(it) },
             onRemove = { viewModel.removeCloudKey() },
             onDismiss = { gemini = false },
+        )
+    }
+    if (macSheet) {
+        MacSheet(
+            paired = mac,
+            onPair = { viewModel.pairMac(it) },
+            onUnpair = { viewModel.unpairMac() },
+            onDismiss = { macSheet = false },
         )
     }
 }

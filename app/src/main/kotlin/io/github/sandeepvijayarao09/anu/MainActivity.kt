@@ -176,6 +176,7 @@ private fun AnuHome(graph: AppGraph, shared: MutableStateFlow<Shared?>) {
             installer = graph.installer,
             speeds = graph.speeds,
             thinkingSetting = graph.thinking,
+            mac = graph.mac,
         )
     }
     var micGranted by remember { mutableStateOf(context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) }

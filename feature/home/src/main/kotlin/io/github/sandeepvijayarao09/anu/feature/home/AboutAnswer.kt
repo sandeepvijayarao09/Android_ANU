@@ -39,7 +39,7 @@ data class AboutAnswer(val details: AnswerDetails, val facts: List<Pair<Long, St
  * dot when anything left the phone, with where it went.
  */
 internal fun whereItWent(details: AnswerDetails): Pair<Boolean, String> {
-    if (details.tier == Tier.CLOUD) return true to "Sent to Gemini (Google)"
+    if (details.tier == Tier.CLOUD) return true to if (details.backend == MAC_BACKEND) "Sent to your Mac" else "Sent to Gemini (Google)"
     val left = details.actions.filter { it.status == ActionRecord.Status.DONE && leavesPhone(it.tool) }
     if (left.isEmpty()) return false to "Nothing left your phone"
     val places = left.map { destinationOf(it) }.distinct()
@@ -49,7 +49,7 @@ internal fun whereItWent(details: AnswerDetails): Pair<Boolean, String> {
 
 /** The second line: which model answered, and where it ran. A phone command needed none (design review D20). */
 internal fun whoAnswered(details: AnswerDetails): String = if (details.direct) "Done on this phone · no model needed" else when (details.tier) {
-    Tier.CLOUD -> "Gemini · in the cloud"
+    Tier.CLOUD -> if (details.backend == MAC_BACKEND) "Gemma 4 26B · on your Mac" else "Gemini · in the cloud"
     else -> details.tier.model + " · " + (backendName(details.backend)?.let { "$it, on this phone" } ?: "on this phone")
 }
 
@@ -119,6 +119,9 @@ private fun destinationOf(action: ActionRecord): String = action.destination ?: 
     action.tool == "messages_reply" -> "your messaging app"
     else -> "a service you added"
 }
+
+/** What the Mac brain reports as its backend, so a past answer still says where it ran after the Mac is unpaired (ADR-111). */
+internal const val MAC_BACKEND = "MAC"
 
 private fun backendName(backend: String?): String? = when {
     backend == null -> null

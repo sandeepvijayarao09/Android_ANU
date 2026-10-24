@@ -15,6 +15,9 @@ import android.provider.Settings
 import android.util.Log
 import androidx.core.content.edit
 import io.github.sandeepvijayarao09.anu.brain.gemini.GeminiBrain
+import io.github.sandeepvijayarao09.anu.brain.ollama.MacPairing
+import io.github.sandeepvijayarao09.anu.brain.ollama.OllamaBrain
+import io.github.sandeepvijayarao09.anu.brain.ollama.pinnedTo
 import io.github.sandeepvijayarao09.anu.brain.litertlm.ModelArtifact
 import io.github.sandeepvijayarao09.anu.brain.litertlm.ModelCatalog
 import io.github.sandeepvijayarao09.anu.brain.litertlm.ModelManager
@@ -83,6 +86,7 @@ import io.github.sandeepvijayarao09.anu.core.router.HeatForecast
 import io.github.sandeepvijayarao09.anu.core.router.Router
 import io.github.sandeepvijayarao09.anu.core.router.Skill
 import io.github.sandeepvijayarao09.anu.core.router.Tier
+import io.github.sandeepvijayarao09.anu.core.router.TopModel
 import io.github.sandeepvijayarao09.anu.core.router.guardFor
 import io.github.sandeepvijayarao09.anu.core.router.warmModel
 import io.github.sandeepvijayarao09.anu.core.router.TierBudgets
@@ -97,6 +101,7 @@ import io.github.sandeepvijayarao09.anu.core.vault.Vault
 import io.github.sandeepvijayarao09.anu.core.vault.withVault
 import io.github.sandeepvijayarao09.anu.feature.settings.AccountConnection
 import io.github.sandeepvijayarao09.anu.feature.settings.CloudKeySettings
+import io.github.sandeepvijayarao09.anu.feature.settings.MacSettings
 import io.github.sandeepvijayarao09.anu.feature.settings.NotificationAccess
 import io.github.sandeepvijayarao09.anu.feature.settings.VaultActivity
 import kotlinx.coroutines.CancellationException
@@ -190,7 +195,10 @@ class AppGraph(private val context: Context) {
         onChange = { ratio -> prefs.edit { putFloat(KEY_TOKEN_RATIO, ratio.toFloat()) } },
     )
     val geminiKey = GeminiKeySettings(vault, prefs)
-    val device = DeviceStateProvider(context, models, geminiKey)
+
+    /** Gemma on the user's own Mac, the top model in Gemini's place when paired (ADR-111). */
+    val mac = MacBrainSettings(vault, prefs)
+    val device = DeviceStateProvider(context, models, geminiKey, mac)
 
     private val warming = java.util.concurrent.atomic.AtomicBoolean(false)
 
@@ -241,7 +249,8 @@ class AppGraph(private val context: Context) {
         when (tier) {
             Tier.BASE -> onDevice.brainFor(BrainId.BASE)
             Tier.PRO -> onDevice.brainFor(BrainId.PRO)
-            Tier.CLOUD -> geminiKey.ref()?.let { GeminiBrain(BrainId.CLOUD_FLASH, GEMINI_MODEL, it, vaultHttp, egress) }
+            // The user's Mac first, when paired (ADR-111); off the phone either way, so the egress gate and consent hold.
+            Tier.CLOUD -> mac.brain(vault, egress) ?: geminiKey.ref()?.let { GeminiBrain(BrainId.CLOUD_FLASH, GEMINI_MODEL, it, vaultHttp, egress) }
         }
     }
 
@@ -621,11 +630,94 @@ class GeminiKeySettings(private val vault: Vault, private val prefs: SharedPrefe
     }
 }
 
+/**
+ * Pairs the user's Mac (ADR-111). The pairing code's token goes into the vault, bound to the Mac's address and to the Mac
+ * brain alone (§11); the address, port and certificate pin are kept in the clear. Requests go over HTTPS trusting only
+ * that certificate.
+ */
+class MacBrainSettings(private val vault: Vault, private val prefs: SharedPreferences) : MacSettings {
+    private val state = MutableStateFlow(pairing()?.let { "${it.host}:${it.port}" })
+    override val paired: StateFlow<String?> = state.asStateFlow()
+
+    init {
+        named()
+    }
+
+    /** The UI names the top model by what's paired (ADR-111). */
+    private fun named() {
+        TopModel.current = pairing()?.let { TopModel.mac(it.host) } ?: TopModel.GEMINI
+    }
+
+    @Volatile private var cached: Pair<MacPairing, OllamaBrain>? = null
+
+    fun pairing(): MacPairing? {
+        val host = prefs.getString(HOST, null) ?: return null
+        val pin = prefs.getString(PIN, null) ?: return null
+        return MacPairing(host, prefs.getInt(PORT, 0), pin)
+    }
+
+    private fun tokenRef(): SecretRef? = prefs.getString(TOKEN_REF, null)?.let(::SecretRef)
+
+    /** The Mac's brain, or null when no Mac is paired. One client per pairing: its TLS trusts only that Mac. */
+    fun brain(vault: Vault, egress: EgressGate): OllamaBrain? {
+        val pairing = pairing() ?: return null
+        val token = tokenRef() ?: return null
+        cached?.takeIf { it.first == pairing }?.let { return it.second }
+        val http = OkHttpClient.Builder().withVault(vault).pinnedTo(pairing)
+            // The Mac may load the model first, and a long answer takes a while.
+            .readTimeout(120, TimeUnit.SECONDS)
+            .build()
+        return OllamaBrain(pairing.baseUrl, token, http, egress).also { cached = pairing to it }
+    }
+
+    override suspend fun pair(code: String): Boolean {
+        val (pairing, token) = MacPairing.parse(code) ?: return false
+        unpair()
+        val info = vault.put(
+            NewVaultItem(
+                type = ItemType.API_KEY,
+                label = "Mac brain token",
+                service = "Your Mac (${pairing.host})",
+                secret = token,
+                boundHosts = setOf(pairing.host),
+                allowedUsers = setOf(OllamaBrain.CALLER),
+                // Unlocked-device level, as Gemini's key: background features can use it without a prompt.
+                protection = Protection.DEVICE_UNLOCKED,
+            ),
+        )
+        prefs.edit {
+            putString(HOST, pairing.host)
+            putInt(PORT, pairing.port)
+            putString(PIN, pairing.pin)
+            putString(TOKEN_REF, info.id)
+        }
+        state.value = "${pairing.host}:${pairing.port}"
+        named()
+        return true
+    }
+
+    override suspend fun unpair() {
+        tokenRef()?.let { vault.delete(it) }
+        prefs.edit { remove(HOST); remove(PORT); remove(PIN); remove(TOKEN_REF) }
+        cached = null
+        state.value = null
+        named()
+    }
+
+    private companion object {
+        const val HOST = "mac_brain_host"
+        const val PORT = "mac_brain_port"
+        const val PIN = "mac_brain_pin"
+        const val TOKEN_REF = "mac_brain_token_ref"
+    }
+}
+
 /** Stage A inputs for the router (§6): network, installed tiers, heat and battery. */
 class DeviceStateProvider(
     private val context: Context,
     private val models: ModelManager,
     private val geminiKey: GeminiKeySettings,
+    private val mac: MacBrainSettings,
 ) {
     private val power = context.getSystemService(PowerManager::class.java)
     private val battery = context.getSystemService(BatteryManager::class.java)
@@ -650,12 +742,16 @@ class DeviceStateProvider(
     fun current(): DeviceState {
         val connectivity = context.getSystemService(ConnectivityManager::class.java)
         val capabilities = connectivity.getNetworkCapabilities(connectivity.activeNetwork)
-        val online = capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true &&
+        val internet = capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true &&
             capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+        // A paired Mac is on the user's own network, which needs Wi-Fi or Ethernet, not the internet (ADR-111).
+        val local = capabilities != null &&
+            (capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) || capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET))
+        val online = internet || (mac.pairing() != null && local)
         val tiers = buildSet {
             if (models.isInstalled(BrainId.BASE)) add(Tier.BASE)
             if (models.isInstalled(BrainId.PRO)) add(Tier.PRO)
-            if (geminiKey.ref() != null) add(Tier.CLOUD)
+            if (geminiKey.ref() != null || mac.pairing() != null) add(Tier.CLOUD)
         }
         // The guard (ADR-072): heat first, from the forecast or Android's severe status, then a low battery.
         val guard = guardFor(

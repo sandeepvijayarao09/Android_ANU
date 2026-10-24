@@ -45,6 +45,7 @@ import androidx.compose.ui.unit.dp
 import io.github.sandeepvijayarao09.anu.core.agent.ApprovalRequest
 import io.github.sandeepvijayarao09.anu.core.agent.EditableField
 import io.github.sandeepvijayarao09.anu.core.agent.RiskTier
+import io.github.sandeepvijayarao09.anu.core.router.TopModel
 import io.github.sandeepvijayarao09.anu.core.ui.AnuButton
 import io.github.sandeepvijayarao09.anu.core.ui.AnuIcons
 import io.github.sandeepvijayarao09.anu.core.ui.AnuShapes
@@ -261,12 +262,11 @@ private fun CloudConsentSheet(facts: List<String>, onApprove: (shareFacts: Boole
                 Box(Modifier.size(44.dp).clip(AnuShapes.sm).background(colors.surface2), contentAlignment = Alignment.Center) {
                     Icon(AnuIcons.Sparkle, contentDescription = null, Modifier.size(22.dp), tint = colors.text)
                 }
-                Text("Use Gemini for this?", Modifier.semantics { heading() }, style = AnuTheme.type.title, color = colors.text)
+                Text("Use ${TopModel.current.name} for this?", Modifier.semantics { heading() }, style = AnuTheme.type.title, color = colors.text)
             }
-            WhereLine(leaves = true, text = "Leaves your phone · to Gemini (Google)", modifier = Modifier.padding(top = 14.dp))
+            WhereLine(leaves = true, text = "Leaves your phone · to ${TopModel.current.where}", modifier = Modifier.padding(top = 14.dp))
             Text(
-                "This needs the cloud model. Your message goes to Google with email addresses, phone and card numbers " +
-                    "replaced, and the send is recorded in the Privacy report.",
+                TopModel.current.consent,
                 Modifier.padding(top = 16.dp),
                 style = AnuTheme.type.body,
                 color = colors.text,
@@ -283,7 +283,7 @@ private fun CloudConsentSheet(facts: List<String>, onApprove: (shareFacts: Boole
                         Column(Modifier.weight(1f)) {
                             Text("Include what Anu knows", style = AnuTheme.type.bodyStrong, color = colors.text)
                             Text(
-                                if (share) "Gemini also sees these, for a more personal answer" else "These stay on this phone",
+                                if (share) "${TopModel.current.title} also sees these, for a more personal answer" else "These stay on this phone",
                                 style = AnuTheme.type.label.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Normal),
                                 color = colors.textMuted,
                             )
@@ -297,7 +297,7 @@ private fun CloudConsentSheet(facts: List<String>, onApprove: (shareFacts: Boole
                 }
             }
             Spacer(Modifier.height(20.dp))
-            AnuButton("Send to Gemini", onClick = { onApprove(share && facts.isNotEmpty()) }, Modifier.fillMaxWidth())
+            AnuButton("Send to ${TopModel.current.name}", onClick = { onApprove(share && facts.isNotEmpty()) }, Modifier.fillMaxWidth())
             Spacer(Modifier.height(10.dp))
             AnuButton("Keep on this phone", onClick = onDecline, Modifier.fillMaxWidth(), secondary = true)
         }

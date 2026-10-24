@@ -68,6 +68,7 @@ dependencies {
     implementation(project(":feature:keyboard"))
     implementation(project(":brain:litertlm"))
     implementation(project(":brain:gemini"))
+    implementation(project(":brain:ollama"))
     implementation(project(":brain:embedding"))
     implementation(project(":core:vault"))
     implementation(project(":core:data"))

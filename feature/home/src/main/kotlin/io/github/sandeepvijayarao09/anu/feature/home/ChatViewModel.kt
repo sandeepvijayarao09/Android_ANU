@@ -23,6 +23,7 @@ import io.github.sandeepvijayarao09.anu.core.model.VoiceNote
 import io.github.sandeepvijayarao09.anu.core.router.DeviceState
 import io.github.sandeepvijayarao09.anu.core.router.Guard
 import io.github.sandeepvijayarao09.anu.core.router.Tier
+import io.github.sandeepvijayarao09.anu.core.router.TopModel
 import io.github.sandeepvijayarao09.anu.core.voice.RecordingEvent
 import io.github.sandeepvijayarao09.anu.core.voice.Sentences
 import io.github.sandeepvijayarao09.anu.core.voice.SpeechEvent
@@ -961,9 +962,9 @@ class ChatViewModel(
         mutable.update { state -> state.copy(bubbles = state.bubbles.map { if (it.id == id) change(it) else it }) }
 
     private fun friendly(reasons: List<String>): String = when {
-        reasons.any { it.startsWith("a photo is in view") } -> "Photos stay on this phone, so Gemini can't answer this."
-        reasons.any { it.startsWith("a voice note is in view") } -> "Voice notes stay on this phone, so Gemini can't answer this."
-        reasons.any { it.startsWith("a PDF is in view") } -> "PDFs stay on this phone, so Gemini can't answer this."
+        reasons.any { it.startsWith("a photo is in view") } -> "Photos stay on this phone, so ${TopModel.current.name} can't answer this."
+        reasons.any { it.startsWith("a voice note is in view") } -> "Voice notes stay on this phone, so ${TopModel.current.name} can't answer this."
+        reasons.any { it.startsWith("a PDF is in view") } -> "PDFs stay on this phone, so ${TopModel.current.name} can't answer this."
         reasons.singleOrNull() in HEARING_REASONS -> reasons.single()
         reasons.any { it == "no model tier is available" } ->
             "No model is ready yet. Download one in Settings, or add a Gemini key there."
@@ -1020,7 +1021,7 @@ val Tier.label: String
     get() = when (this) {
         Tier.BASE -> "On device · Gemma 4 E2B"
         Tier.PRO -> "On device · Gemma 4 E4B"
-        Tier.CLOUD -> "Cloud · Gemini"
+        Tier.CLOUD -> TopModel.current.label
     }
 
 /** A tier's model, for notes such as "Trying Gemma 4 E4B…". */
@@ -1028,7 +1029,7 @@ val Tier.model: String
     get() = when (this) {
         Tier.BASE -> "Gemma 4 E2B"
         Tier.PRO -> "Gemma 4 E4B"
-        Tier.CLOUD -> "Gemini"
+        Tier.CLOUD -> TopModel.current.model
     }
 
 /** A drafted reply on its way through the broker (ADR-092). */

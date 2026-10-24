@@ -41,6 +41,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.sandeepvijayarao09.anu.core.router.Tier
+import io.github.sandeepvijayarao09.anu.core.router.TopModel
 
 /**
  * The sheet that opens from the text-selection menu in any app (§13). The user's text changes only
@@ -67,14 +68,11 @@ fun WritingSheet(viewModel: WritingViewModel, onReplace: (String) -> Unit, onCop
     if (state.consentNeeded) {
         AlertDialog(
             onDismissRequest = viewModel::declineCloud,
-            title = { Text("Use Gemini for this?") },
+            title = { Text("Use ${TopModel.current.name} for this?") },
             text = {
-                Text(
-                    "This needs the cloud model. The text goes to Google with email addresses, phone and card numbers " +
-                        "replaced, and the send is recorded in the Privacy Ledger in Anu's Settings.",
-                )
+                Text(TopModel.current.consent)
             },
-            confirmButton = { Button(onClick = viewModel::approveCloud) { Text("Send to Gemini") } },
+            confirmButton = { Button(onClick = viewModel::approveCloud) { Text("Send to ${TopModel.current.name}") } },
             dismissButton = { TextButton(onClick = viewModel::declineCloud) { Text("Keep on phone") } },
         )
     }

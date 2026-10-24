@@ -81,6 +81,7 @@ import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.sandeepvijayarao09.anu.core.router.Guard
 import io.github.sandeepvijayarao09.anu.core.router.Tier
+import io.github.sandeepvijayarao09.anu.core.router.TopModel
 import io.github.sandeepvijayarao09.anu.core.ui.AnuIcons
 import io.github.sandeepvijayarao09.anu.core.ui.AnuShapes
 import io.github.sandeepvijayarao09.anu.core.ui.AnuTextButton
@@ -495,7 +496,7 @@ internal fun AnuTurn(
                             RetryChoice.GEMINI -> Row(verticalAlignment = Alignment.CenterVertically) {
                                 PrivacyDot(away = true, size = 6.dp)
                                 Spacer(Modifier.width(6.dp))
-                                AnuTextButton("Ask Gemini", onClick = onAskGemini)
+                                AnuTextButton("Ask ${TopModel.current.name}", onClick = onAskGemini)
                             }
                         }
                     }
@@ -886,7 +887,7 @@ fun AssistantCard(
             val readScreen = state.bubbles.lastOrNull { it.fromUser }?.screenApp
             Text(
                 when {
-                    cloud -> "Gemini (cloud)"
+                    cloud -> TopModel.current.label
                     readScreen != null -> "On device · read your screen in $readScreen"
                     else -> "On device · reads the screen only when you ask"
                 },

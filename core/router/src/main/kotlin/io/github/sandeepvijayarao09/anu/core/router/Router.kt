@@ -29,7 +29,7 @@ class Router(
                 return RouteResult.Routed(decide(request, pinned, allowed, scored.score, reasons + "pinned to $pinned by the user", guard))
             }
             // Asking Gemini by name never quietly runs on the phone instead: it says why it can't (ADR-075).
-            if (pinned == Tier.CLOUD) return RouteResult.Unavailable(reasons + "Gemini can't be asked here")
+            if (pinned == Tier.CLOUD) return RouteResult.Unavailable(reasons + "${TopModel.current.title} can't be asked here")
             reasons += "pinned tier $pinned is unavailable"
         }
 
