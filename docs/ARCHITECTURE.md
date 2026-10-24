@@ -1,6 +1,6 @@
 # Anu for Android: Architecture
 
-Version 1.60.0 · Draft · 2026-10-24
+Version 1.60.1 · Draft · 2026-10-24
 Status: proposed. OD-1 to OD-4 were resolved on 2026-09-25 (§16).
 Product intent lives in [VISION.md](VISION.md).
 
@@ -1113,6 +1113,21 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 
 **Spike log.** Measured results only, newest first.
 
+- **The pair in the app, 2026-10-24.** Pixel 10 Pro, the debug build at 74c05c4, E2B's Tensor G5 file and E4B's usual file installed, an existing made-up chat. Messages typed through adb.
+  - **Warm start** loaded Base on the TPU, then Pro on the GPU, in 34.3 s together. The app then held about 4.2 GB, and 5.5 GB after the turns below.
+
+    | Message | Answered on | First token | Reading | Writing | Load or switch |
+    |---|---|---|---|---|---|
+    | What is the capital of Japan? | Base, TPU | 1.3 s (1,393 tokens) | 1,210 tok/s | 19.7 tok/s | none |
+    | Compare renting and buying a car… | Pro, GPU | not logged | | | none |
+    | What is 7 times 8 | Base, TPU | 1.3 s (1,360 tokens) | 1,183 tok/s | 20.5 tok/s | none |
+    | Plan a packing list for a rainy weekend in Seattle | Pro, GPU | 7.7 s (1,389 tokens) | 297 tok/s | 8.0 tok/s | none |
+
+    - "Both stayed loaded" means no turn named a load or a switch.
+    - The comparison's speed line was lost when LiteRT's own logging filled the log buffer.
+    - Each turn read the chat again: the system prompt, tools and history changed between skills.
+  - **What to watch:** E4B on the GPU wrote "5,00 miles" twice for "5,000" in the comparison, a slip E4B on the CPU wasn't seen to make.
+
 - **Two engines, and Base as a judge, 2026-10-24.** Pixel 10 Pro (Tensor G5, Android 17), idle and charging, thermal status 0.
   - **Two engines in one process** (`TwoEngineTest`): E2B's Tensor G5 file on the TPU, then E4B's usual file on the GPU, each answering twice, alternating. Greedy answers: "108" (821 ms), "Paris" (1,672 ms), "Red" (346 ms), "15" (932 ms).
 
@@ -1586,7 +1601,7 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 | Spikes S10 (Gemini Nano through AICore) and S11 (photo input) | 0 | In progress, approved by the owner on 2026-09-28. S10's harness is built; on anu_api36 it reports no AICore and skips, and the phone run waits for the owner's go. S11 works on anu_api36 with vision on the CPU: E4B read a made-up sign correctly, with the first token after 4.6 s |
 | `core:model`: brain contracts, `JsonSchemas`, `ToolSpec` | 1 | Implemented. JVM unit tests pass; the tool-call path is not yet verified on a real model |
 | `brain:litertlm`: `LiteRtLmBrain`, `EngineHolder` | 1 | Implemented. Real-model tests pass on the Anu emulator and the reference phone (E4B, CPU). Runtime options per engine and the debug speed log (ADR-068), with 2 JVM tests for the log line |
-| ModelManager: pinned catalog, resumable verified download worker, CPU until a chip's GPU is verified (ADR-059), memory guidance (ADR-066), a download's speed | 1 | Implemented, with 12 JVM tests (resume, restart, corrupted file deleted, catalog, variant choice, space and cache cleanup, the phone's memory). On the reference phone, the worker downloaded and verified the 2.97 GB E4B GPU build in about 1.5 minutes. The time left hasn't been seen in a real download yet Base's TPU build on a verified chip, with a fallback to the CPU (ADR-103): 1 JVM test; on the emulator the CPU path still answers. On the Pixel 10 Pro (2026-10-24), a typed "What is 12 times 9?" ran on Base on the TPU and answered correctly. It read 1,390 tokens at 1,271 tokens/s, showed its first token after 1.2 s, and wrote at 19.7 tokens/s Base on the TPU beside Pro on the GPU, kept loaded together, with memory on the CPU and a GPU fallback (ADR-106): verified in `TwoEngineTest` on the Pixel 10 Pro; in the app, not yet checked on the phone |
+| ModelManager: pinned catalog, resumable verified download worker, CPU until a chip's GPU is verified (ADR-059), memory guidance (ADR-066), a download's speed | 1 | Implemented, with 12 JVM tests (resume, restart, corrupted file deleted, catalog, variant choice, space and cache cleanup, the phone's memory). On the reference phone, the worker downloaded and verified the 2.97 GB E4B GPU build in about 1.5 minutes. The time left hasn't been seen in a real download yet Base's TPU build on a verified chip, with a fallback to the CPU (ADR-103): 1 JVM test; on the emulator the CPU path still answers. On the Pixel 10 Pro (2026-10-24), a typed "What is 12 times 9?" ran on Base on the TPU and answered correctly. It read 1,390 tokens at 1,271 tokens/s, showed its first token after 1.2 s, and wrote at 19.7 tokens/s Base on the TPU beside Pro on the GPU, kept loaded together, with memory on the CPU and a GPU fallback (ADR-106): verified in `TwoEngineTest` on the Pixel 10 Pro, and in the app there: simple messages answered on the TPU and harder ones on the GPU, with neither model loading again (spike log) |
 | Install from a file (`CatalogInstaller` in `app`, ADR-067) | 1 | Implemented, with 8 JVM tests. On anu_api36, through the system's file picker: a text file was refused, and EmbeddingGemma's tokenizer, renamed "sentencepiece (1).model", was installed under its catalog name with the right SHA-256. Search by meaning then showed as installed |
 | Residency: one model at a time (`OnDeviceBrains`) | 1 | Implemented. Not device-tested; thresholds come from S1 |
 | Warm start and named waits (ADR-074) | 5 | Implemented. On the Anu emulator: opening Talk loaded E4B in 2.6 s before any message, and after a restart the answer said "Catching up on this chat…" while the chat was read again. A router test for the warm model and 2 view-model tests for the wait line. The pass bar (median first word against a loaded model's, per backend) is still to run. The read-ahead probe (ENG-11) ran: reading the chat ahead brought the first word 91 to 94% sooner, but it can't be stopped, so a message for another skill waited 16.2 s; warm start stays load-only (spike log) |
@@ -1637,7 +1652,8 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 
 ### Changelog
 
-- **1.60.0** (2026-10-24): Base on the TPU beside Pro on the GPU, both loaded (ADR-106). Pro's chat runs on the GPU and memory stays on the CPU. Base gives a one-word opinion on requests the rules give it, and the two together route 37 of 40 held-out requests right. Each loaded model has its own lock. Measured on the Pixel 10 Pro: the two engines together, and the router eval on the TPU. The app on the Pixel isn't checked yet.
+- **1.60.1** (2026-10-24): the TPU and GPU pair checked in the app on the Pixel 10 Pro (ADR-106). Simple messages went to E2B on the TPU (first token 1.3 s) and harder ones to E4B on the GPU (first token 7.7 s, writing at 8 tokens/s), and both stayed loaded.
+- **1.60.0** (2026-10-24): Base on the TPU beside Pro on the GPU, both loaded (ADR-106). Pro's chat runs on the GPU and memory stays on the CPU. Base gives a one-word opinion on requests the rules give it, and the two together route 37 of 40 held-out requests right. Each loaded model has its own lock. Measured on the Pixel 10 Pro: the two engines together, and the router eval on the TPU. The app on the Pixel isn't checked yet; 1.60.1 checks it.
 - **1.59.6** (2026-10-24): ADK turns see the chat's last messages and the relevant facts, and the coordinator answers what no specialist covers itself (ADR-104); the agents stay on Pro until checked there, while app tasks use Base on the TPU.
 - **1.59.5** (2026-10-24): AI Edge Gallery's own Benchmark screen on the Pixel 10 Pro, E4B on the CPU: Gallery's app read 8% slower and wrote 26% slower than the same benchmark call in Anu's process (spike log).
 - **1.59.4** (2026-10-24): AI Edge Gallery as the baseline. On the Pixel 10 Pro, Gallery's benchmark on the CPU, GPU and TPU sits beside Anu's in-app numbers (spike log, component status). On the TPU, Anu writes as fast as Gallery's benchmark, and its first token waits on reading the chat.
