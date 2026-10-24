@@ -98,7 +98,7 @@ object SkillDetector {
      * write raw tool-call text.
      */
     fun detect(text: String, previous: Skill? = null): Skill = byKeywords(text, previous) ?: when {
-        previous != null && previous != Skill.CHAT && isFollowUp(text) -> previous
+        previous != null && previous !in ONE_OFF && previous != Skill.CHAT && isFollowUp(text) -> previous
         else -> Skill.CHAT
     }
 
@@ -120,7 +120,7 @@ object SkillDetector {
             val found = fixed ?: byKeywords(text, skill)
             when {
                 found != null -> { skill = found; followUps = 0 }
-                skill != Skill.CHAT && isFollowUp(text) && followUps < MAX_FOLLOW_UPS -> followUps++
+                skill != Skill.CHAT && skill !in ONE_OFF && isFollowUp(text) && followUps < MAX_FOLLOW_UPS -> followUps++
                 else -> { skill = Skill.CHAT; followUps = 0 }
             }
         }
@@ -198,6 +198,13 @@ object SkillDetector {
     }
 
     private fun isFollowUp(text: String) = text.trim().length <= FOLLOW_UP_CHARS
+
+    /**
+     * Skills a follow-up never keeps (ADR-104): a brief and a request across areas each run once on ADK's agents, which
+     * don't see the chat. Carried over, "What's a good name for a cat?" after "Ask the Home Lab agent…" went to the
+     * agents, and "Give me one more" lost the question before it.
+     */
+    private val ONE_OFF = setOf(Skill.AGENTS, Skill.BRIEF)
 
     private const val FOLLOW_UP_CHARS = 80
     private const val MAX_FOLLOW_UPS = 3

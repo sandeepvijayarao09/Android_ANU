@@ -1,6 +1,6 @@
 # Anu for Android: Architecture
 
-Version 1.59.1 · Draft · 2026-10-24
+Version 1.59.2 · Draft · 2026-10-24
 Status: proposed. OD-1 to OD-4 were resolved on 2026-09-25 (§16).
 Product intent lives in [VISION.md](VISION.md).
 
@@ -616,7 +616,7 @@ They produce notifications, never unapproved external actions.
 ### 7.6 Sub-agents and workflows on ADK (ADR-104)
 
 A daily brief, or a request across two or more of the phone's areas, runs on Google's Agent Development Kit for Kotlin (ADK 1.4), in `agent:adk`. Anu's runtime keeps its rules: ADK decides which agent and tool come next; the broker still decides whether a tool runs (P2).
-- **Routing.** `SkillDetector` sends "brief me", "my daily brief" or "what does my day look like" to `BRIEF`, and a message naming two or more areas (the calendar, messages, the phone's controls and notes) to `AGENTS`. Email isn't counted, since its skill already offers the calendar; a note beside the calendar is the meeting's note. `ChatSession` hands those skills to an `Orchestrator` (`core:agent` knows only the interface) unless the user chose the cloud; it emits the events `Agent.run` does, so the chat saves, shows, speaks and audits the turn as any other.
+- **Routing.** `SkillDetector` sends "brief me", "my daily brief" or "what does my day look like" to `BRIEF`, and a message naming two or more areas (the calendar, messages, the phone's controls and notes) to `AGENTS`. Email isn't counted, since its skill already offers the calendar; a note beside the calendar is the meeting's note. `ChatSession` hands those skills to an `Orchestrator` (`core:agent` knows only the interface) unless the user chose the cloud; it emits the events `Agent.run` does, so the chat saves, shows, speaks and audits the turn as any other. A follow-up never keeps `BRIEF` or `AGENTS`, which run once and don't see the chat: carried over, "What's a good name for a cat?" after an agent question went to the agents, and "Give me one more" lost the question before it.
 - **The model.** `AnuModel` is Anu's on-device brain as ADK's `Model`: ADK's contents become Anu's transcript (function responses a tool turn, other agents' text the user's turn), its function declarations Anu's tool specs, and the brain's answer one response with its text and tool calls. Never a second copy of Gemma, never a cloud brain (MEDIA-1); calls take turns on one lock, since the phone has one engine.
 - **The tools.** `BrokerTool` is one of Anu's tools as an ADK tool: its declaration comes from the tool's generated schema, and its `run` is `ToolBroker.execute` in the turn's one `RunState`, so taint from any specialist's result reaches every later call (P4), and approvals of the exact payload (I2), risk tiers and the audit apply as in the chat.
 - **Sub-agents.** Four specialists (`calendar_agent`, `messages_agent`, `device_agent`, `apps_agent`) each have an instruction and only their area's tools, see only the request they're given (`IncludeContents.NONE`) and take at most 4 model calls, so each fits the small on-device context. The coordinator, `anu`, uses them as tools (`AgentTool`) and answers in a sentence or two, at most 6 calls. Every instruction reads the day from the session's state (`{today?}`): a specialist sees "tomorrow" with no date otherwise.
@@ -1583,6 +1583,7 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 
 ### Changelog
 
+- **1.59.2** (2026-10-24): a short follow-up no longer keeps a brief or a request for ADK's agents (ADR-104), which sent plain chat to the agents and lost its context.
 - **1.59.1** (2026-10-24): debug builds' speed line says what a built conversation read, part by part (system, tools, history, message, in characters). The spike log records a rebuilt turn on the emulator: half of what it read was history, a quarter tool definitions.
 - **1.59.0** (2026-10-24): agents on the user's network over A2A (ADR-105): Anu's own client, each agent a tool that asks every time and writes the ledger, called by ADK's coordinator; a made-up Home Lab agent answered on anu_api36. The brief's loop through ADK's transfer to agent is fixed, and a turn is capped at 16 model calls (ADR-104).
 - **1.58.0** (2026-10-24): Base runs on the TPU in the app (ADR-103). On the Tensor G5, Base uses its TPU build, Pro-scored requests go to Base when they fit, memory stays on Pro on the CPU, and a failed TPU load falls back to the CPU. Settings and "About this answer" say "Tensor TPU". Checked on the emulator only; not yet on the Pixel.

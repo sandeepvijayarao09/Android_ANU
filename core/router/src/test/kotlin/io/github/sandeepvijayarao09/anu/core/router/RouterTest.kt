@@ -283,6 +283,9 @@ class RouterTest {
         assertEquals("a note isn't the calendar", Skill.PHONE, SkillDetector.detect("What's on my groceries note?"))
         assertEquals("an agent on the network (ADR-105)", Skill.AGENTS, SkillDetector.detect("Ask the Home Lab agent what the temperature is"))
         assertEquals(Skill.AGENTS, SkillDetector.detect("Tell my robot agent to wave"))
+        // A follow-up never stays with the agents: they run once and don't see the chat.
+        assertEquals(Skill.CHAT, SkillDetector.detect(listOf("Ask the Home Lab agent to turn on the desk lamp", "What is a good name for a cat?", "Give me one more")))
+        assertEquals(Skill.CHAT, SkillDetector.detect("Thanks!", previous = Skill.BRIEF))
         assertEquals(Tier.PRO, route(request("Check my calendar for Friday and text Maya I'm free").copy(skill = Skill.AGENTS)).tier)
     }
 
