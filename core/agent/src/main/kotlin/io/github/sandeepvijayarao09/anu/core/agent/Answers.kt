@@ -43,7 +43,15 @@ data class AnswerDetails(
     val thoughtMs: Long? = null,
     /** How long the voice note took to write down before the model began, when there was one (G3, ADR-078). */
     val heardMs: Long? = null,
+    /** The agents that worked on an orchestrated turn, in the order they began (ADR-110). Empty for the chat's own agent. */
+    val agents: List<AgentStep> = emptyList(),
 )
+
+/**
+ * One ADK agent's part in an orchestrated turn (ADR-110): its name, how many times it asked the model, and the tools
+ * it ran, by name. A workflow step that runs a tool with no model has no model calls.
+ */
+data class AgentStep(val agent: String, val modelCalls: Int, val tools: List<String>)
 
 /**
  * Where answers' details are kept, by the index in the transcript of the user message that asked. They are

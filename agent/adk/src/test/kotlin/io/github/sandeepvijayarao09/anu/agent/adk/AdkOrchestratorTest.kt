@@ -2,6 +2,7 @@ package io.github.sandeepvijayarao09.anu.agent.adk
 
 import io.github.sandeepvijayarao09.anu.core.agent.ActionRecord
 import io.github.sandeepvijayarao09.anu.core.agent.AgentEvent
+import io.github.sandeepvijayarao09.anu.core.agent.AgentStep
 import io.github.sandeepvijayarao09.anu.core.agent.ApprovalDecision
 import io.github.sandeepvijayarao09.anu.core.agent.ApprovalGate
 import io.github.sandeepvijayarao09.anu.core.agent.ApprovalRequest
@@ -131,6 +132,11 @@ class AdkOrchestratorTest {
         assertEquals(listOf("calendar_list_events"), specialist.tools.map { it.name })
         val coordinator = brain.requests.first { it.system.orEmpty().contains("You are Anu") }
         assertEquals(listOf("calendar_agent"), coordinator.tools.map { it.name })
+        // The trace (ADR-110): the coordinator asked, its specialist looked up and answered, and the coordinator answered.
+        assertEquals(
+            listOf(AgentStep("anu", 2, emptyList()), AgentStep("calendar_agent", 2, listOf("calendar_list_events"))),
+            done.agents,
+        )
     }
 
     @Test
@@ -174,6 +180,16 @@ class AdkOrchestratorTest {
         assertEquals("the writer can't transfer back into the workflow", emptyList<String>(), brain.requests.single().tools.map { it.name })
         assertTrue(done.text, done.text.contains("standup at 10am") && done.text.contains("Maya asked about Friday") && done.text.contains("oat milk"))
         assertEquals(3, done.actions.size)
+        // The gatherers ran their tools with no model, in any order, and then the writer asked the model once (ADR-110).
+        assertEquals(AgentStep("brief_writer", 1, emptyList()), done.agents.last())
+        assertEquals(
+            setOf(
+                AgentStep("calendar_brief", 0, listOf("calendar_list_events")),
+                AgentStep("messages_brief", 0, listOf("messages_list_conversations")),
+                AgentStep("notes_brief", 0, listOf("notes_search")),
+            ),
+            done.agents.dropLast(1).toSet(),
+        )
     }
 
     @Test

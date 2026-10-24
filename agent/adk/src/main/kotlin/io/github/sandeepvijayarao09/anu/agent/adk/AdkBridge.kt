@@ -14,6 +14,7 @@ import com.google.adk.kt.types.Schema
 import com.google.adk.kt.types.Type
 import io.github.sandeepvijayarao09.anu.core.agent.ActionRecord
 import io.github.sandeepvijayarao09.anu.core.agent.AgentEvent
+import io.github.sandeepvijayarao09.anu.core.agent.AgentStep
 import io.github.sandeepvijayarao09.anu.core.agent.RunState
 import io.github.sandeepvijayarao09.anu.core.agent.ToolBroker
 import io.github.sandeepvijayarao09.anu.core.agent.ToolOutcome
@@ -198,7 +199,25 @@ class TurnBridge(
 ) {
     private val done = mutableListOf<ActionRecord>()
 
+    /** Each agent's model calls and tools, in the order agents began (ADR-110). */
+    private val steps = LinkedHashMap<String, Pair<Int, List<String>>>()
+
     val actions: List<ActionRecord> get() = synchronized(done) { done.toList() }
+
+    /** Which agents worked on the turn, for "About this answer" (ADR-110). */
+    val agents: List<AgentStep> get() = synchronized(steps) { steps.map { (agent, step) -> AgentStep(agent, step.first, step.second) } }
+
+    /** [agent] is about to ask the model. */
+    fun calledModel(agent: String) = synchronized(steps) {
+        val (calls, tools) = steps[agent] ?: (0 to emptyList())
+        steps[agent] = calls + 1 to tools
+    }
+
+    /** [agent] ran [tool], whether or not the broker let it. */
+    fun usedTool(agent: String, tool: String) = synchronized(steps) {
+        val (calls, tools) = steps[agent] ?: (0 to emptyList())
+        steps[agent] = calls to tools + tool
+    }
 
     suspend fun emit(event: AgentEvent) = events(event)
 
@@ -223,6 +242,7 @@ class BrokerTool(private val spec: ToolSpec, private val turn: TurnBridge) : Bas
 
     override suspend fun run(context: ToolContext, args: Map<String, Any?>): Any {
         val call = ToolCall(name, AdkBridge.jsonObject(args))
+        turn.usedTool(context.agentName, name)
         turn.emit(AgentEvent.ToolStarted(call))
         val outcome = turn.broker.execute(call, turn.run)
         turn.emit(AgentEvent.ToolFinished(call, outcome))

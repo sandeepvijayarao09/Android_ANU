@@ -306,6 +306,7 @@ class ChatSession(
                             cut = event.decision?.maxOutputTokens?.let { limit -> (event.usage?.outputTokens ?: 0) >= limit * 95 / 100 } ?: false,
                             thoughtMs = firstThought?.let { thought -> ((firstWord ?: now) - thought) / 1_000_000 },
                             heardMs = heardMs,
+                            agents = event.agents,
                         )
                         out = event.copy(details = details)
                         event.tokens?.let { sample ->

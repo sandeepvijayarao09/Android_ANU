@@ -9,6 +9,8 @@ import com.google.adk.kt.agents.LlmAgent
 import com.google.adk.kt.agents.ParallelAgent
 import com.google.adk.kt.agents.RunConfig
 import com.google.adk.kt.agents.SequentialAgent
+import com.google.adk.kt.callbacks.BeforeModelCallback
+import com.google.adk.kt.callbacks.CallbackChoice
 import com.google.adk.kt.models.Model
 import com.google.adk.kt.runners.InMemoryRunner
 import com.google.adk.kt.sessions.SessionKey
@@ -69,6 +71,17 @@ class AnuAgents(
         includeContents = history,
         outputKey = outputKey,
         maxSteps = SPECIALIST_STEPS,
+        beforeModelCallbacks = counted,
+    )
+
+    /** Counts each agent's model calls for the turn's trace (ADR-110); the request goes on unchanged. */
+    private val counted: List<BeforeModelCallback> = listOfNotNull(
+        bridge?.let { turn ->
+            BeforeModelCallback { context, request ->
+                turn.calledModel(context.agentName)
+                CallbackChoice.Continue(request)
+            }
+        },
     )
 
     /** The specialists whose tools this phone has. */
@@ -82,6 +95,7 @@ class AnuAgents(
         instruction = Instruction("$COORDINATOR " + (if (remote.isEmpty()) "" else "$REMOTE ") + TODAY),
         tools = specialists().map { AgentTool(agent(it)) } + tools(remote),
         maxSteps = COORDINATOR_STEPS,
+        beforeModelCallbacks = counted,
     )
 
     /**
@@ -114,6 +128,7 @@ class AnuAgents(
                     gather.joinToString("\n") { "${it.description}: {${it.name}?}" },
             ),
             includeContents = LlmAgent.IncludeContents.NONE,
+            beforeModelCallbacks = counted,
         )
         return SequentialAgent(
             name = "daily_brief",
@@ -243,7 +258,7 @@ class AdkOrchestrator(
             return@channelFlow
         }
         send(AgentEvent.TextDelta(tier(), said))
-        send(AgentEvent.Completed(tier(), said, listOf(ChatMessage.Model(said)), bridge.actions))
+        send(AgentEvent.Completed(tier(), said, listOf(ChatMessage.Model(said)), bridge.actions, agents = bridge.agents))
     }
 
     private companion object {
@@ -271,6 +286,7 @@ class ToolStep(
 ) : BaseAgent(name, description) {
     override fun runAsyncImpl(context: InvocationContext): Flow<Event> = flow {
         val call = ToolCall(tool, args)
+        turn.usedTool(name, tool)
         turn.emit(AgentEvent.ToolStarted(call))
         val outcome = turn.broker.execute(call, turn.run)
         turn.emit(AgentEvent.ToolFinished(call, outcome))
