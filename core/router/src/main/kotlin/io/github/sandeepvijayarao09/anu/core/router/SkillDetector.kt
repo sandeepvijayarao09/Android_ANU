@@ -162,6 +162,12 @@ object SkillDetector {
         if (PHONE_CONTROLS.containsMatchIn(text) || NOTES_AND_CONTACTS.containsMatchIn(text) && !CALENDAR_WORDS.containsMatchIn(text)) add(Skill.PHONE)
     }
 
+    /** "ask the Home Lab agent", "tell my robot agent" (ADR-105). */
+    private val ASK_AGENT = Regex(
+        "\\b(ask|tell|have) (the |my )?[\\p{L}\\p{N}][\\p{L}\\p{N} '-]{0,30}? agent\\b",
+        RegexOption.IGNORE_CASE,
+    )
+
     /** "text Maya", "message Raj" in the middle of a request. */
     private val TEXT_TO = Regex("\\b(text|message) [A-Z][a-z]+\\b")
 
@@ -171,6 +177,8 @@ object SkillDetector {
         // Before email, messages and shopping: "in the Gmail app, archive…" means tapping in that app.
         IN_AN_APP.containsMatchIn(text) -> Skill.APPS
         BRIEF.containsMatchIn(text) -> Skill.BRIEF
+        // "Ask the Home Lab agent…": an agent on the user's network, which the coordinator calls (ADR-105).
+        ASK_AGENT.containsMatchIn(text) -> Skill.AGENTS
         // Before each single area: a request across two of them gets the specialists of both (ADR-104).
         !EMAIL.containsMatchIn(text) && areas(text).size >= 2 -> Skill.AGENTS
         EMAIL.containsMatchIn(text) -> Skill.EMAIL

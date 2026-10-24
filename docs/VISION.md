@@ -73,9 +73,11 @@ Most assistants either know nothing about you or send everything about you to a 
 - Questions about the screen: over any app, "what's this?" or a tap on "Use this screen" lets Anu read the screen on the phone, with codes and password fields blacked out first. It never reads the screen unless you ask, and the picture is never kept.
 - More connectors:
   - services you add as MCP servers, such as notes or tasks;
+  - agents on your own network that speak the Agent2Agent protocol (A2A), such as a lab robot or a Raspberry Pi. Anu asks you before every message it sends one, and never lets them call into the phone;
   - stores that support the Universal Commerce Protocol (UCP): search, and checkouts you approve.
 - A living memory and user profile, with a screen to inspect, edit and add to it.
 - AI features: writing, email, scheduling, messages, shopping, and a daily brief.
+- Several steps at once: "Brief me" gathers your calendar, chats and notes in parallel and writes your day in a few lines, and a request that spans areas ("check my calendar for Friday and text Maya I'm free") is shared out to specialists. They run on Google's Agent Development Kit, on the phone, and every action still asks you as any other does.
 - A prompt lab in Settings, for trying prompts and sampling on the models on the phone, with nothing from your data.
 - A vault for the keys and logins Anu uses for you, such as your Gemini key, a Meta Muse API key or email app passwords. It is not a password manager for other apps.
 

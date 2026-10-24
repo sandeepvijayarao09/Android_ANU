@@ -177,6 +177,21 @@ class AdkOrchestratorTest {
     }
 
     @Test
+    fun `an agent on the network is the coordinator's own tool, and its message still asks (ADR-105)`() = runBlocking {
+        val lab = Lookup("a2a_home_lab", "The lab is 21.5 °C.", UntrustedContent.SERVICE)
+        val gate = Gate()
+        val broker = ToolBroker(listOf(lab), gate)
+        val brain = Actor(listOf("You are Anu" to { r -> if (lastIsTool(r)) "Home Lab says it's 21.5 °C." to null else "" to call("a2a_home_lab", "query" to "temperature") }))
+        val adk = AdkOrchestrator({ broker }, { setOf("a2a_home_lab") }, { brain }, { Tier.PRO })
+        val done = adk.run(turn(Skill.AGENTS, "Ask the Home Lab agent the temperature")).toList().last() as AgentEvent.Completed
+
+        assertEquals("Home Lab says it's 21.5 °C.", done.text)
+        assertEquals(listOf("a2a_home_lab"), brain.requests.first().tools.map { it.name })
+        assertTrue(brain.requests.first().system.orEmpty().contains("agents the user added on their own network"))
+        assertEquals(1, lab.calls)
+    }
+
+    @Test
     fun `no on-device model means a failed turn, not a cloud call`() = runBlocking {
         val adk = AdkOrchestrator({ ToolBroker(emptyList(), Gate()) }, { emptySet() }, { null }, { Tier.PRO })
         val events = adk.run(turn(Skill.AGENTS, "Check my calendar and text Maya")).toList()

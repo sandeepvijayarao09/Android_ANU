@@ -133,6 +133,9 @@ import io.github.sandeepvijayarao09.anu.connector.phone.VolumeTool
 import io.github.sandeepvijayarao09.anu.connector.phone.FlashlightTool
 import io.github.sandeepvijayarao09.anu.connector.phone.OpenSettingsTool
 import io.github.sandeepvijayarao09.anu.agent.adk.AdkOrchestrator
+import io.github.sandeepvijayarao09.anu.connector.a2a.A2aAgentList
+import io.github.sandeepvijayarao09.anu.connector.a2a.A2aAgents
+import io.github.sandeepvijayarao09.anu.connector.a2a.A2aClient
 import io.github.sandeepvijayarao09.anu.core.agent.AppCommands
 import io.github.sandeepvijayarao09.anu.core.agent.AppTaskTool
 import io.github.sandeepvijayarao09.anu.core.agent.PhoneCommands
@@ -279,6 +282,9 @@ class AppGraph(private val context: Context) {
 
     /** Stores that speak UCP (ADR-047). */
     private val ucp by lazy { UcpClient(connectorHttp, UCP_PROFILE, localTestHost) }
+
+    /** Agents the user added on their own network, by the Agent2Agent protocol (ADR-105). */
+    val agents by lazy { A2aAgents(PrefsAgentList(prefs), A2aClient(connectorHttp), ledger) }
     val stores by lazy { StoreConnections(connectorSettings, ucp, scope) }
     private val seenProducts = SeenProducts()
 
@@ -420,7 +426,7 @@ class AppGraph(private val context: Context) {
     }
 
     private val broker by lazy {
-        ToolBroker(tools, approvals, RoomToolResultStore(db.toolResults()), toolAudit, dynamicTools = { mcp.registry.tools() })
+        ToolBroker(tools, approvals, RoomToolResultStore(db.toolResults()), toolAudit, dynamicTools = { mcp.registry.tools() + agents.tools() })
     }
 
     val chat by lazy {
@@ -434,7 +440,7 @@ class AppGraph(private val context: Context) {
             // A daily brief, or a request across areas, goes to sub-agents and workflows on Google's ADK (ADR-104).
             orchestrator = AdkOrchestrator(
                 broker = { broker },
-                available = { (tools.map { it.name } + mcp.registry.tools().map { it.name }).toSet() },
+                available = { (tools.map { it.name } + mcp.registry.tools().map { it.name } + agents.tools().map { it.name }).toSet() },
                 brain = { onDevice.brainFor(BrainId.PRO) ?: onDevice.brainFor(BrainId.BASE) },
                 tier = { if (onDevice.brainFor(BrainId.PRO) != null) Tier.PRO else Tier.BASE },
             ),
@@ -610,5 +616,22 @@ class DeviceStateProvider(
             charging = battery.isCharging,
         )
         return DeviceState(online = online, availableTiers = tiers, guard = guard, baseOnTpu = models.baseOnTpu)
+    }
+}
+
+/** The addresses of the agents the user added (ADR-105), kept in the app's settings. */
+private class PrefsAgentList(private val prefs: SharedPreferences) : A2aAgentList {
+    override fun addresses(): List<String> = prefs.getStringSet(KEY, emptySet()).orEmpty().sorted()
+
+    override fun add(address: String) {
+        prefs.edit().putStringSet(KEY, prefs.getStringSet(KEY, emptySet()).orEmpty() + address).apply()
+    }
+
+    override fun remove(address: String) {
+        prefs.edit().putStringSet(KEY, prefs.getStringSet(KEY, emptySet()).orEmpty() - address).apply()
+    }
+
+    private companion object {
+        const val KEY = "a2a_agents"
     }
 }

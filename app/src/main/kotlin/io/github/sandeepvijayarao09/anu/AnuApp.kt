@@ -34,6 +34,8 @@ class AnuApp : Application() {
         // The services and stores saved in Settings, kept in step with the database (ADR-046, ADR-047).
         graph.scope.launch { graph.mcp.sync() }
         graph.scope.launch { graph.stores.sync() }
+        // The agents added on the user's network, from their cards (ADR-105).
+        graph.scope.launch { runCatching { graph.agents.refresh() } }
         MemoryLearning.scheduleCatchUp(this)
         registerActivityLifecycleCallbacks(Visibility())
     }

@@ -80,6 +80,8 @@ dependencies {
     implementation(project(":connector:notes"))
     // Sub-agents and workflows on Google's ADK for Kotlin (ADR-104).
     implementation(project(":agent:adk"))
+    // Agents on the user's own network, over A2A (ADR-105).
+    implementation(project(":connector:a2a"))
     // SMS is Play-restricted, so only the owner's build links it (ADR-012, ADR-032).
     "personalImplementation"(project(":connector:sms"))
     // So is app control's accessibility service (ADR-098).

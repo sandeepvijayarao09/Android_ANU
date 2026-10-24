@@ -281,6 +281,8 @@ class RouterTest {
         assertEquals("one area stays its own skill", Skill.PHONE, SkillDetector.detect("Wake me at 6:30 and turn the flashlight off"))
         assertEquals("email keeps its calendar", Skill.EMAIL, SkillDetector.detect("Set an alarm and email Maya the agenda"))
         assertEquals("a note isn't the calendar", Skill.PHONE, SkillDetector.detect("What's on my groceries note?"))
+        assertEquals("an agent on the network (ADR-105)", Skill.AGENTS, SkillDetector.detect("Ask the Home Lab agent what the temperature is"))
+        assertEquals(Skill.AGENTS, SkillDetector.detect("Tell my robot agent to wave"))
         assertEquals(Tier.PRO, route(request("Check my calendar for Friday and text Maya I'm free").copy(skill = Skill.AGENTS)).tier)
     }
 
