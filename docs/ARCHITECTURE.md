@@ -1,6 +1,6 @@
 # Anu for Android: Architecture
 
-Version 1.59.0 · Draft · 2026-10-24
+Version 1.59.1 · Draft · 2026-10-24
 Status: proposed. OD-1 to OD-4 were resolved on 2026-09-25 (§16).
 Product intent lives in [VISION.md](VISION.md).
 
@@ -297,7 +297,7 @@ Application ID: `io.github.sandeepvijayarao09.anu`. It can change until the firs
   - **Conversation is a cache; our transcript is the truth (ADR-018).**
     - The KV cache lives in a LiteRT-LM `Conversation`, reused across the turns of a run.
     - **Two are kept (ADR-097).** Each model keeps its two most recently used conversations, and a request reuses whichever already holds its system prompt, tools, sampling, thinking setting and history. So a one-message job, such as Writing, Test speed or extracting facts, no longer throws away the chat's, and the chat's next turn reads only its new message. On the Anu emulator the second conversation added about 20 MB of resident memory.
-    - **Debug builds say why a turn read the chat again (ADR-097).** The speed line ends with `conversation kept`, `new`, or `rebuilt (…)` naming the parts that differed: system, tools, sampling, thinking, history. Names only, never content.
+    - **Debug builds say why a turn read the chat again (ADR-097).** The speed line ends with `conversation kept`, `new`, or `rebuilt (…)` naming the parts that differed: system, tools, sampling, thinking, history. A conversation that was built also says what it read, part by part, in characters: `system S, tools T, history H, message M chars`. Names and sizes only, never content.
     - Our persisted transcript is the source of truth.
     - `cancelProcess()` does not roll back conversation state. After a cancel or an error, the conversation is closed and later rebuilt from the transcript (`initialMessages`).
     - **Memory is part of the on-device system instruction only (ADR-038).** `BrainRequest.memory` is appended after the system prompt by on-device brains and is part of the cache key. The Gemini brain never sends it.
@@ -1102,6 +1102,11 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 
 **Spike log.** Measured results only, newest first.
 
+- **Where a rebuilt turn's reading goes, 2026-10-24.** Anu emulator (anu_api36, CPU), E4B, the debug app with the speed line's breakdown, an existing made-up chat.
+  - **A scheduling request after a chat turn** rebuilt its conversation (system, tools and history all differed) and read 2,486 tokens before its first word: system 1,476 characters (22%), tools 1,698 (25%), history 3,463 (52%), message 51 (1%). That's about 2.7 characters to a token.
+  - **Timing:** the emulator read at 19.9 tokens/s while the Mac was busy, against its usual 60–70, so the first word took 127 s. At the TPU's rate in Gallery's benchmark (spike log, 2026-10-23), the same read would take about 1.5 s.
+  - **Two plain chat turns** after a request to another agent went to ADK's agents (ADR-104): tools 981 and 1,943 characters, history 0. The follow-up lost the question before it. This is reported to that work.
+
 - **S1, the Pixel's TPU, and Gallery's benchmark, 2026-10-23.** Pixel 10 Pro (Tensor G5, Android 17), idle and charging, thermal status 0.
   - **Gallery's benchmark** (`GalleryParityBenchmarkTest`): the call Google's AI Edge Gallery 1.0.20 makes on its Benchmark screen. That's LiteRT-LM's `benchmark()` with 256 synthetic tokens read and 256 written, 3 runs, in a fresh cache folder. The first load builds that cache.
 
@@ -1578,6 +1583,7 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 
 ### Changelog
 
+- **1.59.1** (2026-10-24): debug builds' speed line says what a built conversation read, part by part (system, tools, history, message, in characters). The spike log records a rebuilt turn on the emulator: half of what it read was history, a quarter tool definitions.
 - **1.59.0** (2026-10-24): agents on the user's network over A2A (ADR-105): Anu's own client, each agent a tool that asks every time and writes the ledger, called by ADK's coordinator; a made-up Home Lab agent answered on anu_api36. The brief's loop through ADK's transfer to agent is fixed, and a turn is capped at 16 model calls (ADR-104).
 - **1.58.0** (2026-10-24): Base runs on the TPU in the app (ADR-103). On the Tensor G5, Base uses its TPU build, Pro-scored requests go to Base when they fit, memory stays on Pro on the CPU, and a failed TPU load falls back to the CPU. Settings and "About this answer" say "Tensor TPU". Checked on the emulator only; not yet on the Pixel.
 - **1.57.0** (2026-10-24): sub-agents and workflows on Google's ADK for Kotlin (ADR-104): a daily brief and requests across areas run on ADK's agents, with Anu's brain and broker under them. Live talk keeps one screen through listening, thinking and speaking (ADR-101).

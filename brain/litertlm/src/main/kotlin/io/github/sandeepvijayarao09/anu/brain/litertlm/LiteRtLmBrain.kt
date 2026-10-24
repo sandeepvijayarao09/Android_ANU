@@ -22,6 +22,7 @@ import io.github.sandeepvijayarao09.anu.core.model.Sampling
 import io.github.sandeepvijayarao09.anu.core.model.StopReason
 import io.github.sandeepvijayarao09.anu.core.model.ToolCall
 import io.github.sandeepvijayarao09.anu.core.model.ToolSpec
+import io.github.sandeepvijayarao09.anu.core.model.modelText
 import io.github.sandeepvijayarao09.anu.core.model.onDeviceSystem
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
@@ -339,7 +340,24 @@ class LiteRtLmBrain(
             thinkingConfig = ThinkingConfig(enableThinking = request.thinking, thinkingTokenBudget = THINKING_BUDGET),
         )
         val conversation = withoutThoughtsInCache { engine.createConversation(config) }
-        return CachedConversation(key, conversation, history).also { it.why = rebuilt(previous, key, history) }
+        return CachedConversation(key, conversation, history).also { it.why = rebuilt(previous, key, history) + ": " + parts(request) }
+    }
+
+    /**
+     * What a conversation built from the chat reads, part by part, in characters (about four to a token), so the
+     * debug speed line shows where its reading time goes. Sizes only, never content.
+     */
+    private fun parts(request: BrainRequest): String {
+        val tools = request.tools.sumOf { it.name.length + it.description.length + it.parameters.toString().length }
+        val history = request.transcript.dropLast(1).sumOf(::characters)
+        val message = request.transcript.lastOrNull()?.let(::characters) ?: 0
+        return "system ${request.onDeviceSystem?.length ?: 0}, tools $tools, history $history, message $message chars"
+    }
+
+    private fun characters(message: ChatMessage): Int = when (message) {
+        is ChatMessage.User -> message.modelText.length
+        is ChatMessage.Model -> message.text.length + message.toolCalls.sumOf { it.name.length + it.arguments.toString().length }
+        is ChatMessage.Tool -> message.results.sumOf { it.toolName.length + it.result.toString().length }
     }
 
     /**
