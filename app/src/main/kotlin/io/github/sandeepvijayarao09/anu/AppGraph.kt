@@ -125,7 +125,9 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import java.util.concurrent.TimeUnit
 import java.io.File
+import java.time.LocalDateTime
 import java.time.ZoneId
+import java.time.ZonedDateTime
 import io.github.sandeepvijayarao09.anu.connector.phone.SetTimerTool
 import io.github.sandeepvijayarao09.anu.connector.phone.SetAlarmTool
 import io.github.sandeepvijayarao09.anu.connector.phone.BrightnessTool
@@ -133,6 +135,17 @@ import io.github.sandeepvijayarao09.anu.connector.phone.DraftTextTool
 import io.github.sandeepvijayarao09.anu.connector.phone.VolumeTool
 import io.github.sandeepvijayarao09.anu.connector.phone.FlashlightTool
 import io.github.sandeepvijayarao09.anu.connector.phone.OpenSettingsTool
+import io.github.sandeepvijayarao09.anu.connector.phone.AppPick
+import io.github.sandeepvijayarao09.anu.connector.phone.CallTool
+import io.github.sandeepvijayarao09.anu.connector.phone.CancelReminderTool
+import io.github.sandeepvijayarao09.anu.connector.phone.Launcher
+import io.github.sandeepvijayarao09.anu.connector.phone.ListRemindersTool
+import io.github.sandeepvijayarao09.anu.connector.phone.NavigateTool
+import io.github.sandeepvijayarao09.anu.connector.phone.OpenAppTool
+import io.github.sandeepvijayarao09.anu.connector.phone.Reminders
+import io.github.sandeepvijayarao09.anu.connector.phone.SetReminderTool
+import io.github.sandeepvijayarao09.anu.connector.phone.ShareTool
+import io.github.sandeepvijayarao09.anu.core.data.RoomReminderStore
 import io.github.sandeepvijayarao09.anu.agent.adk.AdkOrchestrator
 import io.github.sandeepvijayarao09.anu.connector.a2a.A2aAgentList
 import io.github.sandeepvijayarao09.anu.connector.a2a.A2aAgents
@@ -253,6 +266,12 @@ class AppGraph(private val context: Context) {
 
     /** The user's notes, encrypted on the phone (ADR-093). */
     val notes by lazy { RoomNoteStore(db.notes()) }
+
+    /** The user's reminders, kept encrypted until shown and set again after a reboot (ADR-107). */
+    val reminders by lazy { Reminders(context, RoomReminderStore(db.reminders())) { ZonedDateTime.now(zone()) } }
+
+    /** The phone's apps, found by name for "open Spotify" (ADR-107). */
+    private val launcher by lazy { Launcher(context) }
 
     /**
      * For MCP servers and stores. The vault attaches a server's token for its bound host only, and
@@ -384,6 +403,14 @@ class AppGraph(private val context: Context) {
             BrightnessTool(context),
             VolumeTool(context),
             DraftTextTool(context),
+            // Other apps through Android's own intents, and reminders as notifications (ADR-107).
+            CallTool(context),
+            OpenAppTool(context, launcher),
+            NavigateTool(context),
+            ShareTool(context),
+            SetReminderTool(context, reminders),
+            ListRemindersTool(context, reminders),
+            CancelReminderTool(context, reminders),
             // Notes kept in Anu, on the phone (ADR-093).
             CreateNoteTool(notes),
             SearchNotesTool(notes),
@@ -413,6 +440,8 @@ class AppGraph(private val context: Context) {
         Skill.PHONE -> listOf(
             "phone_set_timer", "phone_set_alarm", "phone_flashlight", "phone_do_not_disturb", "phone_open_settings",
             "phone_brightness", "phone_volume", "phone_draft_text",
+            "phone_call", "phone_open_app", "phone_navigate", "phone_share",
+            "phone_set_reminder", "phone_list_reminders", "phone_cancel_reminder",
             "notes_create", "notes_search", "notes_append", "contacts_find", "contacts_add",
         )
         // One call that names the app and the goal; the task picks each step itself (ADR-098). Personal build only.
@@ -444,7 +473,11 @@ class AppGraph(private val context: Context) {
             answers = RoomAnswerStore(db.answers(), conversationId = "main"),
             photoStore = RoomPhotoStore(db.photos()),
             // A whole phone command, or a message that names an app to act in (ADR-098): each needs no model to start.
-            commands = { text -> PhoneCommands.match(text) ?: if (Flavor.HAS_APP_CONTROL) AppCommands.match(text) else null },
+            // "Open Spotify" runs with no model only when an app has that name; anything else goes to the model (ADR-107).
+            commands = { text ->
+                PhoneCommands.match(text, LocalDateTime.now(zone())) { launcher.find(it) is AppPick.One }
+                    ?: if (Flavor.HAS_APP_CONTROL) AppCommands.match(text) else null
+            },
             // A daily brief, or a request across areas, goes to sub-agents and workflows on Google's ADK (ADR-104).
             orchestrator = AdkOrchestrator(
                 broker = { broker },

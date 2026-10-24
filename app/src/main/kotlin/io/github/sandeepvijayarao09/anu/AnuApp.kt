@@ -9,10 +9,15 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import io.github.sandeepvijayarao09.anu.core.router.Guard
+import io.github.sandeepvijayarao09.anu.connector.phone.ReminderHost
+import io.github.sandeepvijayarao09.anu.connector.phone.Reminders
 
-class AnuApp : Application() {
+class AnuApp : Application(), ReminderHost {
     lateinit var graph: AppGraph
         private set
+
+    /** For the reminders' alarm and boot receivers (ADR-107). */
+    override val reminders: Reminders get() = graph.reminders
 
     private val visible = MutableStateFlow(false)
 

@@ -57,7 +57,7 @@ object SkillDetector {
 
     private val SCHEDULING = Regex(
         "\\b(calendar|schedul\\w*|meeting|meetings|appointment|agenda|free (time|slot)|busy|availab\\w*|" +
-            "invite|reschedul\\w*|book (a|an|me)|remind me (at|on)|what'?s on my|my (day|week|morning|afternoon))\\b",
+            "invite|reschedul\\w*|book (a|an|me)|what'?s on my|my (day|week|morning|afternoon))\\b",
         RegexOption.IGNORE_CASE,
     )
 
@@ -77,6 +77,20 @@ object SkillDetector {
      */
     private val PHONE_CONTROLS = Regex(
         "\\b(timers?|alarms?|wake me|flashlight|torch|do not disturb|dnd|brightness|brighter|dimmer|volume|ringer|sound level)\\b",
+        RegexOption.IGNORE_CASE,
+    )
+
+    /**
+     * Reminders and other apps through Android's intents (ADR-107): "remind me on Friday to pay rent", "call Maya", "open
+     * Spotify and…", "directions to the airport", "share this". Like the controls they come last, after the calendar's words,
+     * so "remind me about the meeting" is still an event. They don't count as an area for ADK's agents, whose device agent
+     * doesn't have these tools, and "call" and "open" are too common to send a request to the coordinator. "Remind me what
+     * her name was" and "call me Sam" are neither.
+     */
+    private val PHONE_INTENTS = Regex(
+        "^\\W*(please\\s+)?(call(?! me\\b)|dial|open|launch)\\b|" +
+            "\\b(remind me (to|at|in|on|by|today|tonight|tomorrow|about|that|next)|reminders?|navigate|directions|take me to|drive me to|" +
+            "share (this|that|it)|share (a|the|my) \\w+|in (google )?maps)\\b",
         RegexOption.IGNORE_CASE,
     )
 
@@ -193,7 +207,7 @@ object SkillDetector {
         NOTE_WORDS.containsMatchIn(text) && !CALENDAR_WORDS.containsMatchIn(text) -> Skill.PHONE
         SCHEDULING.containsMatchIn(text) -> Skill.SCHEDULING
         SHOPPING.containsMatchIn(text) -> Skill.SHOPPING
-        PHONE_CONTROLS.containsMatchIn(text) || NOTES_AND_CONTACTS.containsMatchIn(text) -> Skill.PHONE
+        PHONE_CONTROLS.containsMatchIn(text) || NOTES_AND_CONTACTS.containsMatchIn(text) || PHONE_INTENTS.containsMatchIn(text) -> Skill.PHONE
         else -> null
     }
 
