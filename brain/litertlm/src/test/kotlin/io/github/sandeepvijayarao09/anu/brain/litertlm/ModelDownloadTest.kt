@@ -116,6 +116,23 @@ class ModelDownloadTest {
     }
 
     @Test
+    fun `Pro runs its usual file on the GPU alone only on a verified chip (ADR-112)`() {
+        assertTrue("the Galaxy S26 Ultra's Snapdragon 8 Elite Gen 5", ModelCatalog.proGpuAlone("SM8850"))
+        assertTrue(ModelCatalog.proGpuAlone("sm8850"))
+        assertFalse("its GPU missed a fact on the Tensor G5", ModelCatalog.proGpuAlone("Tensor G5"))
+        assertFalse("not measured", ModelCatalog.proGpuAlone("SM8750"))
+        assertEquals("the usual file, not the GPU build", ModelVariant.CPU, ModelCatalog.choose(BrainId.PRO, "SM8850").variant)
+    }
+
+    @Test
+    fun `Base has a TPU build only on a verified chip, and Pro has none (ADR-103)`() {
+        assertEquals("gemma-4-E2B-it_Google_Tensor_G5.litertlm", ModelCatalog.tpuFor(BrainId.BASE, "Tensor G5")?.fileName)
+        assertEquals("not verified yet", null, ModelCatalog.tpuFor(BrainId.BASE, "Tensor G6"))
+        assertEquals("E4B has no TPU build", null, ModelCatalog.tpuFor(BrainId.PRO, "Tensor G5"))
+        assertEquals(null, ModelCatalog.tpuFor(BrainId.BASE, "Tensor G3"))
+    }
+
+    @Test
     fun `catalog entries are pinned to a commit and carry a full hash`() {
         ModelCatalog.all.forEach {
             assertTrue(it.url, Regex("https://huggingface\\.co/litert-community/.+/resolve/[0-9a-f]{40}/.+").matches(it.url))

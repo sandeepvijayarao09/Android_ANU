@@ -156,7 +156,7 @@ class McpRegistry(
     /**
      * The tools to offer for a turn: those of servers named in the user's last few messages, fetched
      * if they aren't yet, and at most [MAX_OFFERED], the best matches for the newest message.
-     * - **In a stable order, by name (ADR-098).** The tools key the on-device conversation, so a list in
+     * - **In a stable order, by name (ADR-114).** The tools key the on-device conversation, so a list in
      *   another order would make the model read the whole chat again.
      * - **Picked again only when the named servers' tools change.** While the same servers are named,
      *   a follow-up keeps the same tools, even one whose words would match others better.

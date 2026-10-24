@@ -16,11 +16,18 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+
+    // The runtime looks for the TPU's dispatch library as a file in the native library folder, so the device tests'
+    // APK extracts its native libraries instead of loading them from inside the APK. The app does the same.
+    packaging { jniLibs { useLegacyPackaging = true } }
 }
 
 dependencies {
     api(project(":core:model"))
     implementation(libs.litertlm.android)
+    // The Pixel's TPU (Backend.NPU, ADR-102, ADR-103): Google's Tensor dispatch library, which the runtime looks for
+    // as a file in the app's native library folder.
+    implementation(libs.litert.npu.google.tensor)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.work.runtime)
@@ -32,6 +39,8 @@ dependencies {
 
     // Memory's extraction eval runs core:memory's extractor on the real model.
     androidTestImplementation(project(":core:memory"))
+    // The hand-off eval scores Base on the router eval's labelled requests (ADR-106).
+    androidTestImplementation(project(":eval"))
     // The voice note eval runs a real chat turn with the real calendar, contacts and alarm tools, approving into fakes.
     androidTestImplementation(project(":core:agent"))
     androidTestImplementation(project(":connector:calendar"))

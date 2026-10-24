@@ -46,6 +46,39 @@ object ModelCatalog {
     val GPU_VERIFIED: Set<String> = emptySet()
 
     /**
+     * TPU builds that have passed S1's contract on their chip (ADR-102, ADR-103). Base runs on one when its file is
+     * installed. Memory extraction stays on Pro, on the CPU, because the TPU missed a fact the CPU finds.
+     */
+    val TPU_VERIFIED: Set<ModelVariant> = setOf(ModelVariant.NPU_TENSOR_G5)
+
+    /**
+     * Chips where Pro's usual file passed S1's contract on the GPU, and stayed loaded beside Base on the TPU with both
+     * answering correctly (ADR-106). Pro's chat runs there on the GPU. Its extraction missed a fact the CPU finds, so
+     * memory keeps the CPU.
+     */
+    val PRO_GPU_CHIPS: Set<ModelVariant> = setOf(ModelVariant.NPU_TENSOR_G5)
+
+    /** Whether Pro's chat may run on the GPU on the chip [socModel] names (ADR-106). */
+    fun proOnGpu(socModel: String): Boolean = npuFor(socModel) in PRO_GPU_CHIPS
+
+    /**
+     * Chips, as `Build.SOC_MODEL` names them, where Pro's usual file passed S1's contract and extraction on the GPU by
+     * itself (ADR-112). Pro's chat and memory's extraction both run there on the GPU. The Snapdragon 8 Elite Gen 5
+     * (Galaxy S26 Ultra) found every fact the CPU finds, and read prompts 11× faster.
+     */
+    val PRO_GPU_ALONE: Set<String> = setOf("SM8850")
+
+    /** Whether Pro runs its usual file on the GPU, chat and extraction, on the chip [socModel] names (ADR-112). */
+    fun proGpuAlone(socModel: String, verified: Set<String> = PRO_GPU_ALONE): Boolean =
+        socModel.uppercase().replace(" ", "") in verified
+
+    /** [brain]'s TPU build for the chip [socModel] names, if that chip's TPU is verified. */
+    fun tpuFor(brain: BrainId, socModel: String, verified: Set<ModelVariant> = TPU_VERIFIED): ModelArtifact? {
+        val variant = npuFor(socModel)?.takeIf { it in verified } ?: return null
+        return all.firstOrNull { it.brain == brain && it.variant == variant }
+    }
+
+    /**
      * The memory a phone should have for each model, in GB, as Google's AI Edge Gallery asks (`minDeviceMemoryInGb`
      * in its 1.0.19 model list). Below it a model still runs, but Android closes other apps to make room, and it may
      * be slow (ADR-066).

@@ -131,7 +131,7 @@ class ChatSessionTest {
         val request = pro.requests.single()
         assertEquals(listOf(create.name), request.tools.map { it.name })
         assertTrue(request.system!!, request.system!!.contains("(America/New_York)"))
-        // The week's dates go with the message, not the prompt (ADR-098).
+        // The week's dates go with the message, not the prompt (ADR-114).
         assertTrue(request.system!!, "2026-09-25" !in request.system!! && "Friday" !in request.system!!)
         assertEquals(ChatSession.dateTable(now.toLocalDate()), request.dates)
         // The day it names comes with its date, so the model needn't count (ADR-085).
@@ -164,7 +164,7 @@ class ChatSessionTest {
         chat.send("Book lunch with Maya tomorrow", device).toList()
         now = now.plusMinutes(4)
         chat.send("Make it noon", device).toList()
-        // A date in the prompt would make the on-device model re-read the whole chat on this turn (ADR-098).
+        // A date in the prompt would make the on-device model re-read the whole chat on this turn (ADR-114).
         assertEquals(pro.requests[0].system, pro.requests[1].system)
         assertEquals(listOf("today Fri 2026-09-25", "today Sat 2026-09-26"), pro.requests.map { it.dates!!.substringBefore(';') })
     }
@@ -578,6 +578,21 @@ class ChatSessionTest {
         base.enqueue(Step.Reply("At half past twelve."))
         chat.send("What time is that?", onPhone).toList()
         val again = base.requests.last().transcript.filterIsInstance<ChatMessage.User>().first().photos.single()
+        assertEquals(listOf<Byte>(1, 2, 3, 4), again.bytes!!.toList())
+    }
+
+    @Test
+    fun `a live camera frame keeps what its detector found, for the model now and in later turns`() = runTest {
+        val photos = InMemoryPhotoStore()
+        val chat = ChatSession(agent(mapOf(Tier.BASE to base, Tier.PRO to base)), photoStore = photos)
+        base.enqueue(Step.Reply("A cup of coffee."))
+        chat.send("What is this?", onPhone, photos = listOf(io.github.sandeepvijayarao09.anu.core.model.Photo(0, sign, found = "cup 91%"))).toList()
+        assertEquals("cup 91%", (base.requests.single().transcript.last() as ChatMessage.User).photos.single().found)
+        assertEquals("cup 91%", (chat.history().first() as ChatMessage.User).photos.single().found)
+        base.enqueue(Step.Reply("Yes."))
+        chat.send("Is it hot?", onPhone).toList()
+        val again = base.requests.last().transcript.filterIsInstance<ChatMessage.User>().first().photos.single()
+        assertEquals("cup 91%", again.found)
         assertEquals(listOf<Byte>(1, 2, 3, 4), again.bytes!!.toList())
     }
 

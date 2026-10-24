@@ -90,6 +90,8 @@ class ChatSession(
     private val transcriber: Transcriber? = null,
     /** Reads long PDFs in pieces on the phone (ADR-095). Null when no model can. */
     private val documentReader: DocumentReader? = null,
+    /** Sub-agents and workflows (ADR-104): turns routed to one of its skills go to it instead of [agent]. */
+    private val orchestrator: Orchestrator? = null,
     /** Times the first word and the whole answer. */
     private val nanoTime: () -> Long = System::nanoTime,
     private val millis: () -> Long = System::currentTimeMillis,
@@ -207,13 +209,13 @@ class ChatSession(
             // The cloud may see only facts the user saw on the consent sheet: relevant ones, never sensitive.
             val consentFacts = relevantFacts.filterNot { it.sensitive }.map { it.text }
             // Small models are poor at date arithmetic, so a turn that can act gets the week's dates (§7.3). They go
-            // with the message, like the time, so the first turn after midnight keeps the system prompt (ADR-098).
+            // with the message, like the time, so the first turn after midnight keeps the system prompt (ADR-114).
             val dates = if (tools.isNotEmpty()) dateTable(now.toLocalDate()) else null
             val attached = pictures.map { photo ->
-                if (photo.id != 0L) photo else Photo(photoStore.save(requireNotNull(photo.bytes) { "a new photo needs its bytes" }).also(fresh::add), photo.bytes)
+                if (photo.id != 0L) photo else Photo(photoStore.save(requireNotNull(photo.bytes) { "a new photo needs its bytes" }).also(fresh::add), photo.bytes, photo.found)
             }
             // The saved message keeps the screen's app and time, never its picture (ADR-083).
-            val message = ChatMessage.User(text, attached.map { Photo(it.id) }, note, screen?.let { Screen(it.app, it.atMillis) }, doc)
+            val message = ChatMessage.User(text, attached.map { Photo(it.id, found = it.found) }, note, screen?.let { Screen(it.app, it.atMillis) }, doc)
             // What every turn carries besides the history. The note about left-out messages is counted
             // either way, so adding it can't push a turn over the budget.
             val fixed = Tokens.of(systemPrompt(tools, trimmed = true)) + Tokens.of(memoryBlock) + Tokens.of(relevantBlock) +
@@ -255,12 +257,21 @@ class ChatSession(
             // A photo or a screen in view can show a code or a password: the answer about it is guarded (I1, ADR-082).
             // A PDF's text can too, such as a statement's account PIN (ADR-095).
             val shield = if (route.hasPhotos || route.hasScreen || route.hasDocument) SecretShield(text, screen?.secrets.orEmpty()) else null
-            agent.run(
-                route, device, system, turn, tools, turnKey = turnKey, sentAt = sentAt(now, asking.allWords), dates = dates, memory = memoryBlock,
-                relevant = relevantBlock, sharedFacts = if (cloudConsented) sharedFacts else emptyList(), consentFacts = consentFacts,
-                inView = untrustedIn(shown + message),
-                thinking = thinking(),
-            ).collect { raw ->
+            // A brief or a request across several areas goes to ADK's agents, on the phone only (ADR-104).
+            val orchestrated = orchestrator?.takeIf { skill in it.skills && pinned != Tier.CLOUD && !cloudConsented }
+            val events = orchestrated?.run(
+                OrchestratedTurn(
+                    skill, asking.allWords, turnKey, sentAt(now, asking.allWords), untrustedIn(shown + message),
+                    recent = recentChat(shown), facts = relevantBlock,
+                ),
+            )
+                ?: agent.run(
+                    route, device, system, turn, tools, turnKey = turnKey, sentAt = sentAt(now, asking.allWords), dates = dates, memory = memoryBlock,
+                    relevant = relevantBlock, sharedFacts = if (cloudConsented) sharedFacts else emptyList(), consentFacts = consentFacts,
+                    inView = untrustedIn(shown + message),
+                    thinking = thinking(),
+                )
+            events.collect { raw ->
                 when (raw) {
                     is AgentEvent.TextDelta -> if (firstWord == null && raw.text.isNotEmpty()) firstWord = nanoTime()
                     is AgentEvent.Thinking -> if (firstThought == null) firstThought = nanoTime()
@@ -298,6 +309,7 @@ class ChatSession(
                             cut = event.decision?.maxOutputTokens?.let { limit -> (event.usage?.outputTokens ?: 0) >= limit * 95 / 100 } ?: false,
                             thoughtMs = firstThought?.let { thought -> ((firstWord ?: now) - thought) / 1_000_000 },
                             heardMs = heardMs,
+                            agents = event.agents,
                         )
                         out = event.copy(details = details)
                         event.tokens?.let { sample ->
@@ -360,7 +372,7 @@ class ChatSession(
             if (event is AgentEvent.Completed) {
                 val took = (nanoTime() - started) / 1_000_000
                 val details = AnswerDetails(
-                    tier = event.tier, actions = event.actions, firstWordMs = took, totalMs = took, atMillis = millis(), direct = true,
+                    tier = event.tier, actions = event.actions, firstWordMs = took, totalMs = took, atMillis = millis(), direct = event.direct,
                 )
                 out = event.copy(details = details)
                 if (kept < saved.size) {
@@ -492,7 +504,7 @@ class ChatSession(
     private fun systemPrompt(tools: List<String>, trimmed: Boolean): String = buildString {
         append(basePrompt)
         // No date or time: a prompt that changed every minute would make the on-device model re-read the whole
-        // conversation on every turn (ADR-018), and one with the date, on the first turn of each day (ADR-098). Both go
+        // conversation on every turn (ADR-018), and one with the date, on the first turn of each day (ADR-114). Both go
         // with the message. The time zone changes only when the user travels.
         append("\n\nTimes are the user's local time (").append(clock().zone.id).append(").")
         append(" The user's newest message may start with facts from memory about it, then the coming week's dates, then, in brackets,")
@@ -522,7 +534,14 @@ class ChatSession(
                 append(" Never say an order is placed or paid.")
             }
             if ("phone_set_alarm" in tools) {
-                append(" phone_set_alarm rings at the next time of day it's given; for another day, make a calendar event instead.")
+                append(" phone_set_alarm rings at the next time of day it's given; for another day, ")
+                append(if ("phone_set_reminder" in tools) "set a reminder instead." else "make a calendar event instead.")
+            }
+            if ("phone_set_reminder" in tools) {
+                append(" To be reminded of something at a time, call phone_set_reminder with what, in the user's words, and when.")
+            }
+            if ("phone_call" in tools) {
+                append(" phone_call only opens the dialer with the number, for the user to tap call. Find a person's number with contacts_find first.")
             }
             if ("notes_create" in tools) {
                 append(" Notes are kept in Anu on this phone. To add to a note the user names, call notes_append with its title; for a new one, notes_create.")
@@ -599,7 +618,7 @@ class ChatSession(
             if (message !is ChatMessage.User || message.photos.isEmpty()) {
                 message
             } else {
-                message.copy(photos = message.photos.mapNotNull { photo -> if (photo.bytes != null) photo else loaded[photo.id]?.let { Photo(photo.id, it) } })
+                message.copy(photos = message.photos.mapNotNull { photo -> if (photo.bytes != null) photo else loaded[photo.id]?.let { Photo(photo.id, it, photo.found) } })
             }
         }
     }

@@ -5,6 +5,8 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.provider.Settings
+import android.view.inputmethod.InputMethodManager
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.IntentSenderRequest
@@ -107,6 +109,7 @@ private fun SettingsHome(
     AnuPage("Settings", sentToday, onOpenPrivacy, listState = list) {
         message?.let { text -> item(key = "message") { Notice(text, viewModel::dismissMessage) } }
         item(key = "voice") { VoiceGroup(viewModel) }
+        item(key = "keyboard") { KeyboardGroup() }
         item(key = "connections") { ConnectionsGroup(viewModel, onPage) }
         item(key = "intelligence") { IntelligenceGroup(viewModel, onPage, hasLab) }
         item(key = "privacy") { PrivacyGroup(viewModel, sentToday, onOpenPrivacy, onPage) }
@@ -160,6 +163,51 @@ private fun VoiceGroup(viewModel: SettingsViewModel) {
         }
         GroupFooter("Speech is recognized on this phone, never on a server. While Anu listens for “Hey Anu”, a notification shows, and it uses more battery.")
     }
+}
+
+/**
+ * Anu's keyboard (ADR-109). Android lets only the user turn a keyboard on, so this row opens its keyboard settings,
+ * then the keyboard picker once it's on. It checks again whenever the user comes back.
+ */
+@Composable
+private fun KeyboardGroup() {
+    val context = LocalContext.current
+    var status by remember { mutableStateOf(KeyboardStatus.OFF) }
+    LifecycleResumeEffect(Unit) {
+        status = keyboardStatus(context)
+        onPauseOrDispose {}
+    }
+    Column {
+        SectionHeader("Keyboard")
+        Group {
+            GroupRow(
+                "Anu Keyboard",
+                value = when (status) {
+                    KeyboardStatus.IN_USE -> "In use"
+                    KeyboardStatus.ON -> "On"
+                    KeyboardStatus.OFF -> "Set up"
+                },
+                chevron = true,
+                onClick = {
+                    if (status == KeyboardStatus.OFF) {
+                        runCatching { context.startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+                    } else {
+                        context.getSystemService(InputMethodManager::class.java).showInputMethodPicker()
+                    }
+                },
+            )
+        }
+        GroupFooter("Improve, fix, continue or reply as you type in any app, with the models on this phone. Nothing you type is kept or sent, and password and incognito fields get no AI.")
+    }
+}
+
+private enum class KeyboardStatus { OFF, ON, IN_USE }
+
+private fun keyboardStatus(context: Context): KeyboardStatus {
+    val ours = context.getSystemService(InputMethodManager::class.java).enabledInputMethodList.firstOrNull { it.packageName == context.packageName }
+        ?: return KeyboardStatus.OFF
+    val current = Settings.Secure.getString(context.contentResolver, Settings.Secure.DEFAULT_INPUT_METHOD)
+    return if (current == ours.id) KeyboardStatus.IN_USE else KeyboardStatus.ON
 }
 
 private val CONNECTOR_PERMISSIONS = arrayOf(
@@ -287,6 +335,8 @@ private fun IntelligenceGroup(viewModel: SettingsViewModel, onPage: (SettingsPag
     val thinking by viewModel.thinking.collectAsStateWithLifecycle()
     val haptics = LocalHapticFeedback.current
     var gemini by rememberSaveable { mutableStateOf(false) }
+    val mac by viewModel.macPaired.collectAsStateWithLifecycle()
+    var macSheet by rememberSaveable { mutableStateOf(false) }
     Column {
         SectionHeader("Intelligence")
         Group {
@@ -300,6 +350,18 @@ private fun IntelligenceGroup(viewModel: SettingsViewModel, onPage: (SettingsPag
                 chevron = true,
                 onClick = { gemini = true },
             )
+            if (viewModel.canPairMac) {
+                GroupDivider()
+                // Gemma on the user's own Mac, in Gemini's place (ADR-113).
+                GroupRow(
+                    "Your Mac",
+                    value = if (mac != null) "Paired" else "Off",
+                    leadingDot = if (mac != null) true else null,
+                    valueDescription = if (mac != null) "Paired, reached over your Wi-Fi" else null,
+                    chevron = true,
+                    onClick = { macSheet = true },
+                )
+            }
             if (viewModel.canThink) {
                 GroupDivider()
                 // Reasoning first helps on hard questions and costs seconds before the answer (G4, ADR-077).
@@ -319,7 +381,10 @@ private fun IntelligenceGroup(viewModel: SettingsViewModel, onPage: (SettingsPag
                 GroupRow("Prompt lab", chevron = true, onClick = { onPage(SettingsPage.LAB) })
             }
         }
-        GroupFooter("Answers from the models on this phone never leave it. Anu asks before anything personal goes to Gemini.")
+        GroupFooter(
+            if (mac != null) "Answers from the models on this phone never leave it. Anu asks before anything personal goes to your Mac."
+            else "Answers from the models on this phone never leave it. Anu asks before anything personal goes to Gemini.",
+        )
     }
     if (gemini) {
         GeminiSheet(
@@ -327,6 +392,14 @@ private fun IntelligenceGroup(viewModel: SettingsViewModel, onPage: (SettingsPag
             onSave = { viewModel.saveCloudKey(it) },
             onRemove = { viewModel.removeCloudKey() },
             onDismiss = { gemini = false },
+        )
+    }
+    if (macSheet) {
+        MacSheet(
+            paired = mac,
+            onPair = { viewModel.pairMac(it) },
+            onUnpair = { viewModel.unpairMac() },
+            onDismiss = { macSheet = false },
         )
     }
 }

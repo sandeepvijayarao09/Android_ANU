@@ -133,10 +133,11 @@ class WakeWordService : Service() {
 
     private suspend fun run() {
         val app = application as AnuApp
-        combine(screenOn, app.foreground) { on, open ->
+        // Live talk behind another app holds the microphone too (ADR-108), so "Hey Anu" pauses as if Anu were open.
+        combine(screenOn, app.foreground, app.graph.liveTalk.on) { on, open, live ->
             when {
                 !on -> Status.SCREEN_OFF
-                open -> Status.ANU_OPEN
+                open || live -> Status.ANU_OPEN
                 else -> Status.LISTENING
             }
         }.distinctUntilChanged().collectLatest { status ->

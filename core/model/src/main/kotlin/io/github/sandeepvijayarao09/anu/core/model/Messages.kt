@@ -29,7 +29,15 @@ sealed interface ChatMessage {
  * at most 1,024 pixels on its longer side, loaded only while a brain needs it. Two photos are the same photo when
  * their ids are. A photo taints every turn that shows it (P4), and never goes to the cloud (MEDIA-1).
  */
-class Photo(val id: Long, val bytes: ByteArray? = null) {
+class Photo(
+    val id: Long,
+    val bytes: ByteArray? = null,
+    /**
+     * For a frame from live camera (ADR-111), what its detector found in it, as the screen showed it: "cup 91%, donut
+     * 90%", or "" for nothing. The model reads it beside the picture (`modelText`). Null for any other photo.
+     */
+    val found: String? = null,
+) {
     override fun equals(other: Any?): Boolean = other is Photo && other.id == id
 
     override fun hashCode(): Int = id.hashCode()
@@ -100,9 +108,14 @@ data class BrainRequest(
     /**
      * The coming week's dates for a turn that can act, such as "today Fri 2026-09-25; tomorrow Sat 2026-09-26; …"
      * (§7.3). Brains show it with the newest user message, before [sentAt], so the first turn after midnight doesn't
-     * change [system] and the on-device KV cache survives it (ADR-098).
+     * change [system] and the on-device KV cache survives it (ADR-114).
      */
     val dates: String? = null,
+    /**
+     * What an on-device brain is, for the chat: on-device brains add it to the system instruction ([onDeviceSystem]),
+     * cloud brains never send it. Asked what model it is, Gemma said "a large language model, trained by Google".
+     */
+    val onDeviceNote: String? = null,
     /**
      * What Anu remembers about the user, as a ready-to-read block (§8.3). On-device brains add it to
      * the system instruction ([onDeviceSystem]). Cloud brains never send it: the profile stays on the
@@ -176,7 +189,7 @@ fun BrainRequest.withoutFraming(answer: String): String {
     return out.trim()
 }
 
-/** Heads the week's dates shown with a message (ADR-098). */
+/** Heads the week's dates shown with a message (ADR-114). */
 const val DATES_LABEL = "Dates: "
 
 /** Heads the facts shown with a message (ADR-054). */
@@ -192,6 +205,6 @@ fun factsBlock(facts: List<String>): String? =
  */
 data class RelevantFact(val text: String, val sensitive: Boolean, val id: Long? = null)
 
-/** The system instruction an on-device brain uses: [BrainRequest.system], then [BrainRequest.memory]. */
+/** The system instruction an on-device brain uses: [BrainRequest.system], [BrainRequest.onDeviceNote], then [BrainRequest.memory]. */
 val BrainRequest.onDeviceSystem: String?
-    get() = listOfNotNull(system, memory).takeIf { it.isNotEmpty() }?.joinToString("\n\n")
+    get() = listOfNotNull(system, onDeviceNote, memory).takeIf { it.isNotEmpty() }?.joinToString("\n\n")

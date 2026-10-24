@@ -2,6 +2,7 @@ package io.github.sandeepvijayarao09.anu.core.agent
 
 import io.github.sandeepvijayarao09.anu.core.model.Brain
 import io.github.sandeepvijayarao09.anu.core.model.BrainEvent
+import io.github.sandeepvijayarao09.anu.core.model.BrainId
 import io.github.sandeepvijayarao09.anu.core.model.BrainLocation
 import io.github.sandeepvijayarao09.anu.core.model.BrainRequest
 import io.github.sandeepvijayarao09.anu.core.model.ChatMessage
@@ -28,9 +29,22 @@ import kotlinx.coroutines.flow.FlowCollector
 import kotlinx.coroutines.flow.flow
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 
 /** How an escalation past a tier with no model installed is worded. That tier never tried. */
 internal const val NO_BRAIN = "no brain is wired"
+
+/** Why a turn went to Pro on Base's own opinion (ADR-106). */
+internal const val BEYOND_BASE = "Base judged it needs Pro"
+
+/** Base's opinion, or none if asking failed: the rules' choice then stands. */
+private suspend fun opinion(baseOpinion: BaseOpinion, text: String): Boolean? = try {
+    baseOpinion.beyondBase(text)
+} catch (e: CancellationException) {
+    throw e
+} catch (e: Exception) {
+    null
+}
 
 /** What a cloud brain reads in place of a tool result that can hold sensitive data (ADR-087). */
 internal val KEPT_ON_PHONE = ToolOutcome.Rejected("This result can hold sensitive data, which stays on this phone.").toResultJson()
@@ -98,6 +112,8 @@ sealed interface AgentEvent {
         val decision: RouteDecision? = null,
         /** A phone command done with no model (G6, ADR-076): [tier] means nothing then. */
         val direct: Boolean = false,
+        /** The ADK agents that worked on an orchestrated turn (ADR-110). */
+        val agents: List<AgentStep> = emptyList(),
     ) : AgentEvent
 
     /** A voice note being written down on the phone before the turn goes on (G3, ADR-078): its [words] so far. */
@@ -139,6 +155,8 @@ class Agent(
     private val brains: BrainProvider,
     private val broker: ToolBroker,
     private val budgets: Budgets = Budgets(),
+    /** Base's own opinion of a request the rules gave it, beside Pro on the GPU (ADR-106). */
+    private val baseOpinion: BaseOpinion? = null,
 ) {
 
     /** The final request and answer as estimated, against what the runtime counted after them (ADR-041). */
@@ -188,13 +206,20 @@ class Agent(
             is ToolOutcome.Failed -> "That didn't work: ${sentence(outcome.reason)}"
             is ToolOutcome.Invalid -> "That didn't work: ${sentence(outcome.reason)}"
         }
+        // An app task picks its steps with an on-device model, and says which (ADR-098): the answer names it.
+        val used = ((outcome as? ToolOutcome.Ok)?.result as? JsonObject)?.get("brain")?.let { (it as? JsonPrimitive)?.contentOrNull }
+        val tier = when (used) {
+            BrainId.PRO.name -> Tier.PRO
+            BrainId.BASE.name -> Tier.BASE
+            else -> null
+        }
         val untrusted = if (outcome is ToolOutcome.Ok || outcome is ToolOutcome.Failed) broker.untrustedContent(call.name) else null
         val added = listOf(
             ChatMessage.Model("", listOf(call)),
             ChatMessage.Tool(listOf(ToolResult(call.name, outcome.toResultJson(), untrusted))),
             ChatMessage.Model(text),
         )
-        emit(AgentEvent.Completed(Tier.BASE, text, added, listOfNotNull(action), direct = true))
+        emit(AgentEvent.Completed(tier ?: Tier.BASE, text, added, listOfNotNull(action), direct = tier == null))
     }
 
     fun run(
@@ -207,7 +232,7 @@ class Agent(
         runId: String = turnKey,
         /** When the user sent the newest message. Brains show it with that message (ADR-033). */
         sentAt: String? = null,
-        /** The coming week's dates, for a turn that can act. Brains show them with the newest message too (ADR-098). */
+        /** The coming week's dates, for a turn that can act. Brains show them with the newest message too (ADR-114). */
         dates: String? = null,
         /** What Anu remembers. Only on-device brains use it (ADR-038). */
         memory: String? = null,
@@ -229,6 +254,12 @@ class Agent(
         var decision = when (val result = router.route(route, device)) {
             is RouteResult.Unavailable -> return@flow emit(AgentEvent.Failed(result.reasons))
             is RouteResult.Routed -> result.decision
+        }
+        // Beside Pro on the GPU, Base says whether a request the rules gave it is beyond it; if so, Pro answers (ADR-106).
+        if (baseOpinion != null && decision.tier == Tier.BASE && device.baseOnTpu && device.proOnGpu && route.pinnedTier == null &&
+            Tier.PRO in decision.allowed && opinion(baseOpinion, route.text) == true
+        ) {
+            router.escalate(route, decision, BEYOND_BASE)?.let { decision = it }
         }
         val specs = broker.specs(tools)
         val state = RunState(runId, turnKey, BrainLocation.ON_DEVICE, route.cloudConsented, inView)
@@ -289,6 +320,7 @@ class Agent(
                 sentAt = sentAt,
                 dates = dates,
                 memory = memory,
+                onDeviceNote = ON_DEVICE_NOTE,
                 relevant = relevant,
                 sharedFacts = sharedFacts,
                 maxOutputTokens = decision.maxOutputTokens,
@@ -409,7 +441,14 @@ class Agent(
                 if (outcome !is ToolOutcome.Invalid) anyValid = true
                 // Saved with the result, so later turns know what the model can still see. A call that never
                 // ran holds only the broker's own words.
-                val untrusted = if (outcome is ToolOutcome.Ok || outcome is ToolOutcome.Failed) broker.untrustedContent(call.name) else null
+                // An app task picks its steps with an on-device model, and says which (ADR-098): the answer names it.
+        val used = ((outcome as? ToolOutcome.Ok)?.result as? JsonObject)?.get("brain")?.let { (it as? JsonPrimitive)?.contentOrNull }
+        val tier = when (used) {
+            BrainId.PRO.name -> Tier.PRO
+            BrainId.BASE.name -> Tier.BASE
+            else -> null
+        }
+        val untrusted = if (outcome is ToolOutcome.Ok || outcome is ToolOutcome.Failed) broker.untrustedContent(call.name) else null
                 results += ToolResult(call.name, outcome.toResultJson(), untrusted)
             }
             added += ChatMessage.Tool(results)
@@ -423,3 +462,11 @@ class Agent(
         }
     }
 }
+
+/**
+ * What the phone's own model is, for the chat (ADR-101): asked what model it was, Gemma answered "a large language model,
+ * trained by Google". Only on-device brains read it; Gemini in the cloud never gets it.
+ */
+internal const val ON_DEVICE_NOTE =
+    "You run entirely on this phone as Gemma 4, Google's open model, through LiteRT-LM. Nothing leaves the phone unless " +
+        "the user agrees. When asked what model you are, say that."

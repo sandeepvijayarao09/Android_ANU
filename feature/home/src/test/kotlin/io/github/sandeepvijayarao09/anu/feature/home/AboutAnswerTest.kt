@@ -1,6 +1,7 @@
 package io.github.sandeepvijayarao09.anu.feature.home
 
 import io.github.sandeepvijayarao09.anu.core.agent.ActionRecord
+import io.github.sandeepvijayarao09.anu.core.agent.AgentStep
 import io.github.sandeepvijayarao09.anu.core.agent.AnswerDetails
 import io.github.sandeepvijayarao09.anu.core.router.Tier
 import org.junit.Assert.assertEquals
@@ -27,7 +28,8 @@ class AboutAnswerTest {
     @Test
     fun `the second line names the model and where it ran`() {
         assertEquals("Gemma 4 E4B · GPU, on this phone", whoAnswered(AnswerDetails(Tier.PRO, backend = "GPU")))
-        assertEquals("Gemma 4 E2B · NPU, on this phone", whoAnswered(AnswerDetails(Tier.BASE, backend = "NPU_TENSOR_G5")))
+        assertEquals("Gemma 4 E2B · Tensor TPU, on this phone", whoAnswered(AnswerDetails(Tier.BASE, backend = "NPU_TENSOR_G5")))
+        assertEquals("Gemma 4 E2B · NPU, on this phone", whoAnswered(AnswerDetails(Tier.BASE, backend = "NPU_SNAPDRAGON_SM8750")))
         assertEquals("Gemma 4 E2B · on this phone", whoAnswered(AnswerDetails(Tier.BASE)))
         assertEquals("Gemini · in the cloud", whoAnswered(AnswerDetails(Tier.CLOUD)))
     }
@@ -85,5 +87,30 @@ class AboutAnswerTest {
         val thought = AnswerDetails(Tier.PRO, firstWordMs = 28_700, totalMs = 40_000, thoughtMs = 20_000)
         assertEquals("20 s", speedRows(thought).toMap()["Thinking"])
         assertEquals(null, speedRows(AnswerDetails(Tier.PRO, firstWordMs = 1_000)).toMap()["Thinking"])
+    }
+
+    @Test
+    fun `an orchestrated answer lists its agents in plain names, and the chat's own answer lists none (ADR-110)`() {
+        val details = AnswerDetails(
+            Tier.PRO,
+            agents = listOf(
+                AgentStep("anu", 2, emptyList()),
+                AgentStep("calendar_agent", 2, listOf("calendar_find_free_slots")),
+                AgentStep("messages_agent", 1, listOf("contacts_find", "phone_draft_text")),
+                AgentStep("calendar_brief", 0, listOf("calendar_list_events")),
+                AgentStep("home_lab_agent", 1, emptyList()),
+            ),
+        )
+        assertEquals(
+            listOf(
+                "Coordinator" to "2 model calls",
+                "Calendar agent" to "2 model calls · 1 tool",
+                "Messages agent" to "1 model call · 2 tools",
+                "Calendar, for the brief" to "No model · 1 tool",
+                "Home lab agent" to "1 model call",
+            ),
+            agentRows(details),
+        )
+        assertEquals(emptyList<Pair<String, String>>(), agentRows(AnswerDetails(Tier.PRO)))
     }
 }

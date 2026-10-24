@@ -285,12 +285,14 @@ It's always visible and never hidden by scrolling.
   - **Photo** ("Choose up to 4 from your photos", then "Choose up to 2 more from your photos") opens the system photo picker.
   - **PDF** ("Choose one from your files, and Anu reads it on this phone") opens the system file picker.
   - **Camera** ("Take a photo now") opens the system camera. Both photo rows are disabled once the message has 4, and Photo then says "4 photos added, the most at once".
+  - **Live camera** ("Find things around you, on this phone") opens live camera (below). It stays enabled with 4 photos, and says it can be asked about once a photo is removed.
   - **Voice note** ("Record it, and Anu writes it down on this phone") starts recording. Without a model that can hear it's disabled, with "Needs Gemma 4 on this phone".
 - **With photos:** up to 4 sit above the pill in a row, 64dp thumbnails with `md` corners, 8dp apart. Each has a remove badge in its top-right corner: a 22dp `full` circle in `surface` with a hairline and a 12dp close glyph in `text`, inset 4dp, inside a 48dp touch target (TalkBack: "Remove photo 2"). The mic becomes Send, so photos can go on their own. Past 4, one `text-muted` caption line above the composer says "Anu can look at up to 4 photos at once.", with OK.
 - **With a PDF:** a `full` pill above the composer, `surface-2`, with the note glyph and "Lease.pdf · 12 pages" in callout (the name ellipsized in the middle), and a 48dp Remove button, as a voice note waits. The mic becomes Send. In your turn the same pill sits above your words (TalkBack: "PDF, Lease.pdf · 12 pages"). While a long PDF is read, Anu's line says "Reading Lease.pdf… page 7 of 20" in `text-muted`, as a voice note's does.
 - **Recording a voice note:** the pill becomes the recording bar: "Cancel" in `text-muted` at the start; in the middle the level bars, the time in mono ("0:12") and "Recording" in `text-muted` callout; at the end Stop, a 42dp `primary` circle (TalkBack: "Stop recording"). The sphere shows Listening, following the voice. No red: red means an error here. At 5 minutes it stops by itself and says so.
 - **With a voice note:** a `full` pill above the composer, `surface-2`, with the mic glyph and "Voice note · 0:17", and a 48dp Remove button. The mic becomes Send, so a voice note can go on its own, or with words that say what to do with it. When it stopped early, or couldn't be used, one `text-muted` caption line above the composer says why, with OK.
 - **Listening:** the page switches to the listening layout: a large sphere, live speech, "Listening" with a level meter, a 64dp Stop button, "Type instead" and Mute.
+- **Live talk (ADR-101):** the mic starts a conversation, not one turn. After each spoken answer the page goes back to listening by itself; the Stop button ends live talk (TalkBack: "End live talk"), as do "Type instead" and leaving Anu. When enough quiet listens in a row end it, a `text-muted` line says "Live talk ended. Tap the mic to talk again.", a note, not an error.
 
 ### Receipts
 One row per action, written by the app from the Tool Broker's record, never by the model:
@@ -329,6 +331,31 @@ A modal sheet (`xl` corners, grabber, scrim):
 7. **Edit:** the fields the tool allows become text fields (one line, text, or a list with commas), with "Save changes" and Cancel. Saving approves nothing: Anu checks the change and shows the sheet again with exactly what will happen, marked "Edited by you". A change that doesn't pass stays in the form, with the reason in `error-text`.
 
 Declining is always one tap, at the same size as approving. The primary button is never the only large target. Haptics: CONFIRM on approve, REJECT on decline.
+
+### Working in an app (ADR-098)
+While Anu taps through another app, one line floats at the top of the screen, 44dp below the status bar, with a 16dp inset on each side:
+- a `full` pill in `surface` (`surface-dark` in dark mode), with the soft shadow in light mode and a 0.5dp white hairline at 6% in dark;
+- on the left, "Anu · Test Shop" in 13sp weight 600 `text`, and below it what Anu is doing now ("Tapping “Add to cart”", "Looking at the screen…") in 13sp `text-muted`, each one line, ellipsized;
+- on the right, Stop: a 40dp `full` button in `primary` with `on-primary` 15sp weight 600, in a 48dp touch target (TalkBack: "Stop Anu").
+TalkBack reads the pill as "Anu is working in Test Shop. <what it's doing>". It never takes the keyboard's focus. It goes when the task ends; the answer waits in Anu's chat.
+
+### Live talk over other apps (ADR-108)
+While live talk goes on behind another app, it shows in two places, so it's never unseen:
+- **The notification** (always): "Anu · Listening" (or Thinking, Speaking, Answering when muted, Waiting for you) as its title, one line under it (your words as you say them, "“What's on today?”" while it thinks, the first line of the answer, or "Open Anu to approve or decline"), "Live talk · heard on this phone", and End live talk. Tapping it opens Anu.
+- **The pill** (the `personal` build, with app control on): the same `full` pill as Working in an app, with its words and Stop, but as wide as its words (at most 168dp of them, so the pill fits the 320dp Android first measures such a window at) and centered 26dp above the navigation bar, where the assistant card sits, so an app task's line can still show at the top. A tap on its words opens Anu. TalkBack reads "Live talk with Anu: listening. <its line>", and Stop as "End live talk". It shows only while no Anu screen does.
+
+### Ask Anu about this screen (ADR-108)
+A Quick Settings tile with the Talk tab's concentric circles, "Ask Anu" over "This screen". One tap closes the panel and opens the assistant card with "Will use this screen" already on. When it can't read the screen, the card says why in `text-muted` caption where the pill would be ("To read the screen from this tile, turn on Anu app control…").
+
+### Live camera (ADR-111)
+The back camera full screen, always dark (as camera apps are), with Anu finding things in it.
+- **Boxes:** a 1.5dp white stroke at 90%, 6dp corners, round each thing found, with a label chip above it: the name and certainty in 13sp label ("cup 91%"), white on black at 60%. Never green or orange: those mean where data is.
+- **While a question is asked:** matches get a 3dp white stroke and a white chip with black text; everything else dims to 30%.
+- **Top:** "‹ Talk" as a 48dp pill on black at 60%, and the privacy indicator on the right. Under them, the detector's line in mono `text` on the same black: "YOLOX-Nano · CPU · 31 fps · 27 ms", exact values only.
+- **Bottom sheet:** `surface` with the sheet's top corners: the search field ("Find something, like “anything to drink”"); one `text-muted` callout line saying what it found ("In view: cup, chair", "2 in view: cup, bottle", "Looking for bottle, cup or wine glass", "Matching by meaning…", "Anu can spot 80 everyday things, and none of them fits that."); then "Ask Anu about this", a full-width primary button, which puts the frame in Talk's composer as a photo; Gemma also reads what the boxes said, though the composer shows only the photo.
+- **Without the camera permission:** a title ("Anu needs the camera to find things around you."), a `text-muted` line ("Frames are looked at on this phone and never saved.") and "Allow camera".
+- **Notices** sit centred on black at 60% with `md` corners: "Paused while the phone cools down", or "Anu can't look for things on this phone."
+- **TalkBack** hears the things in view and which match; the found line is a polite live region.
 
 ### Assistant card (over any app)
 It opens from the power button, the corner swipe or "Hey Anu".
@@ -454,4 +481,5 @@ Three tabs with 24dp line icons at stroke 1.7 and 11sp labels. The selected tab 
 | 2026-09-30 | A recording with no words ends with a quiet note in `text-muted`, not a red failure, and the sphere doesn't grey. The prompt lab and the reasoning render Markdown as answers do; Copy keeps what the model wrote | Nothing broke when nothing was said, and red read as an error. On the emulator the lab showed "* " bullets and "**bold**" as they were, and the chat's reasoning did too. The owner chose these on 2026-09-30, with a plainer example for the lab's Instruction than "Answer like a pirate" |
 | 2026-10-01 | "Reply to this" on the card shows the reply on a panel labelled with its chat, with Copy first, and Send… only while the chat's notification can still answer it | Copy always works, whatever the app. Sending needs the reply button of that chat's notification, which apps often clear once the chat is open, so Send… appears only when it's there, and the approval sheet still shows the exact reply and the chat. A screen with no message gets an answer, so a refusal is never offered as a reply |
 | 2026-10-20 | "+" adds up to 4 photos, from the picker or the camera; each thumbnail has its own corner badge, and your turn shows several as a grid | Comparing two receipts or reading a menu over several shots needs more than one photo, and the camera is the quickest way to ask about what's in front of you. Four 64dp thumbnails each with a 48dp Remove beside it would be 448dp wide, so the badge sits inside the corner with its touch target over the thumbnail, which does nothing else. A grid as wide as one photo keeps your turn the size it was |
+| 2026-10-24 | Live talk behind other apps shows as a notification and, with app control, a compact pill at the bottom; the screen tile opens the card with the screen already chosen | Talking while you use another app must stay visible and one tap from stopping. The pill reuses the app-task pill's look so Anu has one way of floating over apps, and sits at the bottom so both can show at once. The tile is a tap that already means "use this screen", so the card starts with it chosen rather than asking twice |
 | 2026-10-20 | A PDF waits and sits in your turn as a pill with its name and size, like a voice note; reading a long one shows its page | A PDF is something you add to a message, so it shares the voice note's shape rather than a thumbnail of page one, which says less than its name. Naming the page being read explains a wait of a minute |

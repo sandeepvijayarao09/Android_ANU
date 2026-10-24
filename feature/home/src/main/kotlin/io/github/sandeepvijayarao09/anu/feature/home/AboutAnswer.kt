@@ -12,6 +12,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import io.github.sandeepvijayarao09.anu.core.agent.ActionRecord
+import io.github.sandeepvijayarao09.anu.core.agent.AgentStep
 import io.github.sandeepvijayarao09.anu.core.agent.AnswerDetails
 import io.github.sandeepvijayarao09.anu.core.router.Guard
 import io.github.sandeepvijayarao09.anu.core.router.Tier
@@ -38,7 +39,7 @@ data class AboutAnswer(val details: AnswerDetails, val facts: List<Pair<Long, St
  * dot when anything left the phone, with where it went.
  */
 internal fun whereItWent(details: AnswerDetails): Pair<Boolean, String> {
-    if (details.tier == Tier.CLOUD) return true to "Sent to Gemini (Google)"
+    if (details.tier == Tier.CLOUD) return true to if (details.backend == MAC_BACKEND) "Sent to your Mac" else "Sent to Gemini (Google)"
     val left = details.actions.filter { it.status == ActionRecord.Status.DONE && leavesPhone(it.tool) }
     if (left.isEmpty()) return false to "Nothing left your phone"
     val places = left.map { destinationOf(it) }.distinct()
@@ -48,7 +49,7 @@ internal fun whereItWent(details: AnswerDetails): Pair<Boolean, String> {
 
 /** The second line: which model answered, and where it ran. A phone command needed none (design review D20). */
 internal fun whoAnswered(details: AnswerDetails): String = if (details.direct) "Done on this phone · no model needed" else when (details.tier) {
-    Tier.CLOUD -> "Gemini · in the cloud"
+    Tier.CLOUD -> if (details.backend == MAC_BACKEND) "Gemma 4 26B · on your Mac" else "Gemini · in the cloud"
     else -> details.tier.model + " · " + (backendName(details.backend)?.let { "$it, on this phone" } ?: "on this phone")
 }
 
@@ -79,6 +80,36 @@ internal fun speedRows(details: AnswerDetails): List<Pair<String, String>> = bui
     details.totalMs?.let { add("Total" to seconds(it)) }
 }
 
+/**
+ * The agents that worked on an orchestrated turn (ADR-110), in the order they began: each one's plain name, and how
+ * many times it asked the model and ran a tool. A workflow step that ran its tool with no model says so.
+ */
+internal fun agentRows(details: AnswerDetails): List<Pair<String, String>> = details.agents.map { step ->
+    val calls = when (step.modelCalls) {
+        0 -> "No model"
+        1 -> "1 model call"
+        else -> "${step.modelCalls} model calls"
+    }
+    val tools = when (step.tools.size) {
+        0 -> null
+        1 -> "1 tool"
+        else -> "${step.tools.size} tools"
+    }
+    agentName(step) to listOfNotNull(calls, tools).joinToString(" · ")
+}
+
+private fun agentName(step: AgentStep): String = AGENT_NAMES[step.agent]
+    ?: step.agent.removeSuffix("_agent").replace('_', ' ').replaceFirstChar(Char::uppercase).let { if (step.agent.endsWith("_agent")) "$it agent" else it }
+
+private val AGENT_NAMES = mapOf(
+    "anu" to "Coordinator",
+    "device_agent" to "Phone and notes agent",
+    "calendar_brief" to "Calendar, for the brief",
+    "messages_brief" to "Messages, for the brief",
+    "notes_brief" to "Notes, for the brief",
+    "brief_writer" to "Brief writer",
+)
+
 /** Tools that send something outside the phone: Gmail, replies, services and stores (as [Receipt.leftPhone]). */
 private fun leavesPhone(tool: String) =
     tool.startsWith("email_") || tool.startsWith("mcp_") || tool.startsWith("shop_") || tool == "messages_reply"
@@ -89,8 +120,12 @@ private fun destinationOf(action: ActionRecord): String = action.destination ?: 
     else -> "a service you added"
 }
 
+/** What the Mac brain reports as its backend, so a past answer still says where it ran after the Mac is unpaired (ADR-113). */
+internal const val MAC_BACKEND = "MAC"
+
 private fun backendName(backend: String?): String? = when {
     backend == null -> null
+    backend.startsWith("NPU_TENSOR") -> "Tensor TPU"
     backend.startsWith("NPU") -> "NPU"
     else -> backend
 }
@@ -158,6 +193,15 @@ internal fun AboutSheet(about: AboutAnswer, onOpenMemory: (Long?) -> Unit, onOpe
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 details.actions.forEach { ReceiptRow(receiptOf(it)) }
             }
+        }
+
+        val agents = agentRows(details)
+        if (agents.isNotEmpty()) {
+            Heading("Agents")
+            DetailPanel {
+                agents.forEach { (name, did) -> GroupRow(title = name, value = did) }
+            }
+            SheetNote("Each ran on this phone, with Google's Agent Development Kit.")
         }
 
         val speed = speedRows(details)

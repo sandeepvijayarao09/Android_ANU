@@ -40,7 +40,7 @@ import org.junit.runner.RunWith
 import java.time.ZonedDateTime
 
 /**
- * What makes an on-device turn read the whole chat again (ADR-097, ADR-098), measured with the runtime's counters
+ * What makes an on-device turn read the whole chat again (ADR-097, ADR-114), measured with the runtime's counters
  * against a real Gemma 4 model. Each case runs the old shape of the request as a control, then the new one, and
  * reports the speed line's `conversation` reason, the tokens read and the first token's wait (tag AnuS1).
  */
@@ -71,7 +71,7 @@ class ConversationReuseTest {
     }
 
     /**
-     * The first turn after midnight. Before ADR-098 the system prompt carried the date, so it changed and the chat was
+     * The first turn after midnight. Before ADR-114 the system prompt carried the date, so it changed and the chat was
      * read again (control); now the week's dates go with the message, and `ChatSession`'s next turn keeps the
      * conversation.
      */
@@ -110,7 +110,7 @@ class ConversationReuseTest {
     }
 
     /**
-     * MCP tools in another order. Before ADR-098 a turn ranked a server's tools by its own words, so a follow-up could
+     * MCP tools in another order. Before ADR-114 a turn ranked a server's tools by its own words, so a follow-up could
      * list the same tools in another order and the chat was read again (control); now they're listed by name.
      */
     @Test

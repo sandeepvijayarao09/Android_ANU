@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  App control (ADR-098). Events are off until a task starts, and then only from the task's app (AnuAccessibilityService),
+  so Anu hears nothing from other apps while it isn't working in one. The screenshot is taken only when the user taps
+  "Ask Anu about this screen" (ADR-108).
+-->
+<accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:accessibilityEventTypes="typeWindowStateChanged|typeWindowContentChanged|typeViewScrolled"
+    android:accessibilityFeedbackType="feedbackGeneric"
+    android:accessibilityFlags="flagReportViewIds|flagRetrieveInteractiveWindows|flagIncludeNotImportantViews"
+    android:canPerformGestures="true"
+    android:canRetrieveWindowContent="true"
+    android:canTakeScreenshot="true"
+    android:description="@string/apps_service_description"
+    android:isAccessibilityTool="false"
+    android:notificationTimeout="100" />

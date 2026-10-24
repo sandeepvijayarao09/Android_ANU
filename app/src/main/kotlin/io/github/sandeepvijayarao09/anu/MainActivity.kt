@@ -126,11 +126,13 @@ private fun AnuHome(graph: AppGraph, shared: MutableStateFlow<Shared?>) {
     val context = LocalContext.current
     val pager = rememberPagerState(pageCount = { TABS.size })
     val scope = rememberCoroutineScope()
+    // Live talk goes on behind other apps with its notification, and the pill where app control is on (ADR-108).
     val chat = viewModel {
         ChatViewModel(
             graph.chat, graph.device::current, graph.approvals, graph.speechIn, graph.speechOut, facts = graph::factTexts,
             brainStatus = graph.onDevice.status, warm = graph::warmStart, recorder = graph.recorder, hears = graph.onDevice::available,
-        )
+            behind = graph.liveTalk,
+        ).also(graph.liveTalk::attach)
     }
     val memory = viewModel { MemoryViewModel(graph.memory) }
     // The prompt lab runs only the models on this phone, with nothing from the chat (G7, ADR-080).
@@ -174,7 +176,14 @@ private fun AnuHome(graph: AppGraph, shared: MutableStateFlow<Shared?>) {
             installer = graph.installer,
             speeds = graph.speeds,
             thinkingSetting = graph.thinking,
+            mac = graph.mac,
         )
+    }
+    // Live camera (ADR-111): "Ask Anu about this" comes back as a photo in the composer, handed over in memory, with
+    // what the detector found in it for Gemma to read.
+    val liveCamera = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        val frozen = LiveFrame.take()
+        if (result.resultCode == android.app.Activity.RESULT_OK && frozen != null) chat.attachFrame(frozen.jpeg, frozen.found)
     }
     var micGranted by remember { mutableStateOf(context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) }
     // What the user was doing when Anu asked for the microphone: talking, or a voice note. It goes on once allowed.
@@ -235,6 +244,7 @@ private fun AnuHome(graph: AppGraph, shared: MutableStateFlow<Shared?>) {
                             factId?.let(memory::show)
                             scope.launch { pager.animateScrollToPage(1) }
                         },
+                        onLiveCamera = { liveCamera.launch(Intent(context, LiveCameraActivity::class.java)) },
                     )
                     1 -> MemoryScreen(memory, sentToday, onOpenPrivacy = openPrivacy)
                     else -> SettingsScreen(settings, sentToday, onOpenPrivacy = openPrivacy, page = settingsPage, onPage = { settingsPage = it }, lab = lab)

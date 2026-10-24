@@ -46,7 +46,73 @@ class ModelManager(
     private val modelsDir = File(context.noBackupFilesDir, "models")
     private val weightCacheDir = File(context.noBackupFilesDir, "litertlm-cache")
 
-    fun artifactFor(brain: BrainId): ModelArtifact = ModelCatalog.choose(brain, Build.SOC_MODEL, preferred)
+    /** Set when a TPU engine failed to load: Base then uses its CPU build until the app restarts (ADR-103). */
+    @Volatile
+    private var tpuFailed = false
+
+    /**
+     * The file [brain] uses. On a chip whose TPU is verified (ADR-103), that's its TPU build when it's installed, or
+     * when the usual build isn't either, so a new download fetches the TPU build. Otherwise the usual build (ADR-059).
+     */
+    fun artifactFor(brain: BrainId): ModelArtifact {
+        val usual = ModelCatalog.choose(brain, Build.SOC_MODEL, preferred)
+        if (tpuFailed || isEmulator()) return usual
+        val tpu = ModelCatalog.tpuFor(brain, Build.SOC_MODEL) ?: return usual
+        return if (complete(tpu) || !complete(usual)) tpu else usual
+    }
+
+    private fun complete(artifact: ModelArtifact) = File(modelsDir, artifact.fileName).length() == artifact.sizeBytes
+
+    /** Whether Base runs on the TPU now, so the router may send it heavier requests (ADR-103). */
+    val baseOnTpu: Boolean
+        get() = artifactFor(BrainId.BASE).variant in ModelCatalog.TPU_VERIFIED && installedFile(BrainId.BASE) != null
+
+    /** A TPU engine didn't load: Base goes back to its CPU build for the rest of this run (ADR-103). */
+    fun tpuFailed() {
+        tpuFailed = true
+    }
+
+    /** Set when Pro's GPU engine failed to load: Pro's chat then runs on the CPU until the app restarts (ADR-106). */
+    @Volatile
+    private var gpuFailed = false
+
+    /** Pro's GPU engine didn't load: its chat goes back to the CPU for the rest of this run (ADR-106). */
+    fun gpuFailed() {
+        gpuFailed = true
+    }
+
+    /**
+     * Whether Pro's chat runs its usual file on the GPU (ADR-106): only beside Base on the TPU, on a chip where both
+     * passed S1 together, with the memory for both. Memory's extraction still runs Pro on the CPU ([placement]).
+     */
+    val proOnGpu: Boolean
+        get() = !gpuFailed && !isEmulator() && baseOnTpu && ModelCatalog.proOnGpu(Build.SOC_MODEL) &&
+            installedFile(BrainId.PRO) != null && deviceMemoryGb >= ModelCatalog.minMemoryGb(BrainId.PRO)
+
+    /**
+     * Whether Pro runs its usual file on the GPU by itself (ADR-112): on a chip where that passed S1's contract and
+     * extraction, so memory's extraction runs there too. A GPU that fails to load sends it back to the CPU.
+     */
+    val proGpuAlone: Boolean
+        get() = !gpuFailed && !isEmulator() && ModelCatalog.proGpuAlone(Build.SOC_MODEL) && installedFile(BrainId.PRO) != null
+
+    /**
+     * Where [brain] runs, as its build's name: "CPU", "GPU", or a TPU build such as "NPU_TENSOR_G5". With [cpu], Pro runs
+     * on the CPU even where its chat runs on the GPU, as memory's extraction needs (ADR-106), except on a chip where
+     * extraction passed on the GPU (ADR-112).
+     */
+    fun placement(brain: BrainId, cpu: Boolean = false): String = when {
+        brain == BrainId.PRO && proGpuAlone -> ModelVariant.GPU.name
+        brain == BrainId.PRO && !cpu && proOnGpu -> ModelVariant.GPU.name
+        else -> artifactFor(brain).variant.name
+    }
+
+    /** Whether engines at these placements may stay loaded together: Base on the TPU beside Pro on the GPU (ADR-106). */
+    fun together(a: Pair<BrainId, String>, b: Pair<BrainId, String>): Boolean {
+        if (!proOnGpu) return false
+        val pair = setOf(BrainId.BASE to artifactFor(BrainId.BASE).variant.name, BrainId.PRO to ModelVariant.GPU.name)
+        return a != b && a in pair && b in pair
+    }
 
     /** The verified file, if present. Files are renamed into place only after their SHA-256 check. */
     fun installedFile(brain: BrainId): File? {
@@ -54,8 +120,9 @@ class ModelManager(
         return File(modelsDir, artifact.fileName).takeIf { it.length() == artifact.sizeBytes }
     }
 
+    /** [ModelInfo.variant] is where the model's chat runs ([placement]), so Pro on the GPU says GPU (ADR-106). */
     override fun info(id: BrainId): ModelInfo =
-        artifactFor(id).let { ModelInfo(id, it.fileName, it.sizeBytes, it.variant.name, it.cacheBytes, ModelCatalog.minMemoryGb(id)) }
+        artifactFor(id).let { ModelInfo(id, it.fileName, it.sizeBytes, placement(id), it.cacheBytes, ModelCatalog.minMemoryGb(id)) }
 
     override val deviceMemoryGb: Int by lazy {
         val memory = ActivityManager.MemoryInfo().also { context.getSystemService(ActivityManager::class.java).getMemoryInfo(it) }
@@ -107,13 +174,14 @@ class ModelManager(
      * gets its audio encoder, on the CPU as in Google's Gallery: it loads only when a recording arrives, so it costs
      * nothing until then (S6, ADR-078).
      */
-    fun engineConfig(brain: BrainId, maxNumTokens: Int, vision: Boolean = false): EngineConfig? {
+    fun engineConfig(brain: BrainId, maxNumTokens: Int, vision: Boolean = false, placement: String = placement(brain)): EngineConfig? {
         val file = installedFile(brain) ?: return null
-        val backend = backendFor(artifactFor(brain).variant)
+        val variant = ModelVariant.valueOf(placement)
         return EngineConfig(
             modelPath = file.absolutePath,
-            backend = backend,
-            visionBackend = if (vision) backendFor(artifactFor(brain).variant) else null,
+            backend = backendFor(variant),
+            // A TPU build's vision encoder runs on the GPU, the default in Google's Gallery (ADR-103).
+            visionBackend = if (!vision) null else if (variant in ModelCatalog.TPU_VERIFIED) Backend.GPU() else backendFor(variant),
             audioBackend = if (hears(brain)) Backend.CPU() else null,
             maxNumTokens = maxNumTokens,
             maxNumImages = if (vision) MAX_PHOTOS else null,
@@ -135,8 +203,9 @@ class ModelManager(
     private fun backendFor(variant: ModelVariant): Backend = when (variant) {
         ModelVariant.CPU -> Backend.CPU()
         ModelVariant.GPU -> Backend.GPU()
-        ModelVariant.NPU_TENSOR_G5, ModelVariant.NPU_TENSOR_G6 -> Backend.GOOGLE_TENSOR()
-        ModelVariant.NPU_SNAPDRAGON_SM8750 -> Backend.NPU(context.applicationInfo.nativeLibraryDir)
+        // The Pixel's TPU runs through the NPU backend, with Google's Tensor dispatch library in the app (ADR-102).
+        ModelVariant.NPU_TENSOR_G5, ModelVariant.NPU_TENSOR_G6, ModelVariant.NPU_SNAPDRAGON_SM8750 ->
+            Backend.NPU(context.applicationInfo.nativeLibraryDir)
     }
 
     internal companion object {

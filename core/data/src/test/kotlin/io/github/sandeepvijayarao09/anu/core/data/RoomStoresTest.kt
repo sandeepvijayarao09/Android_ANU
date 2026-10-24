@@ -112,6 +112,10 @@ class RoomStoresTest {
             tier = Tier.PRO, backend = "GPU", escalatedFrom = Tier.BASE, factIds = listOf(7L, 9L), summaryShown = true,
             actions = listOf(ActionRecord("mcp_notes_search", "Search notes", ActionRecord.Status.DONE, wrote = false, destination = "notes.example.com")),
             firstWordMs = 1_200, totalMs = 4_000, read = 271, readMs = 900, written = 20, writeMs = 2_800, counted = true, atMillis = 5,
+            agents = listOf(
+                io.github.sandeepvijayarao09.anu.core.agent.AgentStep("anu", 2, emptyList()),
+                io.github.sandeepvijayarao09.anu.core.agent.AgentStep("calendar_agent", 2, listOf("calendar_find_free_slots", "calendar_create_event")),
+            ),
         )
         val second = AnswerDetails(tier = Tier.BASE, firstWordMs = 700, totalMs = 1_500, atMillis = 6, guard = io.github.sandeepvijayarao09.anu.core.router.Guard.HEAT, cut = true)
         store.save(0, first)
@@ -156,6 +160,16 @@ class RoomStoresTest {
         assertEquals(listOf(id), (store.load().first() as ChatMessage.User).photos.map { it.id })
         photos.delete(listOf(id))
         assertEquals(emptyMap<Long, ByteArray>(), photos.load(listOf(id)))
+    }
+
+    @Test
+    fun `a live camera frame keeps what its detector found beside its id, and plain ids still read`() = runBlocking {
+        val store = RoomTranscriptStore(db.transcripts(), "main")
+        val asked = ChatMessage.User("What is this?", listOf(Photo(7, found = "cup 91%, donut 90%"), Photo(8), Photo(9, found = "")))
+        store.append(listOf(asked))
+        val photos = (store.load().single() as ChatMessage.User).photos
+        assertEquals(listOf(7L, 8L, 9L), photos.map { it.id })
+        assertEquals(listOf("cup 91%, donut 90%", null, ""), photos.map { it.found })
     }
 
     @Test

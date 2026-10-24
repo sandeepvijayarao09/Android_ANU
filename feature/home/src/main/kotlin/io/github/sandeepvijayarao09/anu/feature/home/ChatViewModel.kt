@@ -23,6 +23,7 @@ import io.github.sandeepvijayarao09.anu.core.model.VoiceNote
 import io.github.sandeepvijayarao09.anu.core.router.DeviceState
 import io.github.sandeepvijayarao09.anu.core.router.Guard
 import io.github.sandeepvijayarao09.anu.core.router.Tier
+import io.github.sandeepvijayarao09.anu.core.router.TopModel
 import io.github.sandeepvijayarao09.anu.core.voice.RecordingEvent
 import io.github.sandeepvijayarao09.anu.core.voice.Sentences
 import io.github.sandeepvijayarao09.anu.core.voice.SpeechEvent
@@ -168,6 +169,8 @@ data class ChatUiState(
     val screenOffered: Boolean = false,
     /** The user tapped "Use this screen" for the next question. */
     val useScreen: Boolean = false,
+    /** Why the card wasn't handed the screen when the user asked for it, from the Quick Settings tile (ADR-108). */
+    val screenNote: String? = null,
     /** The app whose screen is being read for the running answer, for the card's "Reading <app>" line. */
     val readingApp: String? = null,
     /** The oldest action waiting for the user's approval (I2). */
@@ -181,6 +184,11 @@ data class ChatUiState(
     val level: Float = 0f,
     val speaking: Boolean = false,
     val muted: Boolean = false,
+    /**
+     * Live talk (ADR-101): after each spoken answer Anu listens again by itself, until the user ends it, leaves Anu
+     * where it can't go on behind other apps (ADR-108), or [LIVE_MISSES] listens in a row hear nothing.
+     */
+    val live: Boolean = false,
     /** Why voice didn't work this time, such as "Didn't catch that." */
     val voiceProblem: String? = null,
     /** The on-device recognizer needs this language's model; the user can choose to get it. */
@@ -232,10 +240,15 @@ class ChatViewModel(
     private val screens: ScreenSource? = null,
     /** Whether a chat can still be answered from Anu, for a reply drafted on the card (ADR-092). */
     private val replies: ReplyTargets? = null,
+    /** Whether live talk can go on behind other apps (ADR-108). Without it, leaving Anu ends live talk. */
+    private val behind: LiveBehind? = null,
 ) : ViewModel() {
 
     private val mutable = MutableStateFlow(
-        ChatUiState(voiceAvailable = speechIn?.available == true, cloudAllowed = device().cloudAllowed, screenOffered = screens?.offered() == true),
+        ChatUiState(
+            voiceAvailable = speechIn?.available == true, cloudAllowed = device().cloudAllowed, screenOffered = screens?.offered() == true,
+            screenNote = screens?.note(),
+        ),
     )
     val state: StateFlow<ChatUiState> = mutable.asStateFlow()
 
@@ -252,9 +265,31 @@ class ChatViewModel(
     private var speakTurn = false
     private var spokenUpTo = 0
 
+    /** Listens in a row that heard nothing during live talk. */
+    private var liveMisses = 0
+
+    /**
+     * Counts finished listens, so live talk listens again even after one that ended at once, such as a busy recognizer's
+     * error: then "listening" turns on and off with no pause, and the state alone shows no change.
+     */
+    private val listensEnded = MutableStateFlow(0)
+
     init {
         speechOut?.let { out -> viewModelScope.launch { out.speaking.collect { speaking -> mutable.update { it.copy(speaking = speaking) } } } }
         viewModelScope.launch { approvals.requests.collect { pending -> mutable.update { it.copy(approval = pending.firstOrNull()) } } }
+        // Live talk (ADR-101): whenever Anu is free again (not thinking, not speaking, nothing to approve), it listens.
+        viewModelScope.launch {
+            combine(mutable, listensEnded) { it, ended ->
+                val free = it.live && !it.busy && !it.speaking && !it.listening && it.approval == null && it.consentFor == null && it.recordingSeconds == null
+                if (free) ended else -1
+            }
+                .distinctUntilChanged()
+                .collectLatest { free ->
+                    if (free < 0) return@collectLatest
+                    delay(LIVE_PAUSE_MS)
+                    listen(live = true)
+                }
+        }
         viewModelScope.launch { session.context.collect { view -> mutable.update { it.copy(trimmed = view.trimmed) } } }
         // After a second with no word, the answer names what the model is doing (design review D10).
         brainStatus?.let { status ->
@@ -302,6 +337,18 @@ class ChatViewModel(
         warm()
     }
 
+    /**
+     * A frame from live camera (ADR-111), with what its detector found in it ("cup 91%, donut 90%"), which the model
+     * reads beside the picture.
+     */
+    fun attachFrame(jpeg: ByteArray, found: String) {
+        foundIn[jpeg] = found
+        attach(jpeg)
+    }
+
+    /** What live camera's detector found in the composer's frames, by the frame itself (each array is one photo). */
+    private val foundIn = java.util.IdentityHashMap<ByteArray, String>()
+
     /** Takes back the photo at [index] in the composer. */
     fun removeAttachment(index: Int) = mutable.update { state ->
         state.copy(attachments = state.attachments.filterIndexed { i, _ -> i != index }, attachmentNote = state.attachmentNote.takeIf { it != FULL })
@@ -336,6 +383,9 @@ class ChatViewModel(
 
     /** "Use this screen": the next question goes with the screen under the card, whatever its words (design review D13). */
     fun toggleUseScreen() = mutable.update { it.copy(useScreen = !it.useScreen) }
+
+    /** The Quick Settings tile asked about the screen (ADR-108): the next question uses it, when the card was handed one. */
+    fun useScreen() = mutable.update { it.copy(useScreen = it.screenOffered) }
 
     /** Whether a voice note could be written down now, for the "+" sheet (ADR-078). */
     fun canHear(): Boolean = hears()
@@ -383,9 +433,22 @@ class ChatViewModel(
     /**
      * Anu left the screen: a voice note ends there, kept and marked as stopped early. Android keeps the microphone
      * open in the background for an app with a foreground service, such as "Hey Anu"'s, so Anu doesn't wait for it to.
+     * Live talk goes on behind the other app only where [behind] shows a control the user can see and stop (ADR-108);
+     * otherwise it ends here, and says why when it could have gone on.
      */
     fun leftAnu() {
         if (recording?.isActive == true) recorder?.cutShort()
+        if (!mutable.value.live) return
+        val blocked = behind?.let { it.blocked() ?: return }
+        endLive()
+        blocked?.let { why -> mutable.update { it.copy(voiceProblem = why) } }
+    }
+
+    /** Ends live talk: stops listening and speaking, and doesn't listen again. */
+    fun endLive() {
+        mutable.update { it.copy(live = false) }
+        listening?.cancel()
+        speechOut?.stop()
     }
 
     private fun recorded(voice: Recording) {
@@ -445,7 +508,8 @@ class ChatViewModel(
         if ((trimmed.isEmpty() && picked.isEmpty() && voice == null && pdf == null) || state.busy || state.recordingSeconds != null) return
         speakTurn = spoken && !state.muted && speechOut != null
         spokenUpTo = 0
-        val photos = picked.map { Photo(0, it) }
+        val photos = picked.map { Photo(0, it, foundIn[it]) }
+        foundIn.clear()
         val asked = nextId++
         val clip = voice?.let { VoiceClip(it.seconds, it.shared, it.interrupted, writing = true, recording = it) }
         // A question from the card about the screen below it: pointing words, or "Use this screen" (EXP-2, D13).
@@ -480,7 +544,7 @@ class ChatViewModel(
     fun listenWhenReady() {
         viewModelScope.launch {
             loaded.await()
-            if (!mutable.value.listening) toggleListening()
+            if (!mutable.value.listening) listen(live = false)
         }
     }
 
@@ -536,23 +600,37 @@ class ChatViewModel(
     }
 
     /**
-     * The orb: starts listening, or stops listening, or stops Anu talking. While a turn runs, a tap only
-     * stops the speech, because one request runs at a time.
+     * The orb and the Talk button: starts live talk, or ends it while listening, or stops Anu talking. While a turn runs,
+     * a tap only stops the speech, because one request runs at a time; live talk then listens once the turn is done.
      */
     fun toggleListening() {
-        val input = speechIn ?: return
         if (mutable.value.listening) {
-            listening?.cancel()
+            endLive()
             return
         }
+        listen(live = true)
+    }
+
+    /**
+     * Listens once and sends what was heard, read aloud when it's answered. With [live], Anu listens again after each
+     * answer (ADR-101); a listen that hears nothing counts, and [LIVE_MISSES] in a row end live talk.
+     */
+    private fun listen(live: Boolean) {
+        val input = speechIn ?: return
+        if (mutable.value.listening) return
         speechOut?.stop()
-        if (mutable.value.busy) return
-        if (!input.available) {
-            mutable.update { it.copy(voiceAvailable = false, voiceProblem = "This phone has no on-device speech recognition.") }
+        if (mutable.value.busy) {
+            if (live) mutable.update { it.copy(live = true) }
             return
         }
+        if (!input.available) {
+            mutable.update { it.copy(live = false, voiceAvailable = false, voiceProblem = "This phone has no on-device speech recognition.") }
+            return
+        }
+        if (live && !mutable.value.live) liveMisses = 0
         listening = viewModelScope.launch {
-            mutable.update { it.copy(listening = true, heard = "", level = 0f, voiceProblem = null, offerLanguagePack = false, voiceAvailable = true) }
+            mutable.update { it.copy(listening = true, live = live, heard = "", level = 0f, voiceProblem = null, offerLanguagePack = false, voiceAvailable = true) }
+            var heard = false
             try {
                 input.listen().collect { event ->
                     when (event) {
@@ -560,14 +638,23 @@ class ChatViewModel(
                         is SpeechEvent.Level -> mutable.update { it.copy(level = event.value) }
                         is SpeechEvent.Partial -> mutable.update { it.copy(heard = event.text) }
                         is SpeechEvent.Final -> {
+                            heard = event.text.isNotBlank()
                             mutable.update { it.copy(heard = event.text, listening = false, level = 0f) }
                             send(event.text, spoken = true)
                         }
-                        is SpeechEvent.Error -> mutable.update { it.copy(voiceProblem = event.reason, offerLanguagePack = event.needsLanguagePack) }
+                        is SpeechEvent.Error -> mutable.update {
+                            // A missing language pack won't fix itself by listening again.
+                            it.copy(voiceProblem = event.reason, offerLanguagePack = event.needsLanguagePack, live = it.live && !event.needsLanguagePack)
+                        }
                     }
                 }
             } finally {
-                mutable.update { it.copy(listening = false, level = 0f) }
+                liveMisses = if (heard) 0 else liveMisses + 1
+                mutable.update {
+                    val ended = it.live && liveMisses >= LIVE_MISSES
+                    it.copy(listening = false, level = 0f, live = it.live && !ended, voiceProblem = if (ended) LIVE_ENDED else it.voiceProblem)
+                }
+                listensEnded.update { it + 1 }
             }
         }
     }
@@ -888,9 +975,9 @@ class ChatViewModel(
         mutable.update { state -> state.copy(bubbles = state.bubbles.map { if (it.id == id) change(it) else it }) }
 
     private fun friendly(reasons: List<String>): String = when {
-        reasons.any { it.startsWith("a photo is in view") } -> "Photos stay on this phone, so Gemini can't answer this."
-        reasons.any { it.startsWith("a voice note is in view") } -> "Voice notes stay on this phone, so Gemini can't answer this."
-        reasons.any { it.startsWith("a PDF is in view") } -> "PDFs stay on this phone, so Gemini can't answer this."
+        reasons.any { it.startsWith("a photo is in view") } -> "Photos stay on this phone, so ${TopModel.current.name} can't answer this."
+        reasons.any { it.startsWith("a voice note is in view") } -> "Voice notes stay on this phone, so ${TopModel.current.name} can't answer this."
+        reasons.any { it.startsWith("a PDF is in view") } -> "PDFs stay on this phone, so ${TopModel.current.name} can't answer this."
         reasons.singleOrNull() in HEARING_REASONS -> reasons.single()
         reasons.any { it == "no model tier is available" } ->
             "No model is ready yet. Download one in Settings, or add a Gemini key there."
@@ -927,6 +1014,18 @@ const val VOICE_NOTE_SECONDS = 300
 /** Why a voice note ended its turn, shown as they are. */
 private val HEARING_REASONS = setOf(ChatSession.NOTHING_SAID, ChatSession.CANT_HEAR, ChatSession.COULDNT_HEAR)
 
+/** The pause after Anu finishes before it listens again in live talk, so it doesn't hear the end of its own voice (ADR-101). */
+internal const val LIVE_PAUSE_MS = 400L
+
+/**
+ * Listens in a row that hear nothing before live talk ends (ADR-101): each gives up after several seconds of quiet, so
+ * this is 20 to 30 s. Two ended it on the Pixel while the user was still thinking.
+ */
+internal const val LIVE_MISSES = 4
+
+/** What the Talk page says when live talk ends by itself. */
+internal const val LIVE_ENDED = "Live talk ended. Tap the mic to talk again."
+
 /** The wait line while Pro answers on a warm phone (design review D22). */
 internal const val SLOW_WHILE_WARM = "The phone is warm, so this may take longer."
 
@@ -935,7 +1034,7 @@ val Tier.label: String
     get() = when (this) {
         Tier.BASE -> "On device · Gemma 4 E2B"
         Tier.PRO -> "On device · Gemma 4 E4B"
-        Tier.CLOUD -> "Cloud · Gemini"
+        Tier.CLOUD -> TopModel.current.label
     }
 
 /** A tier's model, for notes such as "Trying Gemma 4 E4B…". */
@@ -943,7 +1042,7 @@ val Tier.model: String
     get() = when (this) {
         Tier.BASE -> "Gemma 4 E2B"
         Tier.PRO -> "Gemma 4 E4B"
-        Tier.CLOUD -> "Gemini"
+        Tier.CLOUD -> TopModel.current.model
     }
 
 /** A drafted reply on its way through the broker (ADR-092). */

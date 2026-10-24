@@ -40,6 +40,19 @@ interface CloudKeySettings {
 }
 
 /**
+ * Gemma on the user's own Mac as the top model, in Gemini's place (ADR-113). [paired] is the Mac's address, or null.
+ * The pairing code holds a token, which goes straight into the vault and is never shown again (§11).
+ */
+interface MacSettings {
+    val paired: StateFlow<String?>
+
+    /** False when [code] isn't a pairing code. */
+    suspend fun pair(code: String): Boolean
+
+    suspend fun unpair()
+}
+
+/**
  * A model on the Models page, with the space its files take now (ADR-061) and the phone's memory, which a model
  * may need more of (ADR-066).
  */
@@ -181,6 +194,8 @@ class SettingsViewModel(
     private val speeds: ModelSpeed? = null,
     /** Thinking before answering (ADR-077). Null where the app has none. */
     private val thinkingSetting: ThinkingSetting? = null,
+    /** The user's Mac as the top model (ADR-113). Null where the app has none. */
+    private val mac: MacSettings? = null,
 ) : ViewModel() {
 
     val thinking: StateFlow<Boolean> = thinkingSetting?.thinking ?: MutableStateFlow(false)
@@ -413,6 +428,20 @@ class SettingsViewModel(
     fun removeCloudKey() = viewModelScope.launch {
         cloudKey.remove()
         mutableMessage.value = "Key removed. Anu will stay on this phone."
+    }
+
+    val macPaired: StateFlow<String?> = mac?.paired ?: MutableStateFlow(null)
+    val canPairMac: Boolean get() = mac != null
+
+    fun pairMac(code: String) = viewModelScope.launch {
+        val mac = mac ?: return@launch
+        mutableMessage.value = runCatching { mac.pair(code) }
+            .fold({ if (it) "Paired. Hard requests now go to your Mac." else "That isn't a pairing code from mac-brain.py." }, { "Couldn't pair: ${it.message}" })
+    }
+
+    fun unpairMac() = viewModelScope.launch {
+        mac?.unpair()
+        mutableMessage.value = "Your Mac is no longer used."
     }
 
     fun dismissMessage() {

@@ -420,7 +420,7 @@ private fun ModelRowView(row: ModelRow, onDownload: () -> Unit, onDelete: () -> 
     val colors = AnuTheme.colors
     val name = modelName(row.info.id)
     val size = gigabytes(row.info.sizeBytes)
-    val about = "${modelTier(row.info.id)} · ${row.info.variant.uppercase()} · ${modelSpace(row)}" + (memoryNote(row)?.let { "\n$it" } ?: "")
+    val about = "${modelTier(row.info.id)} · ${chipName(row.info.variant)} · ${modelSpace(row)}" + (memoryNote(row)?.let { "\n$it" } ?: "")
     when (val state = row.state) {
         ModelState.NotInstalled -> GroupRow(name, subtitle = about, trailing = { AnuTextButton("Download", onClick = onDownload) })
         is ModelState.Downloading -> Column {
@@ -467,6 +467,38 @@ internal fun GeminiSheet(hasKey: Boolean, onSave: (String) -> Unit, onRemove: ()
             SheetNote("The key goes into Anu's vault and is never shown again. It is only ever sent to $GEMINI_HOST.")
             Spacer(Modifier.height(18.dp))
             AnuButton("Save to vault", onClick = { onSave(key.trim()); key = ""; close() }, Modifier.fillMaxWidth(), enabled = key.isNotBlank())
+        }
+    }
+}
+
+/** Gemma on the user's Mac (ADR-113). The pairing code's token goes straight into the vault and is never shown again. */
+@Composable
+internal fun MacSheet(paired: String?, onPair: (String) -> Unit, onUnpair: () -> Unit, onDismiss: () -> Unit) {
+    // Holds a token: plain remember, so it is never written to saved state.
+    var code by remember { mutableStateOf("") }
+    AnuSheet(onDismiss) { close ->
+        SheetTitle("Your Mac", overline = "Your own hardware")
+        WhereLine(leaves = true, text = paired?.let { "Requests go to $it, over your Wi-Fi" } ?: "Requests go to your Mac, over your Wi-Fi", modifier = Modifier.padding(top = 10.dp))
+        Text(
+            "Gemma 4 26B on your Mac answers what's too hard for this phone, in Gemini's place. Anu asks before sending " +
+                "anything personal, replaces email addresses and phone and card numbers first, and lists every request in " +
+                "the Privacy report. Photos, voice notes, screens and PDFs stay on this phone.",
+            Modifier.padding(top = 12.dp),
+            style = AnuTheme.type.callout,
+            color = AnuTheme.colors.textMuted,
+        )
+        if (paired != null) {
+            DetailPanel(Modifier.padding(top = 16.dp)) {
+                DetailRow("Address", paired, first = true)
+                DetailRow("Token", "In Anu's vault")
+            }
+            Spacer(Modifier.height(18.dp))
+            AnuButton("Unpair", onClick = { onUnpair(); close() }, Modifier.fillMaxWidth(), secondary = true, destructive = true)
+        } else {
+            AnuTextField(code, { code = it }, Modifier.padding(top = 18.dp), label = "Pairing code", secret = true)
+            SheetNote("On the Mac, run scripts/mac-brain.py and paste the code it prints. Its token goes into Anu's vault, and Anu trusts only that Mac's certificate.")
+            Spacer(Modifier.height(18.dp))
+            AnuButton("Pair", onClick = { onPair(code.trim()); code = ""; close() }, Modifier.fillMaxWidth(), enabled = code.isNotBlank())
         }
     }
 }

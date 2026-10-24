@@ -23,6 +23,7 @@ android {
 dependencies {
     androidTestImplementation(libs.mlkit.genai.prompt)
     androidTestImplementation(libs.androidx.test.runner)
+    androidTestImplementation(libs.androidx.test.core)
     androidTestImplementation(libs.androidx.test.ext.junit)
     androidTestImplementation(libs.kotlinx.coroutines.test)
 }

@@ -81,6 +81,7 @@ import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.sandeepvijayarao09.anu.core.router.Guard
 import io.github.sandeepvijayarao09.anu.core.router.Tier
+import io.github.sandeepvijayarao09.anu.core.router.TopModel
 import io.github.sandeepvijayarao09.anu.core.ui.AnuIcons
 import io.github.sandeepvijayarao09.anu.core.ui.AnuShapes
 import io.github.sandeepvijayarao09.anu.core.ui.AnuTextButton
@@ -126,6 +127,8 @@ fun TalkScreen(
     awayPulse: Int = 0,
     /** Opens a fact in Memory, or Memory itself for null, from "About this answer". */
     onOpenMemory: (Long?) -> Unit = {},
+    /** Opens live camera (ADR-111), whose "Ask Anu about this" comes back as a photo. Null hides its row. */
+    onLiveCamera: (() -> Unit)? = null,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val colors = AnuTheme.colors
@@ -175,33 +178,36 @@ fun TalkScreen(
 
     Column(modifier.fillMaxSize().background(colors.background).imePadding()) {
         Row(Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
-            if (state.bubbles.isNotEmpty() || state.listening) {
+            if (state.bubbles.isNotEmpty() || state.listening || state.live) {
                 Sphere(state.voice.sphere(), 26.dp, level = state.level, awayPulse = awayPulse, errorPulse = state.failures)
                 Spacer(Modifier.width(10.dp))
             }
             Text("Anu", Modifier.weight(1f), style = AnuTheme.type.wordmark, color = colors.text)
             PrivacyIndicator(sentToday, onOpenPrivacy)
         }
-        val showThread = !state.listening && state.bubbles.isNotEmpty()
+        // Live talk keeps one screen through listening, thinking and speaking (ADR-101); the chat shows when it ends.
+        val inLive = state.listening || state.live
+        val showThread = !inLive && state.bubbles.isNotEmpty()
         HorizontalDivider(thickness = 0.5.dp, color = if (showThread && scrolled) colors.separator else Color.Transparent)
         Box(Modifier.weight(1f).fillMaxWidth()) {
             when {
-                state.listening -> Listening(state)
+                inLive -> Live(state)
                 state.bubbles.isEmpty() -> Welcome(state, awayPulse, onSuggestion = { viewModel.send(it) }, onTalk = talk)
                 else -> Thread(state, list, onRetry = viewModel::retryWithPro, onAskGemini = viewModel::askGemini, onAbout = viewModel::openAbout, loadPhoto = viewModel::photo)
             }
         }
-        if (state.listening) {
+        if (inLive) {
             Row(
                 Modifier.fillMaxWidth().padding(bottom = 20.dp, top = 8.dp),
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                AnuTextButton("Type instead", onClick = { viewModel.toggleListening(); runCatching { typing.requestFocus() } })
+                AnuTextButton("Type instead", onClick = { viewModel.endLive(); runCatching { typing.requestFocus() } })
+                // Live talk (ADR-101): Stop ends the conversation, not just this listen.
                 Box(
-                    Modifier.size(64.dp).clip(AnuShapes.full).background(colors.surface2).clickable(onClickLabel = "Stop listening") { viewModel.toggleListening() },
+                    Modifier.size(64.dp).clip(AnuShapes.full).background(colors.surface2).clickable(onClickLabel = "End live talk") { viewModel.endLive() },
                     contentAlignment = Alignment.Center,
-                ) { Icon(AnuIcons.Stop, contentDescription = "Stop", Modifier.size(22.dp), tint = colors.text) }
+                ) { Icon(AnuIcons.Stop, contentDescription = "End live talk", Modifier.size(22.dp), tint = colors.text) }
                 AnuTextButton(if (state.muted) "Unmute" else "Mute", onClick = viewModel::toggleMute, color = colors.textMuted)
             }
         } else {
@@ -247,6 +253,7 @@ fun TalkScreen(
             onPdf = { openPdf.launch(arrayOf("application/pdf")) },
             onVoiceNote = { if (micGranted) viewModel.startRecording() else onRequestMic(viewModel::startRecording) },
             onDismiss = { adding = false },
+            onLiveCamera = onLiveCamera,
         )
     }
     ConversationSheets(state, viewModel::approve, viewModel::deny, viewModel::revise, viewModel::approveCloud, viewModel::declineCloud)
@@ -292,22 +299,42 @@ private fun greeting(now: LocalTime = LocalTime.now()): String = when (now.hour)
     else -> "Good evening"
 }
 
+/**
+ * Live talk's one screen (ADR-101): the sphere in each phase, and one caption, what the user is saying while Anu listens,
+ * what they said while it thinks, and its answer while it speaks.
+ */
 @Composable
-private fun Listening(state: ChatUiState) {
+private fun Live(state: ChatUiState) {
     val colors = AnuTheme.colors
+    val asked = state.bubbles.lastOrNull { it.fromUser }?.text.orEmpty()
+    val answer = state.bubbles.lastOrNull()?.takeIf { !it.fromUser }?.text.orEmpty().replace("**", "").replace("*", "")
+    val (caption, faint) = when (state.voice) {
+        VoicePhase.LISTENING -> state.heard.ifEmpty { "Say something…" } to state.heard.isEmpty()
+        VoicePhase.THINKING -> asked to true
+        else -> answer.ifEmpty { asked } to answer.isEmpty()
+    }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), horizontalAlignment = Alignment.CenterHorizontally) {
         Spacer(Modifier.height(44.dp))
-        Sphere(SphereState.LISTENING, 200.dp, level = state.level, errorPulse = state.failures, shadow = true)
+        Sphere(state.voice.sphere(), 200.dp, level = state.level, errorPulse = state.failures, shadow = true)
         Spacer(Modifier.height(36.dp))
         Text(
-            state.heard.ifEmpty { "Say something…" },
+            caption,
             Modifier.fillMaxWidth().padding(horizontal = 28.dp),
-            style = AnuTheme.type.liveSpeech,
-            color = if (state.heard.isEmpty()) colors.textFaint else colors.text,
+            style = if (state.voice == VoicePhase.SPEAKING || state.voice == VoicePhase.IDLE) AnuTheme.type.body else AnuTheme.type.liveSpeech,
+            color = if (faint) colors.textFaint else colors.text,
         )
         Row(Modifier.padding(top = 24.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            LevelBars(state.level)
-            Text("Listening", style = AnuTheme.type.callout, color = colors.textMuted)
+            if (state.voice == VoicePhase.LISTENING) LevelBars(state.level)
+            Text(
+                when (state.voice) {
+                    VoicePhase.LISTENING -> "Listening"
+                    VoicePhase.THINKING -> THINKING
+                    VoicePhase.SPEAKING -> "Speaking"
+                    VoicePhase.IDLE -> "Live"
+                },
+                style = AnuTheme.type.callout,
+                color = colors.textMuted,
+            )
         }
     }
 }
@@ -472,7 +499,7 @@ internal fun AnuTurn(
                             RetryChoice.GEMINI -> Row(verticalAlignment = Alignment.CenterVertically) {
                                 PrivacyDot(away = true, size = 6.dp)
                                 Spacer(Modifier.width(6.dp))
-                                AnuTextButton("Ask Gemini", onClick = onAskGemini)
+                                AnuTextButton("Ask ${TopModel.current.name}", onClick = onAskGemini)
                             }
                         }
                     }
@@ -608,6 +635,7 @@ internal fun voiceLabel(clip: VoiceClip): String =
 /**
  * What the "+" adds (design review D9, ADR-078, ADR-094, ADR-095): photos from the system picker or one from the camera,
  * up to [Photo.MAX_IN_VIEW] in all, a PDF from the system file picker, or a voice note, which needs a model that can hear.
+ * Live camera (ADR-111) finds things in view, and its "Ask Anu about this" adds the frame as a photo.
  */
 @Composable
 internal fun AddSheet(
@@ -618,6 +646,7 @@ internal fun AddSheet(
     photosLeft: Int = Photo.MAX_IN_VIEW,
     onCamera: () -> Unit = {},
     onPdf: () -> Unit = {},
+    onLiveCamera: (() -> Unit)? = null,
 ) {
     val room = photosLeft > 0
     AnuSheet(onDismiss) { close ->
@@ -636,6 +665,14 @@ internal fun AddSheet(
                 onClick = { close(); onPhoto() },
             )
             GroupRow("Camera", subtitle = "Take a photo now", icon = AnuIcons.Camera, enabled = room, onClick = { close(); onCamera() })
+            if (onLiveCamera != null) {
+                GroupRow(
+                    "Live camera",
+                    subtitle = if (room) "Find things around you, on this phone" else "Find things around you; ask about them once a photo is removed",
+                    icon = AnuIcons.Scan,
+                    onClick = { close(); onLiveCamera() },
+                )
+            }
             GroupRow("PDF", subtitle = "Choose one from your files, and Anu reads it on this phone", icon = AnuIcons.Note, onClick = { close(); onPdf() })
             GroupRow(
                 "Voice note",
@@ -824,6 +861,10 @@ fun AssistantCard(
         state.readingApp?.let { app ->
             Text("Reading $app", Modifier.padding(top = 6.dp).semantics { liveRegion = LiveRegionMode.Polite }, style = AnuTheme.type.caption, color = colors.textMuted)
         }
+        // The tile asked about the screen, but it couldn't be read from here: the card says why, before any question (ADR-108).
+        state.screenNote?.takeIf { !state.screenOffered }?.let { note ->
+            Text(note, Modifier.padding(top = 10.dp), style = AnuTheme.type.caption, color = colors.textMuted)
+        }
         if (state.screenOffered && state.readingApp == null && !state.busy) {
             AnuPill(
                 if (state.useScreen) "Will use this screen" else "Use this screen",
@@ -859,7 +900,7 @@ fun AssistantCard(
             val readScreen = state.bubbles.lastOrNull { it.fromUser }?.screenApp
             Text(
                 when {
-                    cloud -> "Gemini (cloud)"
+                    cloud -> TopModel.current.label
                     readScreen != null -> "On device · read your screen in $readScreen"
                     else -> "On device · reads the screen only when you ask"
                 },

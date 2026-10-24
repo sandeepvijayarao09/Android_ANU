@@ -4,4 +4,44 @@
     <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
     <!-- Do Not Disturb. A normal permission, but Android also asks the user to allow Anu on a page of its own. -->
     <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
+    <!-- Brightness (ADR-099). A special permission: Android asks the user to allow Anu on a page of its own. -->
+    <uses-permission android:name="android.permission.WRITE_SETTINGS" />
+    <!--
+        Reminders (ADR-107): a notification at a time, set with AlarmManager. Exact alarms are a special permission the
+        user can allow ("Alarms & reminders"); the personal build also asks for USE_EXACT_ALARM. Alarms are cleared when
+        the phone restarts, so Anu sets the saved ones again at boot.
+    -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+    <!-- Package visibility (API 30+). -->
+    <queries>
+        <!-- Apps with a launcher icon, so "open Spotify" finds it by name (ADR-107). -->
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+        <!-- A text ready to send opens in the phone's messaging app. -->
+        <intent>
+            <action android:name="android.intent.action.SENDTO" />
+            <data android:scheme="smsto" />
+        </intent>
+    </queries>
+
+    <application>
+        <!-- A reminder's alarm: only Anu's own pending intent reaches it. -->
+        <receiver
+            android:name=".ReminderReceiver"
+            android:exported="false" />
+        <!-- Both broadcasts are protected: only the system sends them. -->
+        <receiver
+            android:name=".ReminderBootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+    </application>
 </manifest>

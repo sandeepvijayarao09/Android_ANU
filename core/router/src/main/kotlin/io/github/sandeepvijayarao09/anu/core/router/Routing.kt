@@ -5,12 +5,46 @@ import io.github.sandeepvijayarao09.anu.core.model.DataClass
 /** Model tiers, lightest first (ARCHITECTURE §5). The order matters: escalation moves right. */
 enum class Tier { BASE, PRO, CLOUD }
 
+/**
+ * The top tier's model as the UI names it (ADR-113): Gemini, or the user's own Mac when one is paired, which takes
+ * Gemini's place. Either is off the phone, so the same consent and egress rules hold. [name] goes mid-sentence ("Use
+ * [name] for this?"), [title] at the start of one, [where] says where the data goes, and [label] tags an answer.
+ */
+data class TopModel(val name: String, val title: String, val where: String, val label: String, val model: String, val consent: String) {
+    companion object {
+        val GEMINI = TopModel(
+            name = "Gemini",
+            title = "Gemini",
+            where = "Gemini (Google)",
+            label = "Cloud · Gemini",
+            model = "Gemini",
+            consent = "This needs the cloud model. Your message goes to Google with email addresses, phone and card numbers " +
+                "replaced, and the send is recorded in the Privacy report.",
+        )
+
+        fun mac(address: String) = TopModel(
+            name = "your Mac",
+            title = "Your Mac",
+            where = "your Mac ($address)",
+            label = "Your Mac · Gemma 4 26B",
+            model = "Gemma 4 26B on your Mac",
+            consent = "This needs a bigger model. Your message goes to Gemma 4 26B on your Mac over your Wi-Fi, with email " +
+                "addresses, phone and card numbers replaced, and the send is recorded in the Privacy report.",
+        )
+
+        /** Which one the app uses now. Set by the app when a Mac is paired or unpaired. */
+        @Volatile var current: TopModel = GEMINI
+    }
+}
+
 /** The skill a request belongs to (§10). */
 /**
  * [VOICE_NOTE] is a voice note of the user's own that the typed words don't send elsewhere (EXP-3, ADR-078). [PHONE]
  * is a request that uses the phone's controls but is more than one whole command, which runs with no model (G6).
+ * [APPS] is a request that names another app to do something in, by tapping in it (ADR-098). [BRIEF] is a daily brief and
+ * [AGENTS] a request across two or more of the phone's areas, which ADK's agents carry out (ADR-104).
  */
-enum class Skill { CHAT, WRITING, EMAIL, SCHEDULING, MESSAGES, BRIEF, MEMORY, SHOPPING, VOICE_NOTE, PHONE }
+enum class Skill { CHAT, WRITING, EMAIL, SCHEDULING, MESSAGES, BRIEF, MEMORY, SHOPPING, VOICE_NOTE, PHONE, APPS, AGENTS }
 
 /**
  * Whether a skill may send personal data to the cloud. ASK is the default (OD-6).
@@ -24,8 +58,15 @@ data class DeviceState(
     val availableTiers: Set<Tier>,
     /** Why the phone is guarded right now, if it is: heat forecast, or a low battery (§6, Stage A; ADR-072). */
     val guard: Guard? = null,
+    /**
+     * Base runs on the phone's TPU (ADR-103), several times faster than Pro on the CPU, so a request scored for Pro
+     * goes to Base when it fits Base's budget. A failed answer still moves up to Pro (Stage C).
+     */
+    val baseOnTpu: Boolean = false,
+    /** Pro runs on the GPU, loaded beside Base on the TPU (ADR-106), so a request scored for Pro stays on Pro. */
+    val proOnGpu: Boolean = false,
 ) {
-    /** Whether Gemini could be asked right now, as far as the phone knows. */
+    /** Whether the top model (Gemini, or the user's Mac) could be asked right now, as far as the phone knows. */
     val cloudAllowed: Boolean
         get() = online && Tier.CLOUD in availableTiers
 }

@@ -15,6 +15,9 @@ import android.provider.Settings
 import android.util.Log
 import androidx.core.content.edit
 import io.github.sandeepvijayarao09.anu.brain.gemini.GeminiBrain
+import io.github.sandeepvijayarao09.anu.brain.ollama.MacPairing
+import io.github.sandeepvijayarao09.anu.brain.ollama.OllamaBrain
+import io.github.sandeepvijayarao09.anu.brain.ollama.pinnedTo
 import io.github.sandeepvijayarao09.anu.brain.litertlm.ModelArtifact
 import io.github.sandeepvijayarao09.anu.brain.litertlm.ModelCatalog
 import io.github.sandeepvijayarao09.anu.brain.litertlm.ModelManager
@@ -23,9 +26,12 @@ import io.github.sandeepvijayarao09.anu.core.model.Embedder
 import io.github.sandeepvijayarao09.anu.core.model.ModelInstaller
 import io.github.sandeepvijayarao09.anu.brain.embedding.EmbeddingCatalog
 import io.github.sandeepvijayarao09.anu.brain.embedding.GemmaEmbedder
+import io.github.sandeepvijayarao09.anu.brain.embedding.Gemma2Embedder
+import io.github.sandeepvijayarao09.anu.core.model.VisualEmbedder
 import io.github.sandeepvijayarao09.anu.brain.litertlm.OnDeviceBrains
 import io.github.sandeepvijayarao09.anu.core.agent.BrainProvider
 import io.github.sandeepvijayarao09.anu.core.agent.Agent
+import io.github.sandeepvijayarao09.anu.core.agent.BaseOpinion
 import io.github.sandeepvijayarao09.anu.core.agent.ApprovalCenter
 import io.github.sandeepvijayarao09.anu.core.agent.Cascade
 import io.github.sandeepvijayarao09.anu.core.agent.ContextWindow
@@ -71,9 +77,9 @@ import io.github.sandeepvijayarao09.anu.core.memory.ForgetMemoryTool
 import io.github.sandeepvijayarao09.anu.core.memory.MemoryPipeline
 import io.github.sandeepvijayarao09.anu.core.memory.RememberTool
 import io.github.sandeepvijayarao09.anu.core.memory.SearchMemoryTool
-import io.github.sandeepvijayarao09.anu.core.memory.extractionBrain
 import io.github.sandeepvijayarao09.anu.core.data.RoomTranscriptStore
 import io.github.sandeepvijayarao09.anu.core.data.RoomVaultAudit
+import io.github.sandeepvijayarao09.anu.core.model.Brain
 import io.github.sandeepvijayarao09.anu.core.model.BrainId
 import io.github.sandeepvijayarao09.anu.core.router.ComplexityScorer
 import io.github.sandeepvijayarao09.anu.core.router.DeviceState
@@ -82,6 +88,7 @@ import io.github.sandeepvijayarao09.anu.core.router.HeatForecast
 import io.github.sandeepvijayarao09.anu.core.router.Router
 import io.github.sandeepvijayarao09.anu.core.router.Skill
 import io.github.sandeepvijayarao09.anu.core.router.Tier
+import io.github.sandeepvijayarao09.anu.core.router.TopModel
 import io.github.sandeepvijayarao09.anu.core.router.guardFor
 import io.github.sandeepvijayarao09.anu.core.router.warmModel
 import io.github.sandeepvijayarao09.anu.core.router.TierBudgets
@@ -96,6 +103,7 @@ import io.github.sandeepvijayarao09.anu.core.vault.Vault
 import io.github.sandeepvijayarao09.anu.core.vault.withVault
 import io.github.sandeepvijayarao09.anu.feature.settings.AccountConnection
 import io.github.sandeepvijayarao09.anu.feature.settings.CloudKeySettings
+import io.github.sandeepvijayarao09.anu.feature.settings.MacSettings
 import io.github.sandeepvijayarao09.anu.feature.settings.NotificationAccess
 import io.github.sandeepvijayarao09.anu.feature.settings.VaultActivity
 import kotlinx.coroutines.CancellationException
@@ -124,11 +132,33 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import java.util.concurrent.TimeUnit
 import java.io.File
+import java.time.LocalDateTime
 import java.time.ZoneId
+import java.time.ZonedDateTime
 import io.github.sandeepvijayarao09.anu.connector.phone.SetTimerTool
 import io.github.sandeepvijayarao09.anu.connector.phone.SetAlarmTool
+import io.github.sandeepvijayarao09.anu.connector.phone.BrightnessTool
+import io.github.sandeepvijayarao09.anu.connector.phone.DraftTextTool
+import io.github.sandeepvijayarao09.anu.connector.phone.VolumeTool
 import io.github.sandeepvijayarao09.anu.connector.phone.FlashlightTool
 import io.github.sandeepvijayarao09.anu.connector.phone.OpenSettingsTool
+import io.github.sandeepvijayarao09.anu.connector.phone.AppPick
+import io.github.sandeepvijayarao09.anu.connector.phone.CallTool
+import io.github.sandeepvijayarao09.anu.connector.phone.CancelReminderTool
+import io.github.sandeepvijayarao09.anu.connector.phone.Launcher
+import io.github.sandeepvijayarao09.anu.connector.phone.ListRemindersTool
+import io.github.sandeepvijayarao09.anu.connector.phone.NavigateTool
+import io.github.sandeepvijayarao09.anu.connector.phone.OpenAppTool
+import io.github.sandeepvijayarao09.anu.connector.phone.Reminders
+import io.github.sandeepvijayarao09.anu.connector.phone.SetReminderTool
+import io.github.sandeepvijayarao09.anu.connector.phone.ShareTool
+import io.github.sandeepvijayarao09.anu.core.data.RoomReminderStore
+import io.github.sandeepvijayarao09.anu.agent.adk.AdkOrchestrator
+import io.github.sandeepvijayarao09.anu.connector.a2a.A2aAgentList
+import io.github.sandeepvijayarao09.anu.connector.a2a.A2aAgents
+import io.github.sandeepvijayarao09.anu.connector.a2a.A2aClient
+import io.github.sandeepvijayarao09.anu.core.agent.AppCommands
+import io.github.sandeepvijayarao09.anu.core.agent.AppTaskTool
 import io.github.sandeepvijayarao09.anu.core.agent.PhoneCommands
 import io.github.sandeepvijayarao09.anu.feature.settings.ThinkingSetting
 
@@ -167,7 +197,10 @@ class AppGraph(private val context: Context) {
         onChange = { ratio -> prefs.edit { putFloat(KEY_TOKEN_RATIO, ratio.toFloat()) } },
     )
     val geminiKey = GeminiKeySettings(vault, prefs)
-    val device = DeviceStateProvider(context, models, geminiKey)
+
+    /** Gemma on the user's own Mac, the top model in Gemini's place when paired (ADR-113). */
+    val mac = MacBrainSettings(vault, prefs)
+    val device = DeviceStateProvider(context, models, geminiKey, mac)
 
     private val warming = java.util.concurrent.atomic.AtomicBoolean(false)
 
@@ -187,7 +220,7 @@ class AppGraph(private val context: Context) {
         scope.launch {
             try {
                 val last = runCatching { db.answers().latestTier() }.getOrNull()?.let { name -> Tier.entries.firstOrNull { it.name == name } }
-                val id = warmModel(last, setOfNotNull(BrainId.BASE.takeIf(models::isInstalled), BrainId.PRO.takeIf(models::isInstalled))) ?: return@launch
+                val id = warmModel(last, setOfNotNull(BrainId.BASE.takeIf(models::isInstalled), BrainId.PRO.takeIf(models::isInstalled)), models.baseOnTpu) ?: return@launch
                 val started = System.nanoTime()
                 runCatching { onDevice.warm(id) }
                 // Which model and how long, never content.
@@ -218,7 +251,8 @@ class AppGraph(private val context: Context) {
         when (tier) {
             Tier.BASE -> onDevice.brainFor(BrainId.BASE)
             Tier.PRO -> onDevice.brainFor(BrainId.PRO)
-            Tier.CLOUD -> geminiKey.ref()?.let { GeminiBrain(BrainId.CLOUD_FLASH, GEMINI_MODEL, it, vaultHttp, egress) }
+            // The user's Mac first, when paired (ADR-113); off the phone either way, so the egress gate and consent hold.
+            Tier.CLOUD -> mac.brain(vault, egress) ?: geminiKey.ref()?.let { GeminiBrain(BrainId.CLOUD_FLASH, GEMINI_MODEL, it, vaultHttp, egress) }
         }
     }
 
@@ -228,8 +262,11 @@ class AppGraph(private val context: Context) {
     /** Writing from any app's text-selection menu: the cascade with no tools (ADR-042). */
     val writing by lazy { Cascade(router, brains) }
 
+    /** Anu's keyboard: the same cascade with no cloud brain in it, so what's typed never leaves the phone (ADR-109). */
+    val keyboardWriting by lazy { Cascade(router, BrainProvider { tier -> if (tier == Tier.CLOUD) null else brains.brainFor(tier) }) }
+
     /** Speech in and out, on the phone only (ADR-043). */
-    val speechIn by lazy { AndroidSpeechInput(context) }
+    val speechIn by lazy { AndroidSpeechInput(context).let { if (BuildConfig.DEBUG) ShellSpeech(it) else it } }
 
     /** Records voice notes, in memory only (G3, ADR-078). */
     val recorder by lazy { AndroidVoiceRecorder(context) }
@@ -238,11 +275,20 @@ class AppGraph(private val context: Context) {
     /** Anu as the assistant, and "Hey Anu" (ADR-044, ADR-045). */
     val voice by lazy { AnuVoiceSettings(context, prefs) }
 
+    /** Live talk behind other apps, with its microphone service and pill (ADR-108). */
+    val liveTalk by lazy { LiveTalk(context) }
+
     /** The services and stores the user connected in Settings (ADR-046, ADR-047). */
     private val connectorSettings by lazy { RoomConnectorSettings(db.connectors()) }
 
     /** The user's notes, encrypted on the phone (ADR-093). */
     val notes by lazy { RoomNoteStore(db.notes()) }
+
+    /** The user's reminders, kept encrypted until shown and set again after a reboot (ADR-107). */
+    val reminders by lazy { Reminders(context, RoomReminderStore(db.reminders())) { ZonedDateTime.now(zone()) } }
+
+    /** The phone's apps, found by name for "open Spotify" (ADR-107). */
+    private val launcher by lazy { Launcher(context) }
 
     /**
      * For MCP servers and stores. The vault attaches a server's token for its bound host only, and
@@ -273,6 +319,9 @@ class AppGraph(private val context: Context) {
 
     /** Stores that speak UCP (ADR-047). */
     private val ucp by lazy { UcpClient(connectorHttp, UCP_PROFILE, localTestHost) }
+
+    /** Agents the user added on their own network, by the Agent2Agent protocol (ADR-105). */
+    val agents by lazy { A2aAgents(PrefsAgentList(prefs), A2aClient(connectorHttp), ledger) }
     val stores by lazy { StoreConnections(connectorSettings, ucp, scope) }
     private val seenProducts = SeenProducts()
 
@@ -311,17 +360,43 @@ class AppGraph(private val context: Context) {
     val embedder: () -> Embedder? = { searchModel ?: GemmaEmbedder.installed(File(context.noBackupFilesDir, "models"))?.also { searchModel = it } }
 
     /**
+     * Live camera's EmbeddingGemma 2 (ADR-111), once installed: the Tensor G5 build on that chip's TPU when it's there,
+     * else the CPU build, on the GPU where S14 measured it. Checked again until one is.
+     */
+    private var liveModel: Gemma2Embedder? = null
+    val visualEmbedder: () -> VisualEmbedder? = {
+        liveModel ?: Gemma2Embedder.installed(
+            File(context.noBackupFilesDir, "models"),
+            File(context.noBackupFilesDir, "litertlm-cache"),
+            tensorG5 = "tensorg5" in Build.SOC_MODEL.lowercase().replace(" ", ""),
+            nativeLibraryDir = context.applicationInfo.nativeLibraryDir,
+            socModel = Build.SOC_MODEL,
+            emulator = Build.HARDWARE == "ranchu" || Build.HARDWARE == "goldfish",
+        )?.also { liveModel = it }
+    }
+
+    /**
+     * Frees EmbeddingGemma 2 when live camera closes, once a picture being named is done: with its vision encoder it
+     * holds about 0.7 GB, which the chat model needs (ADR-111).
+     */
+    fun releaseVisualEmbedder() {
+        liveModel?.let { scope.launch { it.release() } }
+    }
+
+    /**
      * Installs a model file the user already has, if it's one this phone uses (ADR-067): a chat model's chosen build,
-     * or one of search by meaning's two files, which then get their vectors at once.
+     * one of search by meaning's two files, which then get their vectors at once, or live camera's EmbeddingGemma 2.
      */
     val installer: ModelInstaller by lazy {
         val search = EmbeddingCatalog.MODEL.let { KnownFile(it.name, it.bytes, it.sha256, "EmbeddingGemma 300M", pairedWith = EmbeddingCatalog.TOKENIZER.name) }
         val tokenizer = EmbeddingCatalog.TOKENIZER.let { KnownFile(it.name, it.bytes, it.sha256, "EmbeddingGemma's tokenizer", pairedWith = EmbeddingCatalog.MODEL.name) }
+        val live = EmbeddingCatalog.VISION.let { KnownFile(it.name, it.bytes, it.sha256, "EmbeddingGemma 2") }
+        val liveTpu = EmbeddingCatalog.VISION_TENSOR_G5.let { KnownFile(it.name, it.bytes, it.sha256, "EmbeddingGemma 2's Tensor G5 build") }
         fun chat(artifact: ModelArtifact, what: String) = KnownFile(artifact.fileName, artifact.sizeBytes, artifact.sha256, what)
         CatalogInstaller(
             File(context.noBackupFilesDir, "models"),
-            wanted = { listOf(chat(models.artifactFor(BrainId.BASE), "Gemma 4 E2B"), chat(models.artifactFor(BrainId.PRO), "Gemma 4 E4B"), search, tokenizer) },
-            known = ModelCatalog.all.map { chat(it, "${if (it.brain == BrainId.BASE) "Gemma 4 E2B" else "Gemma 4 E4B"}'s ${buildName(it.variant)}") } + listOf(search, tokenizer),
+            wanted = { listOf(chat(models.artifactFor(BrainId.BASE), "Gemma 4 E2B"), chat(models.artifactFor(BrainId.PRO), "Gemma 4 E4B"), search, tokenizer, live, liveTpu) },
+            known = ModelCatalog.all.map { chat(it, "${if (it.brain == BrainId.BASE) "Gemma 4 E2B" else "Gemma 4 E4B"}'s ${buildName(it.variant)}") } + listOf(search, tokenizer, live, liveTpu),
             onInstalled = { file -> if (file == search || file == tokenizer) scope.launch { runCatching { memory.index() } } },
         )
     }
@@ -329,7 +404,7 @@ class AppGraph(private val context: Context) {
     val memory by lazy {
         MemoryPipeline(
             RoomMemoryStore(db),
-            FactExtractor({ extractionBrain(onDevice::brainFor) }),
+            FactExtractor({ onDevice.memoryBrain() }),
             embedder = embedder,
         )
     }
@@ -368,11 +443,23 @@ class AppGraph(private val context: Context) {
             FlashlightTool(context),
             DoNotDisturbTool(context),
             OpenSettingsTool(context),
+            BrightnessTool(context),
+            VolumeTool(context),
+            DraftTextTool(context),
+            // Other apps through Android's own intents, and reminders as notifications (ADR-107).
+            CallTool(context),
+            OpenAppTool(context, launcher),
+            NavigateTool(context),
+            ShareTool(context),
+            SetReminderTool(context, reminders),
+            ListRemindersTool(context, reminders),
+            CancelReminderTool(context, reminders),
             // Notes kept in Anu, on the phone (ADR-093).
             CreateNoteTool(notes),
             SearchNotesTool(notes),
             AppendNoteTool(notes),
-        ) + Flavor.tools(context, zone)
+        // An app task picks each step with a model call: on the TPU when Base is there, as ADK's agents do.
+        ) + Flavor.tools(context, zone, appBrain = { agentBrain()?.second }, broker = { broker })
     }
 
     private fun toolsFor(skill: Skill): List<String> = when (skill) {
@@ -383,7 +470,7 @@ class AppGraph(private val context: Context) {
         )
         Skill.MESSAGES -> listOf(
             "messages_list_conversations", "messages_read_conversation", "messages_reply",
-            "contacts_find", "calendar_find_free_slots",
+            "contacts_find", "calendar_find_free_slots", "phone_draft_text",
         ) + if (Flavor.HAS_SMS) listOf("sms_search") else emptyList()
         Skill.MEMORY -> listOf("memory_remember", "memory_search", "memory_forget")
         Skill.SHOPPING -> listOf("shop_search", "shop_checkout")
@@ -395,8 +482,13 @@ class AppGraph(private val context: Context) {
         // With notes and contacts, the device skill (ADR-093): each is one small call, so it routes to Base.
         Skill.PHONE -> listOf(
             "phone_set_timer", "phone_set_alarm", "phone_flashlight", "phone_do_not_disturb", "phone_open_settings",
+            "phone_brightness", "phone_volume", "phone_draft_text",
+            "phone_call", "phone_open_app", "phone_navigate", "phone_share",
+            "phone_set_reminder", "phone_list_reminders", "phone_cancel_reminder",
             "notes_create", "notes_search", "notes_append", "contacts_find", "contacts_add",
         )
+        // One call that names the app and the goal; the task picks each step itself (ADR-098). Personal build only.
+        Skill.APPS -> if (Flavor.HAS_APP_CONTROL) listOf(AppTaskTool.NAME) else emptyList()
         else -> emptyList()
     }
 
@@ -407,17 +499,38 @@ class AppGraph(private val context: Context) {
         return memory.state.first().facts.filter { it.id in wanted }.associate { it.id to it.text }
     }
 
+    /** The on-device brain for app tasks' many calls (ADR-098), with its tier: Base when it's on the TPU, else Pro, else Base. */
+    private fun agentBrain(): Pair<Tier, Brain>? {
+        val order = if (models.baseOnTpu) listOf(Tier.BASE to BrainId.BASE, Tier.PRO to BrainId.PRO) else listOf(Tier.PRO to BrainId.PRO, Tier.BASE to BrainId.BASE)
+        return order.firstNotNullOfOrNull { (tier, id) -> onDevice.brainFor(id)?.let { tier to it } }
+    }
+
     private val broker by lazy {
-        ToolBroker(tools, approvals, RoomToolResultStore(db.toolResults()), toolAudit, dynamicTools = { mcp.registry.tools() })
+        ToolBroker(tools, approvals, RoomToolResultStore(db.toolResults()), toolAudit, dynamicTools = { mcp.registry.tools() + agents.tools() })
     }
 
     val chat by lazy {
         ChatSession(
-            agent = Agent(router, brains, broker),
+            // Beside Pro on the GPU, Base gives its own opinion of a request the rules gave it (ADR-106).
+            agent = Agent(router, brains, broker, baseOpinion = BaseOpinion.of { onDevice.run(BrainId.BASE, it) }),
             store = RoomTranscriptStore(db.transcripts(), conversationId = "main"),
             answers = RoomAnswerStore(db.answers(), conversationId = "main"),
             photoStore = RoomPhotoStore(db.photos()),
-            commands = PhoneCommands::match,
+            // A whole phone command, or a message that names an app to act in (ADR-098): each needs no model to start.
+            // "Open Spotify" runs with no model only when an app has that name; anything else goes to the model (ADR-107).
+            commands = { text ->
+                PhoneCommands.match(text, LocalDateTime.now(zone())) { launcher.find(it) is AppPick.One }
+                    ?: if (Flavor.HAS_APP_CONTROL) AppCommands.match(text) else null
+            },
+            // A daily brief, or a request across areas, goes to sub-agents and workflows on Google's ADK (ADR-104).
+            orchestrator = AdkOrchestrator(
+                broker = { broker },
+                available = { (tools.map { it.name } + mcp.registry.tools().map { it.name } + agents.tools().map { it.name }).toSet() },
+                // Pro first: the coordinator plans the specialists' calls. Base on the TPU is faster (ADR-103), and comes
+                // after the agents are checked on Pro.
+                brain = { onDevice.brainFor(BrainId.PRO) ?: onDevice.brainFor(BrainId.BASE) },
+                tier = { if (onDevice.brainFor(BrainId.PRO) != null) Tier.PRO else Tier.BASE },
+            ),
             thinking = { thinking.thinking.value },
             transcriber = onDevice,
             documentReader = onDevice,
@@ -545,11 +658,94 @@ class GeminiKeySettings(private val vault: Vault, private val prefs: SharedPrefe
     }
 }
 
+/**
+ * Pairs the user's Mac (ADR-113). The pairing code's token goes into the vault, bound to the Mac's address and to the Mac
+ * brain alone (§11); the address, port and certificate pin are kept in the clear. Requests go over HTTPS trusting only
+ * that certificate.
+ */
+class MacBrainSettings(private val vault: Vault, private val prefs: SharedPreferences) : MacSettings {
+    private val state = MutableStateFlow(pairing()?.let { "${it.host}:${it.port}" })
+    override val paired: StateFlow<String?> = state.asStateFlow()
+
+    init {
+        named()
+    }
+
+    /** The UI names the top model by what's paired (ADR-113). */
+    private fun named() {
+        TopModel.current = pairing()?.let { TopModel.mac(it.host) } ?: TopModel.GEMINI
+    }
+
+    @Volatile private var cached: Pair<MacPairing, OllamaBrain>? = null
+
+    fun pairing(): MacPairing? {
+        val host = prefs.getString(HOST, null) ?: return null
+        val pin = prefs.getString(PIN, null) ?: return null
+        return MacPairing(host, prefs.getInt(PORT, 0), pin)
+    }
+
+    private fun tokenRef(): SecretRef? = prefs.getString(TOKEN_REF, null)?.let(::SecretRef)
+
+    /** The Mac's brain, or null when no Mac is paired. One client per pairing: its TLS trusts only that Mac. */
+    fun brain(vault: Vault, egress: EgressGate): OllamaBrain? {
+        val pairing = pairing() ?: return null
+        val token = tokenRef() ?: return null
+        cached?.takeIf { it.first == pairing }?.let { return it.second }
+        val http = OkHttpClient.Builder().withVault(vault).pinnedTo(pairing)
+            // The Mac may load the model first, and a long answer takes a while.
+            .readTimeout(120, TimeUnit.SECONDS)
+            .build()
+        return OllamaBrain(pairing.baseUrl, token, http, egress).also { cached = pairing to it }
+    }
+
+    override suspend fun pair(code: String): Boolean {
+        val (pairing, token) = MacPairing.parse(code) ?: return false
+        unpair()
+        val info = vault.put(
+            NewVaultItem(
+                type = ItemType.API_KEY,
+                label = "Mac brain token",
+                service = "Your Mac (${pairing.host})",
+                secret = token,
+                boundHosts = setOf(pairing.host),
+                allowedUsers = setOf(OllamaBrain.CALLER),
+                // Unlocked-device level, as Gemini's key: background features can use it without a prompt.
+                protection = Protection.DEVICE_UNLOCKED,
+            ),
+        )
+        prefs.edit {
+            putString(HOST, pairing.host)
+            putInt(PORT, pairing.port)
+            putString(PIN, pairing.pin)
+            putString(TOKEN_REF, info.id)
+        }
+        state.value = "${pairing.host}:${pairing.port}"
+        named()
+        return true
+    }
+
+    override suspend fun unpair() {
+        tokenRef()?.let { vault.delete(it) }
+        prefs.edit { remove(HOST); remove(PORT); remove(PIN); remove(TOKEN_REF) }
+        cached = null
+        state.value = null
+        named()
+    }
+
+    private companion object {
+        const val HOST = "mac_brain_host"
+        const val PORT = "mac_brain_port"
+        const val PIN = "mac_brain_pin"
+        const val TOKEN_REF = "mac_brain_token_ref"
+    }
+}
+
 /** Stage A inputs for the router (§6): network, installed tiers, heat and battery. */
 class DeviceStateProvider(
     private val context: Context,
     private val models: ModelManager,
     private val geminiKey: GeminiKeySettings,
+    private val mac: MacBrainSettings,
 ) {
     private val power = context.getSystemService(PowerManager::class.java)
     private val battery = context.getSystemService(BatteryManager::class.java)
@@ -574,12 +770,16 @@ class DeviceStateProvider(
     fun current(): DeviceState {
         val connectivity = context.getSystemService(ConnectivityManager::class.java)
         val capabilities = connectivity.getNetworkCapabilities(connectivity.activeNetwork)
-        val online = capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true &&
+        val internet = capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true &&
             capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+        // A paired Mac is on the user's own network, which needs Wi-Fi or Ethernet, not the internet (ADR-113).
+        val local = capabilities != null &&
+            (capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) || capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET))
+        val online = internet || (mac.pairing() != null && local)
         val tiers = buildSet {
             if (models.isInstalled(BrainId.BASE)) add(Tier.BASE)
             if (models.isInstalled(BrainId.PRO)) add(Tier.PRO)
-            if (geminiKey.ref() != null) add(Tier.CLOUD)
+            if (geminiKey.ref() != null || mac.pairing() != null) add(Tier.CLOUD)
         }
         // The guard (ADR-072): heat first, from the forecast or Android's severe status, then a low battery.
         val guard = guardFor(
@@ -589,6 +789,23 @@ class DeviceStateProvider(
             batteryPercent = battery.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY),
             charging = battery.isCharging,
         )
-        return DeviceState(online = online, availableTiers = tiers, guard = guard)
+        return DeviceState(online = online, availableTiers = tiers, guard = guard, baseOnTpu = models.baseOnTpu, proOnGpu = models.proOnGpu)
+    }
+}
+
+/** The addresses of the agents the user added (ADR-105), kept in the app's settings. */
+private class PrefsAgentList(private val prefs: SharedPreferences) : A2aAgentList {
+    override fun addresses(): List<String> = prefs.getStringSet(KEY, emptySet()).orEmpty().sorted()
+
+    override fun add(address: String) {
+        prefs.edit().putStringSet(KEY, prefs.getStringSet(KEY, emptySet()).orEmpty() + address).apply()
+    }
+
+    override fun remove(address: String) {
+        prefs.edit().putStringSet(KEY, prefs.getStringSet(KEY, emptySet()).orEmpty() - address).apply()
+    }
+
+    private companion object {
+        const val KEY = "a2a_agents"
     }
 }

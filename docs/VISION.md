@@ -1,6 +1,6 @@
 # Anu for Android: Product Vision
 
-Version 0.5 · Draft · 2026-10-20 (scope decisions recorded in ARCHITECTURE §16 and §17)
+Version 0.7 · Draft · 2026-10-24 (scope decisions recorded in ARCHITECTURE §16 and §17)
 Companion to [ARCHITECTURE.md](ARCHITECTURE.md), which says how this is built.
 
 ## In one sentence
@@ -26,14 +26,16 @@ Most assistants either know nothing about you or send everything about you to a 
 
 ## What it feels like (v1 stories)
 
-- You open Anu and talk to the orb. It swells as you speak, swirls while it thinks, and answers out loud. Swipe for Memory and Settings.
+- You open Anu and talk to the orb. It swells as you speak, swirls while it thinks, and answers out loud, then listens again, so you can keep talking as on a call until you tap Stop. Switch to another app and the conversation goes on, with a notification and a small pill at the bottom of the screen that show Anu is listening, each with Stop. Swipe for Memory and Settings.
 - In any app, you hold the power button, or say "Hey Anu, what's on my calendar today?" while the screen is on. Anu opens over the app, listens and answers.
 - "Find running shoes under $150." Anu searches the stores you added. "Buy the blue ones in size 10." You approve the exact order and its estimated total, then tap **Finish** to review and pay on the store's site.
 - "Add 'buy oat milk' to my Notes." Anu uses the notes service you connected, and asks before it adds anything.
 - "Reply to Maya, say yes, and suggest Thursday afternoon." Anu reads the thread, checks your calendar against your preferences (it knows you avoid meetings before 10), and drafts the reply in the tone you use with Maya. You approve it, and it sends.
 - "What's my day?" A short brief covers meetings with context, emails that need you, and anything you promised to do.
 - You select text in any app, tap **Anu → More formal**, and the rewrite replaces your selection.
-- Over a long email in any app, you hold the power button and ask "what's this about?". Anu says "Reading Gmail", reads the screen on the phone, and answers. It never looks unless you ask.
+- Typing a text with Anu's keyboard, you tap **Fix grammar** or **Reply** above the keys. Gemma writes it on the phone and shows it first; it goes into the field only when you tap Replace. In a password or incognito field, the keyboard reads nothing and offers no AI.
+- Over a long email in any app, you hold the power button and ask "what's this about?". Anu says "Reading Gmail", reads the screen on the phone, and answers. It never looks unless you ask. Even when Anu isn't your assistant, one tap on "Ask Anu about this screen" in Quick Settings opens Anu over the app with the screen attached, codes blacked out.
+- In an app that has no API, such as a shop's, you ask Anu to add the running shoes in size 10 to your cart. You approve that once, and Anu taps through the app on the phone while a line at the top says what it's doing. It stops before checkout: paying is yours.
 - You tap **+** and pick a photo of a sign, take one with the camera, or share one into Anu from your gallery, and ask what it says. You can add up to four and ask which receipt is bigger. Gemma reads it on the phone; the photo never goes to the cloud.
 - Walking to the car, you tap **+ → Voice note** and say "Call Maya on Thursday morning, and add oat milk to the groceries list." Gemma writes it down on the phone, and Anu proposes the Thursday call as an event for you to approve and lists the oat milk. The recording itself is never kept.
 - A group chat has 40 unread messages. Anu summarizes it from the notification and suggests a reply. It sends only when you tap to approve.
@@ -49,7 +51,8 @@ Most assistants either know nothing about you or send everything about you to a 
 - Learns from anything you've excluded, such as a contact, a mail label or a topic.
 - Claims to be able to do something before it has been tested.
 - Pays for anything, or handles your card or payment details.
-- Listens without your say-so. "Hey Anu" is off until you turn it on, works only while the screen is on, and shows a notification while it listens.
+- Reads, keeps or sends what you type with its keyboard. Its AI reads the field only when you tap an action, works only on the phone, and never touches password or incognito fields.
+- Listens without your say-so. "Hey Anu" is off until you turn it on, works only while the screen is on, and shows a notification while it listens. Live talk goes on in other apps only while a notification (and, in the personal build, a pill on screen) shows it, and Stop always ends it.
 
 ## Scope
 
@@ -62,18 +65,23 @@ Most assistants either know nothing about you or send everything about you to a 
   - Gmail;
   - messaging apps such as WhatsApp, Google Messages, Telegram and Slack, through their notifications;
   - full SMS history, in the personal build only.
-- Phone controls: "set a timer for ten minutes", an alarm, the flashlight, Do Not Disturb or a Settings page, done at once with no model when that's all you ask, and through the model when it's part of something longer.
-- Device control: Anu acts only on the phone it runs on, through that system's own apps. It sets alarms and timers, keeps notes, saves contacts and changes settings, using Gemma 4 E2B on the phone. Notes are kept in Anu, encrypted, because neither Android nor iOS lets apps write the system's notes.
+- Phone controls: "set a timer for ten minutes", an alarm, the flashlight, Do Not Disturb, a Settings page, the screen's brightness or a volume, done at once with no model when that's all you ask, and through the model when it's part of something longer. "Draft a text to Maya…" opens it in your messaging app, ready for you to send. "Remind me at 5 pm to call Mom" sets a reminder that comes up as a notification at 5, even after a restart. "Call Maya" opens the dialer with her number for you to tap call; "open Spotify", "navigate to the airport" and "share this" open the app, Maps or the share sheet. Anu never places the call or shares on its own.
+- Device control: Anu acts only on the phone it runs on, through that system's own apps, and, in the personal build, inside other apps (app control, below). It sets alarms and timers, keeps notes, saves contacts and changes settings, using Gemma 4 E2B on the phone. Notes are kept in Anu, encrypted, because neither Android nor iOS lets apps write the system's notes.
+- App control (personal build only): for an app with no API, ask "In the Test Shop app, add the trail runner in size 10 to my cart". You approve the goal and the app once; Anu opens the app, reads its screen on the phone and taps through it with Gemma, while a line at the top shows what it's doing, with Stop. It asks again before anything that sends or deletes, and stops before anything that buys. You turn it on in Android's accessibility settings.
 - Photos: ask about up to four photos at once, picked, taken with the camera, or shared into Anu. Gemma reads it on the phone, and it's kept with its message in Anu's encrypted store only while Anu can still use it in the chat; after that, its place says it's no longer kept, and your original stays where it was.
 - PDFs: ask about a PDF you pick or share into Anu. Gemma reads it on the phone, a long one in parts for your question; only what it read is kept with the message, and the PDF itself never leaves the phone.
 - Voice notes: record one of up to 5 minutes, or share a recording into Anu. Gemma writes it down on the phone, and Anu proposes the events and other things it asks for, each approved. Only its words are kept; a shared recording is only summarized unless you ask for more, and memory never learns from it.
 - Voice: a Talk page with an orb that reacts to your voice, Anu as the phone's assistant over any app, and opt-in "Hey Anu" while the screen is on. Speech is recognized on the phone.
-- Questions about the screen: over any app, "what's this?" or a tap on "Use this screen" lets Anu read the screen on the phone, with codes and password fields blacked out first. It never reads the screen unless you ask, and the picture is never kept.
+- Questions about the screen: over any app, "what's this?" or a tap on "Use this screen" lets Anu read the screen on the phone, with codes and password fields blacked out first. It never reads the screen unless you ask, and the picture is never kept. A Quick Settings tile, "Ask Anu about this screen", does it in one tap from any app; in the personal build it reads through app control, so Anu needn't be the assistant.
+- Talking from any app: live talk keeps going when you switch apps, shown by a notification and, in the personal build, a pill with Stop; answers are still spoken.
 - More connectors:
   - services you add as MCP servers, such as notes or tasks;
+  - agents on your own network that speak the Agent2Agent protocol (A2A), such as a lab robot or a Raspberry Pi. Anu asks you before every message it sends one, and never lets them call into the phone;
   - stores that support the Universal Commerce Protocol (UCP): search, and checkouts you approve.
 - A living memory and user profile, with a screen to inspect, edit and add to it.
 - AI features: writing, email, scheduling, messages, shopping, and a daily brief.
+- A keyboard (ADR-109): plain QWERTY typing with AI Writing's actions, Continue and Reply above the keys, on the phone only, each result inserted only on your tap.
+- Several steps at once: "Brief me" gathers your calendar, chats and notes in parallel and writes your day in a few lines, and a request that spans areas ("check my calendar for Friday and text Maya I'm free") is shared out to specialists. They run on Google's Agent Development Kit, on the phone, and every action still asks you as any other does.
 - A prompt lab in Settings, for trying prompts and sampling on the models on the phone, with nothing from your data.
 - A vault for the keys and logins Anu uses for you, such as your Gemini key, a Meta Muse API key or email app passwords. It is not a password manager for other apps.
 

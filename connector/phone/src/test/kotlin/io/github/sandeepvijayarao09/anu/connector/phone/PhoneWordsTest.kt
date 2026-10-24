@@ -21,4 +21,11 @@ class PhoneWordsTest {
         assertEquals("12:00 AM", clock(0, 0))
         assertEquals("12:30 PM", clock(12, 30))
     }
+
+    @Test
+    fun `brightness follows the slider's curve`() {
+        assertEquals(255, brightnessLevel(100))
+        assertEquals(55, brightnessLevel(50))
+        assertEquals(1, brightnessLevel(0))
+    }
 }

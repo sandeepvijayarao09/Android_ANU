@@ -9,10 +9,15 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import io.github.sandeepvijayarao09.anu.core.router.Guard
+import io.github.sandeepvijayarao09.anu.connector.phone.ReminderHost
+import io.github.sandeepvijayarao09.anu.connector.phone.Reminders
 
-class AnuApp : Application() {
+class AnuApp : Application(), ReminderHost {
     lateinit var graph: AppGraph
         private set
+
+    /** For the reminders' alarm and boot receivers (ADR-107). */
+    override val reminders: Reminders get() = graph.reminders
 
     private val visible = MutableStateFlow(false)
 
@@ -34,14 +39,19 @@ class AnuApp : Application() {
         // The services and stores saved in Settings, kept in step with the database (ADR-046, ADR-047).
         graph.scope.launch { graph.mcp.sync() }
         graph.scope.launch { graph.stores.sync() }
+        // The agents added on the user's network, from their cards (ADR-105).
+        graph.scope.launch { runCatching { graph.agents.refresh() } }
         MemoryLearning.scheduleCatchUp(this)
         registerActivityLifecycleCallbacks(Visibility())
     }
 
-    /** Models are unloaded when the app goes to the background (P8). They load again on the next request. */
+    /**
+     * Models are unloaded when the app goes to the background (P8). They load again on the next request. Live talk
+     * behind another app keeps them, since the user is still talking to Anu (ADR-108).
+     */
     override fun onTrimMemory(level: Int) {
         super.onTrimMemory(level)
-        if (level >= ComponentCallbacks2.TRIM_MEMORY_BACKGROUND) graph.scope.launch { graph.onDevice.unloadAll() }
+        if (level >= ComponentCallbacks2.TRIM_MEMORY_BACKGROUND && !graph.liveTalk.on.value) graph.scope.launch { graph.onDevice.unloadAll() }
     }
 
     /** Counts started screens. Leaving the app, but not rotating it, starts memory learning (ADR-037). */

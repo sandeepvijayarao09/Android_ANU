@@ -13,6 +13,7 @@ import io.github.sandeepvijayarao09.anu.core.router.DeviceState
 import io.github.sandeepvijayarao09.anu.core.router.RouteRequest
 import io.github.sandeepvijayarao09.anu.core.router.Skill
 import io.github.sandeepvijayarao09.anu.core.router.Tier
+import io.github.sandeepvijayarao09.anu.core.router.TopModel
 import io.github.sandeepvijayarao09.anu.core.security.PiiDetector
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -156,7 +157,7 @@ class WritingViewModel(
         fun label(tier: Tier) = when (tier) {
             Tier.BASE -> "On-device · Base"
             Tier.PRO -> "On-device · Pro"
-            Tier.CLOUD -> "Cloud · Gemini"
+            Tier.CLOUD -> TopModel.current.label
         }
 
         private fun friendly(reasons: List<String>): String = when {

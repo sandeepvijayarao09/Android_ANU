@@ -36,18 +36,22 @@ class EngineHolder(private val config: EngineConfig, val options: EngineOptions 
         engine = null
     }
 
-    /** The flags are global, so engines load one at a time, each with its own options, and the old values come back. */
+    /**
+     * The flags are global, and the runtime reads them only as an engine loads. An engine whose options differ from them
+     * sets them while holding [FLAGS] and leaves them set. Every engine the app loads has the same options, so after the
+     * first, engines load without holding [FLAGS], and a long GPU load doesn't stop another engine's turn from creating
+     * its conversation (ADR-106).
+     */
     @OptIn(ExperimentalApi::class)
-    private fun load(): Engine = synchronized(FLAGS) {
-        val speculative = ExperimentalFlags.enableSpeculativeDecoding
-        val benchmark = ExperimentalFlags.enableBenchmark
-        ExperimentalFlags.enableSpeculativeDecoding = options.speculativeDecoding
-        ExperimentalFlags.enableBenchmark = options.benchmark
-        try {
+    private fun load(): Engine {
+        val unchanged = synchronized(FLAGS) {
+            ExperimentalFlags.enableSpeculativeDecoding == options.speculativeDecoding && ExperimentalFlags.enableBenchmark == options.benchmark
+        }
+        if (unchanged) return Engine(config).also { it.initialize() }
+        return synchronized(FLAGS) {
+            ExperimentalFlags.enableSpeculativeDecoding = options.speculativeDecoding
+            ExperimentalFlags.enableBenchmark = options.benchmark
             Engine(config).also { it.initialize() }
-        } finally {
-            ExperimentalFlags.enableSpeculativeDecoding = speculative
-            ExperimentalFlags.enableBenchmark = benchmark
         }
     }
 

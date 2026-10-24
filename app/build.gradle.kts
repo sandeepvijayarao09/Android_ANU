@@ -46,6 +46,13 @@ android {
     packaging {
         jniLibs {
             excludes += setOf("**/libgecko_embedding_model_jni.so", "**/libsqlite_vector_store_jni.so", "**/libtext_chunker_jni.so")
+            // Native libraries are extracted on install, because LiteRT-LM looks for the TPU's dispatch library as a
+            // file in the app's native library folder (ADR-103).
+            useLegacyPackaging = true
+        }
+        // ADK's Google libraries (ADR-104) each carry these build listings, which nothing reads at run time.
+        resources {
+            excludes += setOf("META-INF/INDEX.LIST", "META-INF/DEPENDENCIES", "META-INF/io.netty.versions.properties")
         }
     }
 }
@@ -58,8 +65,12 @@ dependencies {
     implementation(project(":feature:settings"))
     implementation(project(":feature:memory"))
     implementation(project(":feature:writing"))
+    implementation(project(":feature:keyboard"))
+    implementation(project(":feature:camera")) // live camera (ADR-111)
+    implementation(project(":brain:vision"))
     implementation(project(":brain:litertlm"))
     implementation(project(":brain:gemini"))
+    implementation(project(":brain:ollama"))
     implementation(project(":brain:embedding"))
     implementation(project(":core:vault"))
     implementation(project(":core:data"))
@@ -71,8 +82,14 @@ dependencies {
     implementation(project(":connector:shopping"))
     implementation(project(":connector:phone"))
     implementation(project(":connector:notes"))
+    // Sub-agents and workflows on Google's ADK for Kotlin (ADR-104).
+    implementation(project(":agent:adk"))
+    // Agents on the user's own network, over A2A (ADR-105).
+    implementation(project(":connector:a2a"))
     // SMS is Play-restricted, so only the owner's build links it (ADR-012, ADR-032).
     "personalImplementation"(project(":connector:sms"))
+    // So is app control's accessibility service (ADR-098).
+    "personalImplementation"(project(":connector:apps"))
     implementation(libs.androidx.work.runtime) // memory learning (ADR-037)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.core.ktx)
@@ -84,7 +101,7 @@ dependencies {
     debugImplementation(libs.androidx.compose.ui.tooling)
 }
 
-/** Fails the build if a Play variant's merged manifest declares any SMS permission (ADR-012). */
+/** Fails the build if a Play variant's merged manifest declares any SMS permission (ADR-012) or an accessibility service (ADR-098). */
 abstract class VerifyNoSmsPermissions : DefaultTask() {
     @get:InputFile
     @get:PathSensitive(PathSensitivity.NONE)
@@ -95,6 +112,7 @@ abstract class VerifyNoSmsPermissions : DefaultTask() {
         val text = manifest.get().asFile.readText()
         val found = listOf("READ_SMS", "RECEIVE_SMS", "SEND_SMS", "RECEIVE_MMS", "RECEIVE_WAP_PUSH").filter { "android.permission.$it" in text }
         check(found.isEmpty()) { "The play flavor must not declare SMS permissions, but its manifest has $found (ADR-012)" }
+        check("android.permission.BIND_ACCESSIBILITY_SERVICE" !in text) { "The play flavor must not declare an accessibility service (ADR-098)" }
     }
 }
 

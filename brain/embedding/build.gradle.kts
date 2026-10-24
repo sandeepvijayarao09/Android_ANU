@@ -29,6 +29,8 @@ dependencies {
         exclude(group = "com.squareup.okhttp3", module = "okhttp")
     }
     implementation(libs.protobuf.javalite)
+    // EmbeddingGemma 2 runs on LiteRT-LM's EmbeddingEngine (ADR-111), the runtime the chat models use.
+    implementation(libs.litertlm.android)
     implementation(libs.kotlinx.coroutines.android)
 
     testImplementation(libs.junit)

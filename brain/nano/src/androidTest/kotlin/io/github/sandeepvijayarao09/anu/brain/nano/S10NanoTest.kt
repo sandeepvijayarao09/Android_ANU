@@ -1,5 +1,6 @@
 package io.github.sandeepvijayarao09.anu.brain.nano
 
+import android.app.ActivityManager
 import android.app.job.JobScheduler
 import android.content.Context
 import android.content.pm.PackageManager
@@ -7,6 +8,7 @@ import android.net.TrafficStats
 import android.os.Bundle
 import android.os.Process
 import android.util.Log
+import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.google.mlkit.genai.common.FeatureStatus
@@ -33,7 +35,12 @@ import org.junit.runner.RunWith
  *   ANDROID_SERIAL=<serial> ./gradlew :brain:nano:connectedDebugAndroidTest
  *   adb logcat -d -s AnuS10
  *
- * The test process has no screen, so a refusal to run in the background shows up as an error for each task.
+ * AICore blocks use from the background (error 30), so the test first opens `ForegroundActivity`, an empty screen
+ * that shows over the lock screen, and reports the process's importance before the tasks.
+ *
+ * Runner arguments: `stage` (STABLE, the default, or PREVIEW, the AICore Developer Preview's Gemma 4) and `preference`
+ * (FULL, the default, which is E4B in the preview, or FAST, which is E2B). The same tasks run on LiteRT-LM in
+ * `WritingParityTest`, so the two runtimes can be set side by side on one phone.
  */
 @RunWith(AndroidJUnit4::class)
 class S10NanoTest {
@@ -42,11 +49,14 @@ class S10NanoTest {
     @Test
     fun availabilityApiSpeedAndTraffic() = runBlocking {
         report("aicore_installed", installed("com.google.android.aicore"))
+        report("config", "stage=${arg("stage") ?: "STABLE"} preference=${arg("preference") ?: "FULL"}")
+        val screen = ActivityScenario.launch(ForegroundActivity::class.java)
+        report("importance", ActivityManager.RunningAppProcessInfo().also(ActivityManager::getMyMemoryState).importance)
         val model = Generation.getClient(
             generationConfig {
                 modelConfig = modelConfig {
-                    releaseStage = ModelReleaseStage.STABLE
-                    preference = ModelPreference.FULL
+                    releaseStage = if (arg("stage") == "PREVIEW") ModelReleaseStage.PREVIEW else ModelReleaseStage.STABLE
+                    preference = if (arg("preference") == "FAST") ModelPreference.FAST else ModelPreference.FULL
                 }
             },
         )
@@ -66,17 +76,19 @@ class S10NanoTest {
             val receivedBefore = TrafficStats.getUidRxBytes(uid)
             report("warmup_ms", millis { runCatching { model.warmup() }.onFailure { report("warmup_error", it.message) } })
             for ((task, text) in CASES) write(model, task, text)
+            write(model, LONG_TASK, LONG_TEXT, counted = true)
             report("sent_bytes", TrafficStats.getUidTxBytes(uid) - sentBefore)
             report("received_bytes", TrafficStats.getUidRxBytes(uid) - receivedBefore)
             // The library's usage logs go out later through a scheduled job, so list what it scheduled.
             report("pending_jobs", context.getSystemService(JobScheduler::class.java).allPendingJobs.map { it.service.className })
         } finally {
             model.close()
+            screen.close()
         }
     }
 
     /** One single-turn writing task, as AI Writing would ask it, timed to the first chunk and to the end. */
-    private suspend fun write(model: GenerativeModel, task: String, text: String) {
+    private suspend fun write(model: GenerativeModel, task: String, text: String, counted: Boolean = false) {
         val request = generateContentRequest(SystemInstruction(SYSTEM), TextPart("$task\n\n<text>$text</text>")) {
             temperature = 0.2f
             topK = 16
@@ -94,10 +106,22 @@ class S10NanoTest {
             report("${label}_first_ms", (first - started) / 1_000_000)
             report("${label}_total_ms", (System.nanoTime() - started) / 1_000_000)
             report("${label}_answer", answer.toString().take(200).replace('\n', ' '))
+            if (counted) {
+                // The API has no speed counters, so reading is the prompt's tokens over the time to the first chunk, and
+                // writing is the answer's tokens over the rest: the same measure as the LiteRT-LM side's estimate.
+                val read = model.countTokens(request).totalTokens
+                val wrote = model.countTokens(generateContentRequest(TextPart(answer.toString())) {}).totalTokens
+                val readMs = (first - started) / 1_000_000
+                val writeMs = (System.nanoTime() - first) / 1_000_000
+                report("${label}_read", "$read tokens in $readMs ms, ${"%.1f".format(read * 1000.0 / readMs.coerceAtLeast(1))} tok/s")
+                report("${label}_wrote", "$wrote tokens in $writeMs ms, ${"%.1f".format(wrote * 1000.0 / writeMs.coerceAtLeast(1))} tok/s")
+            }
         } catch (e: Exception) {
             report("error", "$task: ${e.javaClass.simpleName}: ${e.message}")
         }
     }
+
+    private fun arg(name: String): String? = InstrumentationRegistry.getArguments().getString(name)
 
     private fun installed(pkg: String) = try {
         context.packageManager.getPackageInfo(pkg, 0).versionName ?: "yes"
@@ -137,5 +161,12 @@ class S10NanoTest {
                 "The team reviewed the launch plan for the calendar assistant, agreed that invites must always be approved " +
                 "by the user, moved the design review to Thursday afternoon, and asked Maya to send the updated budget by Friday.",
         )
+
+        /** A long read, to measure reading speed: made-up meeting notes of about 1,200 tokens. */
+        const val LONG_TASK = "Long summary: summarize these notes in three short bullet points."
+        val LONG_TEXT = (1..24).joinToString("\n") { i ->
+            "Item $i: The team discussed part $i of the calendar assistant's launch. Maya Chen asked for the approval sheet " +
+                "to show the exact invite, the room and the time zone before anything is sent, and agreed to review it by day ${i + 2}."
+        }
     }
 }

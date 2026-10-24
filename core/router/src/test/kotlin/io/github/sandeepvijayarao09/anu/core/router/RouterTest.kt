@@ -114,6 +114,26 @@ class RouterTest {
     }
 
     @Test
+    fun `with Pro on the GPU beside Base on the TPU, a Pro request stays on Pro (ADR-106)`() {
+        val decision = route(proRequest, everything.copy(baseOnTpu = true, proOnGpu = true))
+        assertEquals(Tier.PRO, decision.tier)
+        assertEquals("a Base request stays on Base", Tier.BASE, route(request("Reply with just the word pong"), everything.copy(baseOnTpu = true, proOnGpu = true)).tier)
+    }
+
+    @Test
+    fun `with Base on the TPU, a Pro request goes to Base when it fits, and a failed answer still moves up to Pro`() {
+        val tpu = everything.copy(baseOnTpu = true)
+        val decision = route(proRequest, tpu)
+        assertEquals(Tier.BASE, decision.tier)
+        assertEquals(false, decision.guarded)
+        assertTrue(decision.reasons.toString(), decision.reasons.contains("Base runs on the TPU: Base instead of Pro"))
+        assertEquals(Tier.PRO, router.escalate(proRequest, decision, "invalid tool call")?.tier)
+        assertEquals("too long for Base", Tier.PRO, route(proRequest.copy(promptTokens = 2_300), tpu).tier)
+        assertEquals("no Base installed", Tier.PRO, route(proRequest, tpu.copy(availableTiers = setOf(Tier.PRO))).tier)
+        assertEquals("pinned by the user", Tier.PRO, route(proRequest.copy(pinnedTier = Tier.PRO), tpu).tier)
+    }
+
+    @Test
     fun `a Base request isn't changed by the guard`() {
         val decision = route(request("Reply with just the word pong"), everything.copy(guard = Guard.HEAT))
         assertEquals(Tier.BASE, decision.tier)
@@ -248,6 +268,61 @@ class RouterTest {
         assertEquals(Skill.MEMORY, SkillDetector.detect("Note that I'm vegetarian"))
         assertEquals(Skill.CHAT, SkillDetector.detect("I noted the time"))
         assertEquals(Tier.BASE, route(request("Set an alarm for 6 and add eggs to my groceries note").copy(skill = Skill.PHONE)).tier)
+    }
+
+    @Test
+    fun `brightness and volume are the phone's, and a text draft is messages' (ADR-099)`() {
+        assertEquals(Skill.PHONE, SkillDetector.detect("Make the screen a bit brighter and turn the volume down"))
+        assertEquals(Skill.PHONE, SkillDetector.detect("Set the ringer to half and wake me at 7"))
+        assertEquals(Skill.MESSAGES, SkillDetector.detect("Write a draft for a message to Maya saying I'm running late"))
+        assertEquals(Skill.MESSAGES, SkillDetector.detect("Draft a text to Raj about dinner"))
+        assertEquals("an email stays email", Skill.EMAIL, SkillDetector.detect("Draft an email to Maya about the message she sent"))
+    }
+
+    @Test
+    fun `reminders, calls, apps, directions and sharing are the phone's, and the calendar keeps its words (ADR-107)`() {
+        assertEquals(Skill.PHONE, SkillDetector.detect("Remind me on Friday to pay the rent"))
+        assertEquals(Skill.PHONE, SkillDetector.detect("Remind me to water the plants in a bit"))
+        assertEquals(Skill.PHONE, SkillDetector.detect("What reminders do I have?"))
+        assertEquals(Skill.PHONE, SkillDetector.detect("Call Maya"))
+        assertEquals(Skill.PHONE, SkillDetector.detect("Open Spotify and play something calm"))
+        assertEquals(Skill.PHONE, SkillDetector.detect("Get me directions to the nearest pharmacy"))
+        assertEquals(Skill.PHONE, SkillDetector.detect("Share this recipe with my sister"))
+        assertEquals("a meeting is still an event", Skill.SCHEDULING, SkillDetector.detect("Remind me about the meeting with Raj on Monday"))
+        assertEquals("app control needs the word app", Skill.APPS, SkillDetector.detect("Open the Test Shop app and add socks to the cart"))
+        assertEquals("not a call", Skill.CHAT, SkillDetector.detect("Call me Sam from now on"))
+        assertEquals("not a reminder", Skill.CHAT, SkillDetector.detect("Remind me what a haiku is"))
+        assertEquals("not an area for the agents", Skill.SCHEDULING, SkillDetector.detect("Check my calendar for Friday and call Maya"))
+        assertEquals(Tier.BASE, route(request("Remind me on Friday to pay the rent").copy(skill = Skill.PHONE)).tier)
+    }
+
+    @Test
+    fun `a brief, and a request across areas, go to ADK's agents (ADR-104)`() {
+        assertEquals(Skill.BRIEF, SkillDetector.detect("Brief me"))
+        assertEquals(Skill.BRIEF, SkillDetector.detect("What does my day look like?"))
+        assertEquals(Skill.AGENTS, SkillDetector.detect("Check my calendar for Friday and text Maya I'm free"))
+        assertEquals(Skill.AGENTS, SkillDetector.detect("Set an alarm for 7 and find a free slot tomorrow for the dentist"))
+        assertEquals("one area stays its own skill", Skill.PHONE, SkillDetector.detect("Wake me at 6:30 and turn the flashlight off"))
+        assertEquals("email keeps its calendar", Skill.EMAIL, SkillDetector.detect("Set an alarm and email Maya the agenda"))
+        assertEquals("a note isn't the calendar", Skill.PHONE, SkillDetector.detect("What's on my groceries note?"))
+        assertEquals("an agent on the network (ADR-105)", Skill.AGENTS, SkillDetector.detect("Ask the Home Lab agent what the temperature is"))
+        assertEquals(Skill.AGENTS, SkillDetector.detect("Tell my robot agent to wave"))
+        // A follow-up never stays with the agents: they run once and don't see the chat.
+        assertEquals(Skill.CHAT, SkillDetector.detect(listOf("Ask the Home Lab agent to turn on the desk lamp", "What is a good name for a cat?", "Give me one more")))
+        assertEquals(Skill.CHAT, SkillDetector.detect("Thanks!", previous = Skill.BRIEF))
+        assertEquals(Tier.PRO, route(request("Check my calendar for Friday and text Maya I'm free").copy(skill = Skill.AGENTS)).tier)
+    }
+
+    @Test
+    fun `a request that names an app to act in gets app control, on Base (ADR-098)`() {
+        assertEquals(Skill.APPS, SkillDetector.detect("In the Test Shop app, add the trail runner to my cart"))
+        assertEquals(Skill.APPS, SkillDetector.detect("Open the Clock app and set an alarm for 7"))
+        assertEquals("before email", Skill.APPS, SkillDetector.detect("In the Gmail app, archive the newsletter"))
+        assertEquals("before memory only", Skill.MEMORY, SkillDetector.detect("Remember that I use the Shop app"))
+        assertEquals("no app named, so the user's stores", Skill.SHOPPING, SkillDetector.detect("Add it to my cart"))
+        assertEquals(Skill.CHAT, SkillDetector.detect("I'm working on an app"))
+        assertEquals(Skill.CHAT, SkillDetector.detect("What can I do in the app?"))
+        assertEquals(Tier.BASE, route(request("In the Test Shop app, add milk to my cart").copy(skill = Skill.APPS)).tier)
     }
 
     @Test

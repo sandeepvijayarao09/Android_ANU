@@ -208,7 +208,7 @@ class McpTest {
         assertTrue(offered.toString(), "mcp_my_notes_find_groceries" in offered)
         assertTrue(offered.all { it.matches(Regex("[a-z][a-z0-9_]{0,63}")) })
         assertEquals(9, registry.tools().size)
-        // By name, and the same list for a follow-up, so the on-device conversation is kept (ADR-098).
+        // By name, and the same list for a follow-up, so the on-device conversation is kept (ADR-114).
         assertEquals(offered.sorted(), offered)
         assertEquals(offered, registry.toolsFor(listOf("Find groceries in my notes", "Ask My Notes please", "my notes: does thing 8?")))
         // Cached for the server's TTL: asking again doesn't refetch.
