@@ -64,6 +64,12 @@ class RunState(
      */
     val cloudConsented: Boolean,
     inView: Set<UntrustedContent> = emptySet(),
+    /**
+     * Tools the user approved for this run as a whole: an app task's steps, once its goal and app were approved
+     * (ADR-098). Their `WRITE_PRIVATE` calls run without asking even while the run is tainted; anything riskier
+     * still asks (I2).
+     */
+    val granted: Set<String> = emptySet(),
 ) {
     private val seen = inView.toMutableSet()
 
@@ -203,7 +209,7 @@ class ToolBroker(
 
         // Ask until the user approves, declines or doesn't answer. An edit approves nothing: the broker checks
         // it like the model's arguments and asks again with exactly what will run (I2).
-        var reason = approvalReason(current.risk, current.destination, run.untrusted)
+        var reason = reasonToAsk(tool.name, current, run)
         val asked = reason != null
         var edited = false
         var problem: String? = null
@@ -245,7 +251,7 @@ class ToolBroker(
                         }
                     }
                     // The user always sees the final payload before it runs, even if it no longer needs asking.
-                    reason = approvalReason(current.risk, current.destination, run.untrusted) ?: "You changed this"
+                    reason = reasonToAsk(tool.name, current, run) ?: "You changed this"
                 }
             }
         }
@@ -280,6 +286,7 @@ class ToolBroker(
         val destination: String?,
         val payload: JsonObject,
         val rows: List<PayloadRow>?,
+        val note: String?,
     )
 
     /**
@@ -293,7 +300,7 @@ class ToolBroker(
         // Arguments run in order, so a tool's rows come after its description, as [Tool.rows] promises.
         return Assessed(
             input, tool.risk(input), tool.describe(input), tool.sendsTo(input), json.encodeToJsonElement(tool.input, input) as JsonObject,
-            tool.rows(input),
+            tool.rows(input), tool.approvalNote(input),
         )
     }
 
@@ -311,6 +318,16 @@ class ToolBroker(
         }
         // An edit that checks out to the same payload, such as a cleared field that was already empty, is no change.
         return assess(tool, edited).takeIf { it.payload != current.payload }
+    }
+
+    /**
+     * Why [current] needs the user's approval, or null when it runs by itself: the tool's own note when it always asks
+     * ([Tool.approvalNote]), else its tier's reason, unless the run was granted the tool's private steps (ADR-098).
+     */
+    private fun reasonToAsk(toolName: String, current: Assessed<*>, run: RunState): String? {
+        current.note?.let { note -> return note.andShows(run.untrusted.takeIf { it.isNotEmpty() }?.let(::shownIn), run.untrusted) }
+        if (current.risk == RiskTier.WRITE_PRIVATE && toolName in run.granted) return null
+        return approvalReason(current.risk, current.destination, run.untrusted)
     }
 
     /**

@@ -251,6 +251,18 @@ class RouterTest {
     }
 
     @Test
+    fun `a request that names an app to act in gets app control, on Base (ADR-098)`() {
+        assertEquals(Skill.APPS, SkillDetector.detect("In the Test Shop app, add the trail runner to my cart"))
+        assertEquals(Skill.APPS, SkillDetector.detect("Open the Clock app and set an alarm for 7"))
+        assertEquals("before email", Skill.APPS, SkillDetector.detect("In the Gmail app, archive the newsletter"))
+        assertEquals("before memory only", Skill.MEMORY, SkillDetector.detect("Remember that I use the Shop app"))
+        assertEquals("no app named, so the user's stores", Skill.SHOPPING, SkillDetector.detect("Add it to my cart"))
+        assertEquals(Skill.CHAT, SkillDetector.detect("I'm working on an app"))
+        assertEquals(Skill.CHAT, SkillDetector.detect("What can I do in the app?"))
+        assertEquals(Tier.BASE, route(request("In the Test Shop app, add milk to my cart").copy(skill = Skill.APPS)).tier)
+    }
+
+    @Test
     fun `explanations, advice and time arithmetic go to Pro, and a detailed report to the cloud (ADR-084)`() {
         assertEquals(Tier.PRO, route(request("Explain how a heat pump works in simple terms.")).tier)
         assertEquals(Tier.PRO, route(request("What are three ways to lower my electricity bill?")).tier)

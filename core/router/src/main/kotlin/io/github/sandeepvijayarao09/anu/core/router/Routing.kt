@@ -9,8 +9,9 @@ enum class Tier { BASE, PRO, CLOUD }
 /**
  * [VOICE_NOTE] is a voice note of the user's own that the typed words don't send elsewhere (EXP-3, ADR-078). [PHONE]
  * is a request that uses the phone's controls but is more than one whole command, which runs with no model (G6).
+ * [APPS] is a request that names another app to do something in, by tapping in it (ADR-098).
  */
-enum class Skill { CHAT, WRITING, EMAIL, SCHEDULING, MESSAGES, BRIEF, MEMORY, SHOPPING, VOICE_NOTE, PHONE }
+enum class Skill { CHAT, WRITING, EMAIL, SCHEDULING, MESSAGES, BRIEF, MEMORY, SHOPPING, VOICE_NOTE, PHONE, APPS }
 
 /**
  * Whether a skill may send personal data to the cloud. ASK is the default (OD-6).

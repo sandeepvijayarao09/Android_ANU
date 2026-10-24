@@ -62,6 +62,12 @@ interface Tool<I : Any, O : Any> {
      */
     fun sendsTo(input: I): String? = null
 
+    /**
+     * Why this call always asks, whatever its tier, or null to ask only when the tier does. An app task asks for its
+     * goal and app every time, since Anu then acts in that app step by step (ADR-098).
+     */
+    fun approvalNote(input: I): String? = null
+
     /** One sentence that says exactly what this call will do. It is shown on the approval sheet. */
     fun describe(input: I): String
 

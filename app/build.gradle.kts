@@ -73,6 +73,8 @@ dependencies {
     implementation(project(":connector:notes"))
     // SMS is Play-restricted, so only the owner's build links it (ADR-012, ADR-032).
     "personalImplementation"(project(":connector:sms"))
+    // So is app control's accessibility service (ADR-098).
+    "personalImplementation"(project(":connector:apps"))
     implementation(libs.androidx.work.runtime) // memory learning (ADR-037)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.core.ktx)
@@ -84,7 +86,7 @@ dependencies {
     debugImplementation(libs.androidx.compose.ui.tooling)
 }
 
-/** Fails the build if a Play variant's merged manifest declares any SMS permission (ADR-012). */
+/** Fails the build if a Play variant's merged manifest declares any SMS permission (ADR-012) or an accessibility service (ADR-098). */
 abstract class VerifyNoSmsPermissions : DefaultTask() {
     @get:InputFile
     @get:PathSensitive(PathSensitivity.NONE)
@@ -95,6 +97,7 @@ abstract class VerifyNoSmsPermissions : DefaultTask() {
         val text = manifest.get().asFile.readText()
         val found = listOf("READ_SMS", "RECEIVE_SMS", "SEND_SMS", "RECEIVE_MMS", "RECEIVE_WAP_PUSH").filter { "android.permission.$it" in text }
         check(found.isEmpty()) { "The play flavor must not declare SMS permissions, but its manifest has $found (ADR-012)" }
+        check("android.permission.BIND_ACCESSIBILITY_SERVICE" !in text) { "The play flavor must not declare an accessibility service (ADR-098)" }
     }
 }
 

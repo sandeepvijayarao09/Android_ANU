@@ -357,7 +357,7 @@ class ChatSession(
             if (event is AgentEvent.Completed) {
                 val took = (nanoTime() - started) / 1_000_000
                 val details = AnswerDetails(
-                    tier = event.tier, actions = event.actions, firstWordMs = took, totalMs = took, atMillis = millis(), direct = true,
+                    tier = event.tier, actions = event.actions, firstWordMs = took, totalMs = took, atMillis = millis(), direct = event.direct,
                 )
                 out = event.copy(details = details)
                 if (kept < saved.size) {

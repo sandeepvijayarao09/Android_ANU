@@ -330,6 +330,13 @@ A modal sheet (`xl` corners, grabber, scrim):
 
 Declining is always one tap, at the same size as approving. The primary button is never the only large target. Haptics: CONFIRM on approve, REJECT on decline.
 
+### Working in an app (ADR-098)
+While Anu taps through another app, one line floats at the top of the screen, 44dp below the status bar, with a 16dp inset on each side:
+- a `full` pill in `surface` (`surface-dark` in dark mode), with the soft shadow in light mode and a 0.5dp white hairline at 6% in dark;
+- on the left, "Anu · Test Shop" in 13sp weight 600 `text`, and below it what Anu is doing now ("Tapping “Add to cart”", "Looking at the screen…") in 13sp `text-muted`, each one line, ellipsized;
+- on the right, Stop: a 40dp `full` button in `primary` with `on-primary` 15sp weight 600, in a 48dp touch target (TalkBack: "Stop Anu").
+TalkBack reads the pill as "Anu is working in Test Shop. <what it's doing>". It never takes the keyboard's focus. It goes when the task ends; the answer waits in Anu's chat.
+
 ### Assistant card (over any app)
 It opens from the power button, the corner swipe or "Hey Anu".
 - **Layout:** a frosted card, 10dp from the sides and 26dp from the bottom (at least 4dp above a taller navigation bar), with `xl` corners, at most 640dp wide.

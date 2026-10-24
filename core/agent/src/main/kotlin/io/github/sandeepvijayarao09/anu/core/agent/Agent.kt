@@ -2,6 +2,7 @@ package io.github.sandeepvijayarao09.anu.core.agent
 
 import io.github.sandeepvijayarao09.anu.core.model.Brain
 import io.github.sandeepvijayarao09.anu.core.model.BrainEvent
+import io.github.sandeepvijayarao09.anu.core.model.BrainId
 import io.github.sandeepvijayarao09.anu.core.model.BrainLocation
 import io.github.sandeepvijayarao09.anu.core.model.BrainRequest
 import io.github.sandeepvijayarao09.anu.core.model.ChatMessage
@@ -28,6 +29,7 @@ import kotlinx.coroutines.flow.FlowCollector
 import kotlinx.coroutines.flow.flow
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 
 /** How an escalation past a tier with no model installed is worded. That tier never tried. */
 internal const val NO_BRAIN = "no brain is wired"
@@ -188,13 +190,20 @@ class Agent(
             is ToolOutcome.Failed -> "That didn't work: ${sentence(outcome.reason)}"
             is ToolOutcome.Invalid -> "That didn't work: ${sentence(outcome.reason)}"
         }
+        // An app task picks its steps with an on-device model, and says which (ADR-098): the answer names it.
+        val used = ((outcome as? ToolOutcome.Ok)?.result as? JsonObject)?.get("brain")?.let { (it as? JsonPrimitive)?.contentOrNull }
+        val tier = when (used) {
+            BrainId.PRO.name -> Tier.PRO
+            BrainId.BASE.name -> Tier.BASE
+            else -> null
+        }
         val untrusted = if (outcome is ToolOutcome.Ok || outcome is ToolOutcome.Failed) broker.untrustedContent(call.name) else null
         val added = listOf(
             ChatMessage.Model("", listOf(call)),
             ChatMessage.Tool(listOf(ToolResult(call.name, outcome.toResultJson(), untrusted))),
             ChatMessage.Model(text),
         )
-        emit(AgentEvent.Completed(Tier.BASE, text, added, listOfNotNull(action), direct = true))
+        emit(AgentEvent.Completed(tier ?: Tier.BASE, text, added, listOfNotNull(action), direct = tier == null))
     }
 
     fun run(
@@ -406,7 +415,14 @@ class Agent(
                 if (outcome !is ToolOutcome.Invalid) anyValid = true
                 // Saved with the result, so later turns know what the model can still see. A call that never
                 // ran holds only the broker's own words.
-                val untrusted = if (outcome is ToolOutcome.Ok || outcome is ToolOutcome.Failed) broker.untrustedContent(call.name) else null
+                // An app task picks its steps with an on-device model, and says which (ADR-098): the answer names it.
+        val used = ((outcome as? ToolOutcome.Ok)?.result as? JsonObject)?.get("brain")?.let { (it as? JsonPrimitive)?.contentOrNull }
+        val tier = when (used) {
+            BrainId.PRO.name -> Tier.PRO
+            BrainId.BASE.name -> Tier.BASE
+            else -> null
+        }
+        val untrusted = if (outcome is ToolOutcome.Ok || outcome is ToolOutcome.Failed) broker.untrustedContent(call.name) else null
                 results += ToolResult(call.name, outcome.toResultJson(), untrusted)
             }
             added += ChatMessage.Tool(results)

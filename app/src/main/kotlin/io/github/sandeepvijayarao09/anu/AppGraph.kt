@@ -129,6 +129,8 @@ import io.github.sandeepvijayarao09.anu.connector.phone.SetTimerTool
 import io.github.sandeepvijayarao09.anu.connector.phone.SetAlarmTool
 import io.github.sandeepvijayarao09.anu.connector.phone.FlashlightTool
 import io.github.sandeepvijayarao09.anu.connector.phone.OpenSettingsTool
+import io.github.sandeepvijayarao09.anu.core.agent.AppCommands
+import io.github.sandeepvijayarao09.anu.core.agent.AppTaskTool
 import io.github.sandeepvijayarao09.anu.core.agent.PhoneCommands
 import io.github.sandeepvijayarao09.anu.feature.settings.ThinkingSetting
 
@@ -372,7 +374,7 @@ class AppGraph(private val context: Context) {
             CreateNoteTool(notes),
             SearchNotesTool(notes),
             AppendNoteTool(notes),
-        ) + Flavor.tools(context, zone)
+        ) + Flavor.tools(context, zone, appBrain = { onDevice.brainFor(BrainId.PRO) ?: onDevice.brainFor(BrainId.BASE) }, broker = { broker })
     }
 
     private fun toolsFor(skill: Skill): List<String> = when (skill) {
@@ -397,6 +399,8 @@ class AppGraph(private val context: Context) {
             "phone_set_timer", "phone_set_alarm", "phone_flashlight", "phone_do_not_disturb", "phone_open_settings",
             "notes_create", "notes_search", "notes_append", "contacts_find", "contacts_add",
         )
+        // One call that names the app and the goal; the task picks each step itself (ADR-098). Personal build only.
+        Skill.APPS -> if (Flavor.HAS_APP_CONTROL) listOf(AppTaskTool.NAME) else emptyList()
         else -> emptyList()
     }
 
@@ -417,7 +421,8 @@ class AppGraph(private val context: Context) {
             store = RoomTranscriptStore(db.transcripts(), conversationId = "main"),
             answers = RoomAnswerStore(db.answers(), conversationId = "main"),
             photoStore = RoomPhotoStore(db.photos()),
-            commands = PhoneCommands::match,
+            // A whole phone command, or a message that names an app to act in (ADR-098): each needs no model to start.
+            commands = { text -> PhoneCommands.match(text) ?: if (Flavor.HAS_APP_CONTROL) AppCommands.match(text) else null },
             thinking = { thinking.thinking.value },
             transcriber = onDevice,
             documentReader = onDevice,

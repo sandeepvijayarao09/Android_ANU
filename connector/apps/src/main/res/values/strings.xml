@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="apps_service_label">Anu app control</string>
+    <string name="apps_service_description">Lets Anu tap and type in an app when you ask it to do something there, such as adding a product to your cart. Anu reads an app\'s screen only during a task you approved, and only on this phone. It asks again before anything that sends or deletes, and it never buys or pays. A line at the top of the screen shows what Anu is doing, with a Stop button.</string>
+    <string name="apps_stop">Stop</string>
+    <string name="apps_stop_description">Stop Anu</string>
+</resources>

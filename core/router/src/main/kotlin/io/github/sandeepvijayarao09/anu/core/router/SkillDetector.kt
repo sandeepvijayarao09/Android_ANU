@@ -124,9 +124,21 @@ object SkillDetector {
     /** A user message for [replay]: its words, and the skill it has regardless of them, if any. */
     data class Turn(val text: String, val skill: Skill? = null)
 
+    /**
+     * A request that names another app to act in (ADR-098): "in the Test Shop app, add…", "open the Clock app and…".
+     * The word "app" is required, so "add it to my cart" stays shopping, with the user's stores.
+     */
+    private val IN_AN_APP = Regex(
+        "\\b(in|on|using|with|open|launch|go to) (the |my )?(?!(a|an|the|my|this|that|your|our|their|his|her|new|one|an?other) app\\b)" +
+            "[\\p{L}\\p{N}][\\p{L}\\p{N}&.'’ +-]{0,30}? app\\b",
+        RegexOption.IGNORE_CASE,
+    )
+
     private fun byKeywords(text: String, previous: Skill?): Skill? = when {
         // First: "Remember Maya's email is…" is about memory, not email.
         MEMORY.containsMatchIn(text) -> Skill.MEMORY
+        // Before email, messages and shopping: "in the Gmail app, archive…" means tapping in that app.
+        IN_AN_APP.containsMatchIn(text) -> Skill.APPS
         EMAIL.containsMatchIn(text) -> Skill.EMAIL
         MESSAGES.containsMatchIn(text) || TEXT_COMMAND.containsMatchIn(text) -> Skill.MESSAGES
         // Before scheduling: a reply that proposes a time needs the reply tools, which include the calendar lookups.
