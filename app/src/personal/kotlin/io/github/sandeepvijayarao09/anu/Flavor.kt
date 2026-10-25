@@ -55,8 +55,22 @@ internal object Flavor {
     private fun driver(context: Context) = driver ?: synchronized(this) { driver ?: AccessibilityAppDriver(context.applicationContext).also { driver = it } }
 
     /** Samsung Notes, where a new note is written too once app control is on (ADR-117). */
-    fun noteMirror(context: Context): NoteMirror = SamsungNotesMirror(driver(context)) {
-        context.packageManager.getLaunchIntentForPackage(SAMSUNG_NOTES) != null
+    fun noteMirror(context: Context): NoteMirror {
+        val mirror = SamsungNotesMirror(driver(context)) { context.packageManager.getLaunchIntentForPackage(SAMSUNG_NOTES) != null }
+        if (!BuildConfig.DEBUG) return mirror
+        // Debug builds say how each save went; the reasons name screen elements, never the note's words.
+        return object : NoteMirror by mirror {
+            override suspend fun save(title: String, text: String) {
+                val started = System.nanoTime()
+                try {
+                    mirror.save(title, text)
+                    Log.d("Anu", "Samsung Notes: saved in ${(System.nanoTime() - started) / 1_000_000} ms")
+                } catch (e: Exception) {
+                    Log.d("Anu", "Samsung Notes: not saved, ${e.message}")
+                    throw e
+                }
+            }
+        }
     }
 
     private const val SAMSUNG_NOTES = "com.samsung.android.app.notes"

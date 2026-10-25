@@ -29,11 +29,25 @@ class SamsungNotesMirror(private val driver: AppDriver, private val installed: (
 
     override suspend fun save(title: String, text: String) {
         check(driver.ready) { "app control is off" }
-        driver.open(app) ?: error("$app isn't on this phone")
+        // By package: its launcher name varies with the phone's language and One UI's version.
+        driver.openPackage(PACKAGE) ?: error("$app isn't on this phone")
         driver.showProgress(app, "Writing your note…")
         try {
-            driver.tap(find(read(), "the Create note button") { it.kind == ScreenElement.Kind.BUTTON && CREATE.matches(it.label) })
+            // Samsung Notes reopens where it was left, which may be a note: Navigate up goes back to the list.
+            var list = read()
+            repeat(2) {
+                if (list.elements.none(::create)) {
+                    list.elements.firstOrNull { it.label.equals(UP, ignoreCase = true) }?.let { driver.tap(it.id) } ?: driver.back()
+                    list = read()
+                }
+            }
+            driver.tap(find(list, "the Create note button", ::create))
             var screen = read()
+            // The editor's first-run tip ("Touch and hold, then drag…") takes the screen until Back closes it.
+            if (screen.elements.none { it.label.equals(UP, ignoreCase = true) || titleField(it) }) {
+                driver.back()
+                screen = read()
+            }
             if (screen.elements.none(::titleField)) {
                 // The title shows as words in the toolbar until it's tapped.
                 driver.tap(find(screen, "the Title") { it.label.equals(TITLE, ignoreCase = true) })
@@ -54,10 +68,13 @@ class SamsungNotesMirror(private val driver: AppDriver, private val installed: (
     private fun find(screen: AppScreen, what: String, test: (ScreenElement) -> Boolean): Int =
         screen.elements.firstOrNull(test)?.id ?: error("$what wasn't on $app's screen")
 
+    private fun create(element: ScreenElement) = element.kind == ScreenElement.Kind.BUTTON && CREATE.matches(element.label)
+
     private fun titleField(element: ScreenElement) = element.kind == ScreenElement.Kind.FIELD && element.label.equals(TITLE, ignoreCase = true)
 
     private companion object {
-        val CREATE = Regex("create note|new note|add note|write", RegexOption.IGNORE_CASE)
+        const val PACKAGE = "com.samsung.android.app.notes"
+        val CREATE = Regex("create note|new note|add note", RegexOption.IGNORE_CASE)
         const val TITLE = "Title"
         const val UP = "Navigate up"
     }

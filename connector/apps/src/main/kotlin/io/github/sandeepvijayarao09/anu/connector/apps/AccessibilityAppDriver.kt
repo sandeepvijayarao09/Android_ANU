@@ -65,14 +65,24 @@ class AccessibilityAppDriver(private val context: Context) : AppDriver {
             ?: launchers.filter { it.label.startsWith(wanted, ignoreCase = true) }.singleOrNull()
             ?: launchers.filter { it.label.contains(wanted, ignoreCase = true) }.singleOrNull()
             ?: return@withContext null
-        val launch = packages.getLaunchIntentForPackage(app.packageName) ?: return@withContext null
+        launch(app)
+    }
+
+    override suspend fun openPackage(packageName: String): LaunchedApp? = withContext(Dispatchers.IO) {
+        val packages = context.packageManager
+        val info = runCatching { packages.getApplicationInfo(packageName, 0) }.getOrNull() ?: return@withContext null
+        launch(LaunchedApp(packages.getApplicationLabel(info).toString(), packageName))
+    }
+
+    /** Starts [app], listens to it, and waits until it's in front, up to 5 s. */
+    private suspend fun launch(app: LaunchedApp): LaunchedApp? {
+        val launch = context.packageManager.getLaunchIntentForPackage(app.packageName) ?: return null
         service?.listenTo(app.packageName)
         stop.value = false
         context.startActivity(launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED))
-        // Wait until the app is in front, up to 5 s.
         val until = SystemClock.uptimeMillis() + 5_000
         while (SystemClock.uptimeMillis() < until && activeWindow()?.root?.packageName?.toString() != app.packageName) delay(100)
-        app
+        return app
     }
 
     override suspend fun read(): AppScreen? {

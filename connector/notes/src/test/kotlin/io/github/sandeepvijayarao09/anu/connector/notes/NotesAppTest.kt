@@ -23,7 +23,9 @@ class NotesAppTest {
 
         override fun openSetup() = Unit
 
-        override suspend fun open(name: String) = LaunchedApp(name, "com.samsung.android.app.notes").also { actions += "open $name" }
+        override suspend fun open(name: String): LaunchedApp? = null
+
+        override suspend fun openPackage(packageName: String) = LaunchedApp("Notes", packageName).also { actions += "open $packageName" }
 
         override suspend fun read(): AppScreen = screens.first().also { current = it }
 
@@ -46,6 +48,7 @@ class NotesAppTest {
 
         override suspend fun back() {
             actions += "back"
+            next()
         }
 
         override fun showProgress(app: String, line: String) = Unit
@@ -68,10 +71,26 @@ class NotesAppTest {
         val app = FakeNotes(mutableListOf(list, editor, titled, titled, written))
         SamsungNotesMirror(app) { true }.save("Groceries", "Milk, eggs")
         assertEquals(
-            listOf("open Samsung Notes", "tap Create note", "tap Title", "type Title: Groceries", "type Text field: Milk, eggs", "tap Navigate up"),
+            listOf("open com.samsung.android.app.notes", "tap Create note", "tap Title", "type Title: Groceries", "type Text field: Milk, eggs", "tap Navigate up"),
             app.actions,
         )
         assertTrue(app.hidden)
+    }
+
+    @Test
+    fun `it goes back to the list from a note left open`() = runTest {
+        val app = FakeNotes(mutableListOf(written, list, editor, titled, titled, written))
+        SamsungNotesMirror(app) { true }.save("Groceries", "Milk, eggs")
+        assertEquals(listOf("open com.samsung.android.app.notes", "tap Navigate up", "tap Create note"), app.actions.take(3))
+    }
+
+    @Test
+    fun `it closes the editor's first-run tip before writing`() = runTest {
+        val tip = screen(Kind.TEXT to "Touch and hold, then drag to move this toolbar.")
+        val app = FakeNotes(mutableListOf(list, tip, editor, titled, titled, written))
+        SamsungNotesMirror(app) { true }.save("Groceries", "Milk, eggs")
+        assertEquals("back", app.actions[2])
+        assertEquals("tap Navigate up", app.actions.last())
     }
 
     @Test

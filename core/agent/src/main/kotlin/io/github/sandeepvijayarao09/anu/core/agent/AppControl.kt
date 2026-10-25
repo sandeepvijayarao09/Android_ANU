@@ -95,6 +95,9 @@ interface AppDriver {
     /** Launches the installed app whose name best matches [name], or null when none does. */
     suspend fun open(name: String): LaunchedApp?
 
+    /** Launches the app with this package, for a caller that knows it, as the Samsung Notes mirror does (ADR-117). */
+    suspend fun openPackage(packageName: String): LaunchedApp? = null
+
     /** The screen once it has settled, or null when it can't be read. Its element numbers are the ones actions take. */
     suspend fun read(): AppScreen?
 

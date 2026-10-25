@@ -96,7 +96,9 @@ class MlKitWriter(private val context: Context, private val scope: CoroutineScop
             out?.trim()?.takeIf { it.isNotEmpty() }
         } catch (e: CancellationException) {
             throw e
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            // Kinds and codes only: an exception's message could quote the user's text.
+            android.util.Log.d("Anu", "Gemini Nano: $task fell back, ${e.javaClass.simpleName} ${(e as? GenAiException ?: e.cause as? GenAiException)?.errorCode ?: ""}")
             null
         }
     }
