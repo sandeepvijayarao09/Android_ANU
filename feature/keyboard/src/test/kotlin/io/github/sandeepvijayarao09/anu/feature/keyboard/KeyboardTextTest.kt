@@ -81,4 +81,30 @@ class KeyboardTextTest {
         assertEquals("Bring the slides.", KeyboardText.withoutEcho("See you at 3.", "See you at 3. Bring the slides."))
         assertEquals("Bring the slides.", KeyboardText.withoutEcho("See you at 3.", "Bring the slides."))
     }
+
+    @Test
+    fun `emoji are read whole from what the model wrote, words and repeats left out`() {
+        assertEquals(listOf("🎉", "🥳", "🎂", "👍🏽", "🇺🇸", "👨‍👩‍👧"), KeyboardText.emoji("🎉 🥳 🎂, 🎉 party 👍🏽 🇺🇸 👨‍👩‍👧 ❤️ ✨", 6))
+        assertEquals(emptyList<String>(), KeyboardText.emoji("Sure! Here are some ideas: none", 6))
+        assertFalse(KeyboardText.isEmoji("3"))
+        assertTrue(KeyboardText.isEmoji("☀️"))
+    }
+
+    @Test
+    fun `the Ask field takes typed text up to its cap and deletes one character at a time`() {
+        assertEquals("Ma", KeyboardText.askEdit("M", "a"))
+        assertEquals("M", KeyboardText.askEdit("Ma", null))
+        assertEquals("hi ", KeyboardText.askEdit("hi 🎉", null))
+        assertEquals("", KeyboardText.askEdit("", null))
+        assertEquals(KeyboardText.ASK_CHARS, KeyboardText.askEdit("x".repeat(KeyboardText.ASK_CHARS), "y").length)
+    }
+
+    @Test
+    fun `an emoji follows the text with a space, and Ask in an empty field writes at the cursor`() {
+        val plan = KeyboardText.forEmoji(FieldText(before = "Happy birthday!"))!!
+        assertEquals(" 🎉", KeyboardText.output(plan, "🎉"))
+        assertNull(KeyboardText.forEmoji(FieldText(before = "")))
+        assertEquals(EditMode.INSERT, KeyboardText.forAsk(FieldText(before = "")).mode)
+        assertEquals(EditMode.REPLACE_BEFORE, KeyboardText.forAsk(FieldText(before = "see u at 6")).mode)
+    }
 }

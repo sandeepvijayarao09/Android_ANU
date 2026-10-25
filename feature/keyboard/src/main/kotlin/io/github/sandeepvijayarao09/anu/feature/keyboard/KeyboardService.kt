@@ -68,6 +68,8 @@ abstract class KeyboardService : InputMethodService(), LifecycleOwner, SavedStat
     private var shift by mutableStateOf(Shift.OFF)
     private var page by mutableStateOf(KeyPage.LETTERS)
     private var lastShiftTap = 0L
+    /** The Ask field's text while it's open (ADR-122): Anu's own, never the app's, and dropped when it runs or closes. */
+    private var asking by mutableStateOf<String?>(null)
     private var app = ""
 
     override fun onCreate() {
@@ -90,7 +92,7 @@ abstract class KeyboardService : InputMethodService(), LifecycleOwner, SavedStat
             setContent {
                 AnuTheme {
                     val state by assist.state.collectAsState()
-                    AnuKeyboard(policy, state, shift, page, ::tapShift, { page = it }, keys, ai)
+                    AnuKeyboard(policy, state, shift, page, ::tapShift, { page = it }, keys, ai, asking)
                 }
             }
         }
@@ -109,6 +111,7 @@ abstract class KeyboardService : InputMethodService(), LifecycleOwner, SavedStat
         policy = FieldPolicy.of(info.inputType, info.imeOptions, knownChat)
         if (!restarting) {
             assist.clear()
+            asking = null
             page = KeyPage.LETTERS
             shift = Shift.OFF
         }
@@ -119,6 +122,7 @@ abstract class KeyboardService : InputMethodService(), LifecycleOwner, SavedStat
     override fun onFinishInputView(finishingInput: Boolean) {
         super.onFinishInputView(finishingInput)
         assist.clear()
+        asking = null
     }
 
     override fun onUpdateSelection(oldSelStart: Int, oldSelEnd: Int, newSelStart: Int, newSelEnd: Int, candidatesStart: Int, candidatesEnd: Int) {
@@ -147,14 +151,20 @@ abstract class KeyboardService : InputMethodService(), LifecycleOwner, SavedStat
     }
 
     private val keys = object : KeyboardInput {
+        // While the Ask field is open, the keys type there, not into the app.
         override fun text(text: String) {
-            currentInputConnection?.commitText(text, 1)
+            val open = asking
+            if (open != null) asking = KeyboardText.askEdit(open, text) else currentInputConnection?.commitText(text, 1)
             shift = ShiftRules.afterText(shift)
         }
 
-        override fun backspace() = sendDownUpKeyEvents(KeyEvent.KEYCODE_DEL)
+        override fun backspace() {
+            val open = asking
+            if (open != null) asking = KeyboardText.askEdit(open, null) else sendDownUpKeyEvents(KeyEvent.KEYCODE_DEL)
+        }
 
         override fun enter() {
+            if (asking != null) return ai.ask()
             val enter = policy.enter
             if (enter == EnterKey.NEWLINE) sendKeyChar('\n') else currentInputConnection?.performEditorAction(enter.actionId)
         }
@@ -169,9 +179,26 @@ abstract class KeyboardService : InputMethodService(), LifecycleOwner, SavedStat
     private val ai = object : AssistInput {
         override fun run(action: KeyboardAction) {
             if (!policy.ai) return
+            if (action == KeyboardAction.ASK) {
+                assist.clear()
+                asking = ""
+                shift = Shift.ONCE
+                return
+            }
+            start(action, null)
+        }
+
+        override fun ask() {
+            val instruction = asking ?: return
+            if (instruction.isBlank()) return
+            asking = null
+            start(KeyboardAction.ASK, instruction)
+        }
+
+        private fun start(action: KeyboardAction, instruction: String?) {
             val field = readField() ?: return
             val started = SystemClock.uptimeMillis()
-            assist.run(action, field, if (action == KeyboardAction.REPLY) host.chat(app) else null)
+            assist.run(action, field, if (action == KeyboardAction.REPLY) host.chat(app) else null, instruction)
             host.debug?.let { log ->
                 scope.launch {
                     val state = assist.state.first { it !is AssistState.Working }
@@ -180,8 +207,8 @@ abstract class KeyboardService : InputMethodService(), LifecycleOwner, SavedStat
             }
         }
 
-        override fun accept() {
-            val (plan, output) = assist.accept(readField() ?: return) ?: return
+        override fun accept(choice: String?) {
+            val (plan, output) = assist.accept(readField() ?: return, choice) ?: return
             val ic = currentInputConnection ?: return
             ic.beginBatchEdit()
             if (plan.mode == EditMode.REPLACE_BEFORE) ic.deleteSurroundingText(plan.source.length, 0)
@@ -189,7 +216,10 @@ abstract class KeyboardService : InputMethodService(), LifecycleOwner, SavedStat
             ic.endBatchEdit()
         }
 
-        override fun discard() = assist.clear()
+        override fun discard() {
+            asking = null
+            assist.clear()
+        }
     }
 
     /** The text around the cursor, read once for one tap. Never from a private field. */

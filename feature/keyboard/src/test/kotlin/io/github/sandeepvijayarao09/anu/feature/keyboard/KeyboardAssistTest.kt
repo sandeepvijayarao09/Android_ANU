@@ -124,4 +124,54 @@ class KeyboardAssistTest {
         assertTrue((none.state.value as AssistState.Note).text.startsWith("No model is on this phone"))
         assertTrue(cloud.requests.isEmpty())
     }
+
+    @Test
+    fun `expand rewrites the text into a fuller message, as a preview to replace`() {
+        base.enqueue(Step.Reply("Running about 10 minutes late, sorry! See you soon."))
+        assist.run(KeyboardAction.EXPAND, FieldText(before = "late 10 min"))
+        val ready = state as AssistState.Ready
+        assertTrue(ready.replaces)
+        val ask = (base.requests.single().transcript.single() as ChatMessage.User).text
+        assertTrue(ask.startsWith(KeyboardPrompt.EXPAND))
+        assertTrue(ask.endsWith("<text>\nlate 10 min\n</text>"))
+    }
+
+    @Test
+    fun `emoji offers choices, and only the one tapped goes in`() {
+        base.enqueue(Step.Reply("🎉 🎂 🥳 🎈"))
+        assist.run(KeyboardAction.EMOJI, FieldText(before = "Happy birthday!"))
+        val ready = state as AssistState.Ready
+        assertEquals(listOf("🎉", "🎂", "🥳", "🎈"), ready.choices)
+        assertNull("not one it offered", assist.accept(FieldText(before = "Happy birthday!"), "😀"))
+        assertNull("no tap, nothing in", assist.accept(FieldText(before = "Happy birthday!"), null))
+        assertEquals(" 🎂", assist.accept(FieldText(before = "Happy birthday!"), "🎂")!!.second)
+    }
+
+    @Test
+    fun `emoji with no emoji in the answer says so`() {
+        base.enqueue(Step.Reply("Celebration"), Step.Reply("Party"))
+        assist.run(KeyboardAction.EMOJI, FieldText(before = "Happy birthday!"))
+        assertTrue((state as AssistState.Note).text.startsWith("No emoji"))
+    }
+
+    @Test
+    fun `ask changes the field's text as asked, or writes new text into an empty field`() {
+        base.enqueue(Step.Reply("¿Nos vemos a las 6?"))
+        assist.run(KeyboardAction.ASK, FieldText(before = "see you at 6?"), ask = " Translate to Spanish ")
+        val changed = state as AssistState.Ready
+        assertTrue(changed.replaces)
+        assertEquals("Translate to Spanish", changed.asked)
+        assertTrue((base.requests.last().transcript.single() as ChatMessage.User).text.startsWith("Translate to Spanish"))
+
+        base.enqueue(Step.Reply("Happy birthday, Maya! Have a wonderful year."))
+        assist.run(KeyboardAction.ASK, FieldText(before = ""), ask = "a birthday wish for Maya")
+        val written = state as AssistState.Ready
+        assertEquals(false, written.replaces)
+        assertEquals(KeyboardPrompt.COMPOSE_SYSTEM, base.requests.last().system)
+        assertEquals("Happy birthday, Maya! Have a wonderful year.", assist.accept(FieldText(before = ""))!!.second)
+
+        assist.run(KeyboardAction.ASK, FieldText(before = "x"), ask = "  ")
+        assertTrue(state is AssistState.Note)
+        assertEquals(2, base.requests.size)
+    }
 }

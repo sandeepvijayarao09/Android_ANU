@@ -35,6 +35,10 @@ sealed interface AssistState {
         val chatTitle: String? = null,
         /** The phone's own writing model that wrote it, such as "Gemini Nano", when no Gemma tier did (ADR-116). */
         val engine: String? = null,
+        /** Emoji to choose from; the user taps one to insert it (ADR-122). */
+        val choices: List<String> = emptyList(),
+        /** What the user asked in the strip, for Ask. */
+        val asked: String? = null,
     ) : AssistState {
         val replaces: Boolean get() = plan.mode != EditMode.INSERT && !plan.keep
     }
@@ -65,11 +69,16 @@ class KeyboardAssist(
 
     private var running: Job? = null
 
-    fun run(action: KeyboardAction, field: FieldText, chat: ChatContext? = null) {
+    /** [ask] is the instruction typed into the strip, for [KeyboardAction.ASK]. */
+    fun run(action: KeyboardAction, field: FieldText, chat: ChatContext? = null, ask: String? = null) {
         running?.cancel()
+        val instruction = ask?.trim().orEmpty()
+        if (action == KeyboardAction.ASK && instruction.isEmpty()) return note("Type what you'd like Anu to write or change.")
         val plan = when (action) {
             KeyboardAction.CONTINUE -> KeyboardText.forContinue(field) ?: return note("Type a few words first, and Anu writes what comes next.")
+            KeyboardAction.EMOJI -> KeyboardText.forEmoji(field) ?: return note("Type a few words first, and Anu suggests emoji for them.")
             KeyboardAction.REPLY -> KeyboardText.forReply(field)
+            KeyboardAction.ASK -> KeyboardText.forAsk(field)
             else -> KeyboardText.forRewrite(field) ?: return note("Type or select some text first.")
         }
         if (action == KeyboardAction.REPLY && chat == null && plan.input.isBlank()) {
@@ -78,7 +87,7 @@ class KeyboardAssist(
         mutable.value = AssistState.Working(action)
         running = scope.launch {
             try {
-                write(action, plan, chat)
+                write(action, plan, chat, instruction)
             } catch (e: CancellationException) {
                 if (mutable.value is AssistState.Working) mutable.value = AssistState.Idle
                 throw e
@@ -86,7 +95,7 @@ class KeyboardAssist(
         }
     }
 
-    private suspend fun write(action: KeyboardAction, plan: EditPlan, chat: ChatContext?) {
+    private suspend fun write(action: KeyboardAction, plan: EditPlan, chat: ChatContext?, instruction: String) {
         val writing = action.writing
         val byPhone = writing?.system?.let { system?.write(it, plan.input) }
         if (byPhone != null && system != null) {
@@ -100,11 +109,15 @@ class KeyboardAssist(
         val request = when {
             writing != null -> KeyboardPrompt.rewrite(writing, plan.input, block)
             action == KeyboardAction.CONTINUE -> KeyboardPrompt.continuation(plan.input, block)
+            action == KeyboardAction.EXPAND -> KeyboardPrompt.instructed(KeyboardPrompt.EXPAND, plan.input, block)
+            action == KeyboardAction.EMOJI -> KeyboardPrompt.emoji(plan.input)
+            action == KeyboardAction.ASK && plan.input.isBlank() -> KeyboardPrompt.compose(instruction, block)
+            action == KeyboardAction.ASK -> KeyboardPrompt.instructed(instruction, plan.input, block)
             else -> KeyboardPrompt.reply(chat, plan.input, block)
         }
         val seen = plan.input + chat?.lines.orEmpty().joinToString("\n") { it.text }
         val route = RouteRequest(
-            text = action.label,
+            text = if (action == KeyboardAction.ASK) instruction else action.label,
             skill = Skill.WRITING,
             // Typed text can hold anything personal, so it is at least S1 (§12.1).
             dataClasses = setOf(DataClass.PERSONAL) + PiiDetector.dataClasses(seen),
@@ -123,10 +136,15 @@ class KeyboardAssist(
                 is CascadeEvent.Completed -> {
                     val cleaned = WritingOutput.clean(event.text)
                     val result = if (action == KeyboardAction.CONTINUE) KeyboardText.withoutEcho(plan.input, cleaned) else cleaned
-                    mutable.value = if (result.isBlank()) {
-                        AssistState.Note("Anu didn't come up with anything. Try again.")
-                    } else {
-                        AssistState.Ready(action, result, plan, event.tier, chat?.title.takeIf { action == KeyboardAction.REPLY })
+                    val choices = if (action == KeyboardAction.EMOJI) KeyboardText.emoji(cleaned, KeyboardPrompt.EMOJI_COUNT) else emptyList()
+                    mutable.value = when {
+                        action == KeyboardAction.EMOJI && choices.isEmpty() -> AssistState.Note("No emoji came to mind. Try again.")
+                        result.isBlank() -> AssistState.Note("Anu didn't come up with anything. Try again.")
+                        else -> AssistState.Ready(
+                            action, result, plan, event.tier, chat?.title.takeIf { action == KeyboardAction.REPLY },
+                            choices = choices,
+                            asked = instruction.takeIf { action == KeyboardAction.ASK },
+                        )
                     }
                 }
                 is CascadeEvent.Failed -> note(
@@ -140,15 +158,17 @@ class KeyboardAssist(
         }
     }
 
-    /** The text to commit for the preview, or null when the field changed since (then the preview stays for Discard). */
-    fun accept(now: FieldText): Pair<EditPlan, String>? {
+    /** The text to commit for the preview ([choice] is the emoji tapped), or null when the field changed since. */
+    fun accept(now: FieldText, choice: String? = null): Pair<EditPlan, String>? {
         val ready = mutable.value as? AssistState.Ready ?: return null
+        // An emoji is inserted only as the one the user tapped.
+        val picked = if (ready.choices.isEmpty()) ready.result else choice?.takeIf { it in ready.choices } ?: return null
         if (!KeyboardText.stillThere(ready.plan, now)) {
             mutable.value = AssistState.Note("Your text changed, so Anu left it as it is. Tap ${ready.action.label} again.")
             return null
         }
         mutable.value = AssistState.Idle
-        return ready.plan to KeyboardText.output(ready.plan, ready.result)
+        return ready.plan to KeyboardText.output(ready.plan, picked)
     }
 
     fun stop() {

@@ -83,6 +83,43 @@ object KeyboardText {
         return if (input.isNotEmpty() && text.startsWith(input)) text.removePrefix(input).trim() else text
     }
 
+    /** Ask: with text in the field it is changed as asked; an empty field gets new text at the cursor. */
+    fun forAsk(field: FieldText): EditPlan = forReply(field)
+
+    /** Emoji go after the text before the cursor, or after the selection, which stays. */
+    fun forEmoji(field: FieldText): EditPlan? = forContinue(field)
+
+    /** The emoji in what the model wrote, each whole (skin tones, flags, joined families), without repeats: at most [max]. */
+    fun emoji(raw: String, max: Int): List<String> =
+        raw.split(Regex("[\\s,;|]+")).map { it.trim('.', '"', '\'') }.filter(::isEmoji).distinct().take(max)
+
+    /** A token of emoji only: no letters or digits, and at least one symbol from the emoji ranges. */
+    internal fun isEmoji(token: String): Boolean {
+        if (token.isEmpty() || token.any { it.isLetterOrDigit() }) return false
+        var i = 0
+        var symbol = false
+        while (i < token.length) {
+            val cp = token.codePointAt(i)
+            when {
+                cp == 0x200D || cp == 0xFE0F || cp == 0x20E3 || cp in 0x1F3FB..0x1F3FF -> Unit
+                cp in 0x1F000..0x1FAFF || cp in 0x2600..0x27BF || cp in 0x2B00..0x2BFF || cp in 0x2190..0x21FF || cp in 0x2300..0x23FF -> symbol = true
+                else -> return false
+            }
+            i += Character.charCount(cp)
+        }
+        return symbol
+    }
+
+    /** The Ask field's text after one key: typed text, delete (one character, never half of one), and a cap. */
+    fun askEdit(buffer: String, typed: String?, max: Int = ASK_CHARS): String = when {
+        typed != null -> (buffer + typed).take(max)
+        buffer.isEmpty() -> buffer
+        else -> buffer.substring(0, buffer.offsetByCodePoints(buffer.length, -1))
+    }
+
+    /** The longest instruction the Ask field takes. */
+    const val ASK_CHARS = 300
+
     private fun leading(text: String) = text.takeWhile(Char::isWhitespace)
 
     private fun trailing(text: String) = text.takeLastWhile(Char::isWhitespace)
