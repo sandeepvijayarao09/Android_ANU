@@ -544,7 +544,7 @@ class ChatSession(
                 append(" phone_call only opens the dialer with the number, for the user to tap call. Find a person's number with contacts_find first.")
             }
             if ("notes_create" in tools) {
-                append(" Notes are kept in Anu on this phone. To add to a note the user names, call notes_append with its title; for a new one, notes_create.")
+                append(" Notes are kept in Anu on this phone. To add to a note the user names, call notes_append with its title; for a new one, notes_create. A grocery or shopping list is a note: add to it, or make it if there is none.")
             }
             if ("contacts_add" in tools) {
                 append(" To save a person or their number or email, call contacts_add with the name and details exactly as the user gave them.")

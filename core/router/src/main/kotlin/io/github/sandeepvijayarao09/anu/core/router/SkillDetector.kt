@@ -96,13 +96,15 @@ object SkillDetector {
 
     /**
      * The user's notes and address book, which the device skill also offers (ADR-093): "add eggs to my groceries note",
-     * "save Raj's number". "Note that…" is memory, matched first.
+     * "save Raj's number". "Note that…" is memory, matched first. A grocery or shopping list is a note (ADR-119): Anu keeps
+     * no lists of its own, and "shopping list" isn't the user's stores.
      */
-    private val NOTE_WORDS = Regex("\\b(notes?|notepad)\\b", RegexOption.IGNORE_CASE)
+    private const val LISTS = "(grocery|groceries|shopping) lists?"
+    private val NOTE_WORDS = Regex("\\b(notes?|notepad|$LISTS)\\b", RegexOption.IGNORE_CASE)
     private val CALENDAR_WORDS = Regex("\\b(calendar|meetings?|appointments?|invite|schedul\\w*|reschedul\\w*)\\b", RegexOption.IGNORE_CASE)
 
     private val NOTES_AND_CONTACTS = Regex(
-        "\\b(notes?|notepad|(to|in|from) (my )?contacts|new contact|contact card|(save|add|store) (his|her|their|\\w+['’]s) (number|phone|email))\\b",
+        "\\b(notes?|notepad|$LISTS|(to|in|from) (my )?contacts|new contact|contact card|(save|add|store) (his|her|their|\\w+['’]s) (number|phone|email))\\b",
         RegexOption.IGNORE_CASE,
     )
 
@@ -203,7 +205,8 @@ object SkillDetector {
         CORRESPONDENCE.containsMatchIn(text) ->
             if (previous == Skill.MESSAGES || hasPhoneNumber(text)) Skill.MESSAGES else Skill.EMAIL
         // Before scheduling, whose "what's on my" would take "What's on my groceries note?" to tools without notes: on
-        // the emulator the model then made the note up (S12). The calendar's own words keep it scheduling.
+        // the emulator the model then made the note up (S12). The calendar's own words keep it scheduling. Before shopping
+        // too: "add oat milk to my shopping list" is a note, where "buy oat milk" is the user's stores.
         NOTE_WORDS.containsMatchIn(text) && !CALENDAR_WORDS.containsMatchIn(text) -> Skill.PHONE
         SCHEDULING.containsMatchIn(text) -> Skill.SCHEDULING
         SHOPPING.containsMatchIn(text) -> Skill.SHOPPING
