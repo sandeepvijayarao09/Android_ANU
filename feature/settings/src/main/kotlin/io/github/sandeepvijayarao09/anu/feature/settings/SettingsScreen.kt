@@ -56,6 +56,7 @@ enum class SettingsPage(val title: String) {
     ACTIVITY("Activity"),
     VAULT("Vault activity"),
     LAB("Prompt lab"),
+    SKILLS("Skills"),
 }
 
 /**
@@ -91,6 +92,7 @@ fun SettingsScreen(
             SettingsPage.MODELS -> ModelsPage(viewModel, sentToday, onOpenPrivacy, back)
             SettingsPage.ACTIVITY -> ActivityPage(viewModel, sentToday, onOpenPrivacy, back)
             SettingsPage.VAULT -> VaultPage(viewModel, sentToday, onOpenPrivacy, back)
+            SettingsPage.SKILLS -> SkillsPage(viewModel, sentToday, onOpenPrivacy, back)
             SettingsPage.LAB -> if (lab != null) LabPage(lab, sentToday, onOpenPrivacy, back, onOpenModels = { onPage(SettingsPage.MODELS) }) else back()
         }
     }
@@ -341,6 +343,12 @@ private fun IntelligenceGroup(viewModel: SettingsViewModel, onPage: (SettingsPag
         SectionHeader("Intelligence")
         Group {
             GroupRow("Models", value = modelsSummary(rows), chevron = true, onClick = { onPage(SettingsPage.MODELS) })
+            if (viewModel.skillsAvailable) {
+                val skills by viewModel.skills.collectAsStateWithLifecycle()
+                GroupDivider()
+                // AI Edge Gallery's Agent Skills (ADR-120).
+                GroupRow("Skills", value = "${skills.count { it.enabled }} on", chevron = true, onClick = { onPage(SettingsPage.SKILLS) })
+            }
             GroupDivider()
             GroupRow(
                 "Gemini",

@@ -135,6 +135,24 @@ interface McpServerSettings {
     suspend fun remove(id: String)
 }
 
+/** An Agent Skill as Settings shows it (ADR-120): built in, or added by the user from [source]. */
+data class SkillRow(val name: String, val description: String, val builtIn: Boolean, val enabled: Boolean, val source: String?)
+
+/** Gallery's Agent Skills: the built-in ones and those the user adds from a web address or a folder (ADR-120). */
+interface SkillSettings {
+    val skills: StateFlow<List<SkillRow>>
+
+    fun setEnabled(name: String, on: Boolean)
+
+    /** Adds the skill whose folder is at [address], reading its SKILL.md; throws with a reason the user can act on. */
+    suspend fun addFromUrl(address: String): SkillRow
+
+    /** Adds the skill in the folder the user picked ([tree] is its document tree's address). */
+    suspend fun addFromFolder(tree: String): SkillRow
+
+    fun remove(name: String)
+}
+
 /** A store as Settings shows it (ADR-047). */
 data class StoreRow(val address: String, val name: String, val endpointHost: String, val canSearch: Boolean, val canCheckout: Boolean)
 
@@ -200,6 +218,8 @@ class SettingsViewModel(
     private val mac: MacSettings? = null,
     /** The phone's own writing model, Gemini Nano through AICore (ADR-116). Null where the app has none. */
     private val systemWriter: SystemWriter? = null,
+    /** Agent Skills (ADR-120). Null where the app has none. */
+    private val skillSettings: SkillSettings? = null,
 ) : ViewModel() {
 
     /** Gemini Nano's state for the Models page; null where the app has no system writer. */
@@ -305,6 +325,23 @@ class SettingsViewModel(
     }
 
     fun removeMcpServer(id: String) = connect("Couldn't remove the server") { mcp?.remove(id); null }
+
+    val skillsAvailable: Boolean get() = skillSettings != null
+    val skills: StateFlow<List<SkillRow>> = skillSettings?.skills ?: MutableStateFlow(emptyList())
+
+    fun setSkillEnabled(name: String, on: Boolean) = skillSettings?.setEnabled(name, on)
+
+    fun addSkillFromUrl(address: String) = connect("Couldn't add the skill") {
+        val skill = skillSettings?.addFromUrl(address.trim()) ?: return@connect null
+        "${skill.name} is added. Anu uses it when a request matches: ${skill.description}"
+    }
+
+    fun addSkillFromFolder(tree: String) = connect("Couldn't add the skill") {
+        val skill = skillSettings?.addFromFolder(tree) ?: return@connect null
+        "${skill.name} is added. Anu uses it when a request matches: ${skill.description}"
+    }
+
+    fun removeSkill(name: String) = skillSettings?.remove(name)
 
     fun addStore(address: String) = connect("Couldn't add the store") {
         val store = shopping?.add(address.trim()) ?: return@connect null

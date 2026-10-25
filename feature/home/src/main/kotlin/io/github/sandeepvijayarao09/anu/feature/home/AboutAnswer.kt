@@ -12,7 +12,6 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import io.github.sandeepvijayarao09.anu.core.agent.ActionRecord
-import io.github.sandeepvijayarao09.anu.core.agent.AgentStep
 import io.github.sandeepvijayarao09.anu.core.agent.AnswerDetails
 import io.github.sandeepvijayarao09.anu.core.router.Guard
 import io.github.sandeepvijayarao09.anu.core.router.Tier
@@ -79,36 +78,6 @@ internal fun speedRows(details: AnswerDetails): List<Pair<String, String>> = bui
     }
     details.totalMs?.let { add("Total" to seconds(it)) }
 }
-
-/**
- * The agents that worked on an orchestrated turn (ADR-110), in the order they began: each one's plain name, and how
- * many times it asked the model and ran a tool. A workflow step that ran its tool with no model says so.
- */
-internal fun agentRows(details: AnswerDetails): List<Pair<String, String>> = details.agents.map { step ->
-    val calls = when (step.modelCalls) {
-        0 -> "No model"
-        1 -> "1 model call"
-        else -> "${step.modelCalls} model calls"
-    }
-    val tools = when (step.tools.size) {
-        0 -> null
-        1 -> "1 tool"
-        else -> "${step.tools.size} tools"
-    }
-    agentName(step) to listOfNotNull(calls, tools).joinToString(" · ")
-}
-
-private fun agentName(step: AgentStep): String = AGENT_NAMES[step.agent]
-    ?: step.agent.removeSuffix("_agent").replace('_', ' ').replaceFirstChar(Char::uppercase).let { if (step.agent.endsWith("_agent")) "$it agent" else it }
-
-private val AGENT_NAMES = mapOf(
-    "anu" to "Coordinator",
-    "device_agent" to "Phone and notes agent",
-    "calendar_brief" to "Calendar, for the brief",
-    "messages_brief" to "Messages, for the brief",
-    "notes_brief" to "Notes, for the brief",
-    "brief_writer" to "Brief writer",
-)
 
 /** Tools that send something outside the phone: Gmail, replies, services and stores (as [Receipt.leftPhone]). */
 private fun leavesPhone(tool: String) =
@@ -193,15 +162,6 @@ internal fun AboutSheet(about: AboutAnswer, onOpenMemory: (Long?) -> Unit, onOpe
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 details.actions.forEach { ReceiptRow(receiptOf(it)) }
             }
-        }
-
-        val agents = agentRows(details)
-        if (agents.isNotEmpty()) {
-            Heading("Agents")
-            DetailPanel {
-                agents.forEach { (name, did) -> GroupRow(title = name, value = did) }
-            }
-            SheetNote("Each ran on this phone, with Google's Agent Development Kit.")
         }
 
         val speed = speedRows(details)

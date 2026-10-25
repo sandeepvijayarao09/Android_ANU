@@ -83,8 +83,8 @@ object SkillDetector {
     /**
      * Reminders and other apps through Android's intents (ADR-107): "remind me on Friday to pay rent", "call Maya", "open
      * Spotify and…", "directions to the airport", "share this". Like the controls they come last, after the calendar's words,
-     * so "remind me about the meeting" is still an event. They don't count as an area for ADK's agents, whose device agent
-     * doesn't have these tools, and "call" and "open" are too common to send a request to the coordinator. "Remind me what
+     * so "remind me about the meeting" is still an event. They don't count as an area for a request across areas (ADR-120):
+     * "call" and "open" are too common to give a message every area's tools. "Remind me what
      * her name was" and "call me Sam" are neither.
      */
     private val PHONE_INTENTS = Regex(
@@ -166,8 +166,8 @@ object SkillDetector {
     )
 
     /**
-     * The areas a request can span. Two or more in one message, such as "check my calendar and text Maya I'm late", go to
-     * ADK's coordinator and its specialists (ADR-104). Email isn't counted: its skill already offers the calendar.
+     * The areas a request can span. Two or more in one message, such as "check my calendar and text Maya I'm late", get
+     * each area's tools (ADR-120). Email isn't counted: its skill already offers the calendar.
      */
     private fun areas(text: String): Set<Skill> = buildSet {
         // As below: "what's on my groceries note" is a note, not the calendar, unless the calendar is named.
@@ -217,9 +217,9 @@ object SkillDetector {
     private fun isFollowUp(text: String) = text.trim().length <= FOLLOW_UP_CHARS
 
     /**
-     * Skills a follow-up never keeps (ADR-104): a brief and a request across areas each run once on ADK's agents, which
-     * don't see the chat. Carried over, "What's a good name for a cat?" after "Ask the Home Lab agent…" went to the
-     * agents, and "Give me one more" lost the question before it.
+     * Skills a follow-up never keeps (ADR-104, kept by ADR-120): a brief and a request across areas each bring many tools
+     * for one message. Carried over, "What's a good name for a cat?" after "Ask the Home Lab agent…" went to the agents,
+     * and "Give me one more" lost the question before it.
      */
     private val ONE_OFF = setOf(Skill.AGENTS, Skill.BRIEF)
 

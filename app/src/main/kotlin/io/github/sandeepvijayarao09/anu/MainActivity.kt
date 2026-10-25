@@ -178,6 +178,7 @@ private fun AnuHome(graph: AppGraph, shared: MutableStateFlow<Shared?>) {
             thinkingSetting = graph.thinking,
             mac = graph.mac,
             systemWriter = graph.systemWriter,
+            skillSettings = graph.skillSettings,
         )
     }
     // Live camera (ADR-111): "Ask Anu about this" comes back as a photo in the composer, handed over in memory, with

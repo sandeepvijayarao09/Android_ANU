@@ -90,8 +90,8 @@ dependencies {
     implementation(project(":connector:shopping"))
     implementation(project(":connector:phone"))
     implementation(project(":connector:notes"))
-    // Sub-agents and workflows on Google's ADK for Kotlin (ADR-104).
-    implementation(project(":agent:adk"))
+    // Agent Skills as AI Edge Gallery defines them: SKILL.md, JS in a hidden WebView, intents (ADR-120).
+    implementation(project(":connector:skills"))
     // Agents on the user's own network, over A2A (ADR-105).
     implementation(project(":connector:a2a"))
     // SMS is Play-restricted, so only the owner's build links it (ADR-012, ADR-032).

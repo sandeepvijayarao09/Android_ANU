@@ -112,8 +112,6 @@ sealed interface AgentEvent {
         val decision: RouteDecision? = null,
         /** A phone command done with no model (G6, ADR-076): [tier] means nothing then. */
         val direct: Boolean = false,
-        /** The ADK agents that worked on an orchestrated turn (ADR-110). */
-        val agents: List<AgentStep> = emptyList(),
     ) : AgentEvent
 
     /** A voice note being written down on the phone before the turn goes on (G3, ADR-078): its [words] so far. */

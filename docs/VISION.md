@@ -1,6 +1,6 @@
 # Anu for Android: Product Vision
 
-Version 0.7 · Draft · 2026-10-24 (scope decisions recorded in ARCHITECTURE §16 and §17)
+Version 0.8 · Draft · 2026-10-24 (scope decisions recorded in ARCHITECTURE §16 and §17)
 Companion to [ARCHITECTURE.md](ARCHITECTURE.md), which says how this is built.
 
 ## In one sentence
@@ -81,7 +81,8 @@ Most assistants either know nothing about you or send everything about you to a 
 - A living memory and user profile, with a screen to inspect, edit and add to it.
 - AI features: writing, email, scheduling, messages, shopping, and a daily brief.
 - A keyboard (ADR-109): plain QWERTY typing with AI Writing's actions, Continue and Reply above the keys, on the phone only, each result inserted only on your tap.
-- Several steps at once: "Brief me" gathers your calendar, chats and notes in parallel and writes your day in a few lines, and a request that spans areas ("check my calendar for Friday and text Maya I'm free") is shared out to specialists. They run on Google's Agent Development Kit, on the phone, and every action still asks you as any other does.
+- Several steps at once: "Brief me" reads your calendar, chats and notes and writes your day in a few lines, and a request that spans areas ("check my calendar for Friday and text Maya I'm free") gets each area's tools. Every action still asks you as any other does.
+- Skills, as in Google's AI Edge Gallery: small instructions and programs Anu loads only when a request needs them, such as working out a hash, making a QR code or looking something up on Wikipedia. Gallery's skills come built in, and you can add your own from a web address or a folder. A skill that reaches the web asks you every time.
 - A prompt lab in Settings, for trying prompts and sampling on the models on the phone, with nothing from your data.
 - A vault for the keys and logins Anu uses for you, such as your Gemini key, a Meta Muse API key or email app passwords. It is not a password manager for other apps.
 
