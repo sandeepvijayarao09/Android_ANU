@@ -1,6 +1,6 @@
 # Anu for Android: Architecture
 
-Version 1.79.0 · Draft · 2026-10-24
+Version 1.79.1 · Draft · 2026-10-24
 Status: proposed. OD-1 to OD-4 were resolved on 2026-09-25 (§16).
 Product intent lives in [VISION.md](VISION.md).
 
@@ -1226,6 +1226,7 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
   - **In the app** (the debug build with ADR-112, E4B copied into Anu's models on the phone): "What is 12 times 9?" answered "108" on the CPU (first token 2.8 s, the load included), and a follow-up "1188." kept the conversation. On the GPU, a Kyoto plan read 241 tokens at 427 tok/s, its first token after 0.9 s, and wrote 103 at 19.4 tok/s. Memory → Learn now, also on the GPU, learned "Vegetarian", "Priya, your sister" and "Boston, Priya's residence" from one message.
   - **S11, photos with vision on the GPU** (`S11PhotoTest`, `backend=GPU`, the default `visionBackend=GPU`; thermal status 0): the made-up sign took 289 tokens, read at 451 tok/s with the first token after 0.71 s, written at 14.3 tok/s, and E4B answered "LUNCH 12:30" beside a red circle. The engine with vision loaded in 10.7 s and peaked at 1.09 GB, against 4.6 s to the first token and 5.65 GB on the emulator's CPU. Four numbered pictures were read 4 of 4 in 5.5 s (17.4 s on the emulator), and a fifth in a later turn; five in one prefill were read too, so the GPU runtime doesn't enforce `maxNumImages` either.
   - **A photo shared from adb** (`am start -a SEND` with a MediaStore URI) showed "This photo can't be read": the shell can't grant a URI it doesn't own, so `readPhoto` got a refusal. That's the test's limit, not the app's; the picker and real shares grant their own.
+  - **A photo through "+" in the app** (2026-10-25, the `personal` build alone on the phone): "+" → Photo opened the system picker ("Anu will only have access to the photos you select"), which handed over just the made-up Settings screen. "What does the Battery row say?" got "The Battery row says 82%." Pro on the GPU read 1,489 tokens at 732 tok/s, its first token after 2.9 s, and the photo showed in the user's turn. An earlier try had gone astray because three Anu builds were installed (`personal`, `play` and a keyboard test build) and other sessions drove the `play` one at the same time; the S26 now keeps only `personal`.
   - **Connecting it:** with Auto Blocker on, the phone offered only MTP and a modem over USB, and adb saw nothing. Turning it off and allowing the computer's key fixed that.
 
 - **The pair in the app, 2026-10-24.** Pixel 10 Pro, the debug build at 74c05c4, E2B's Tensor G5 file and E4B's usual file installed, an existing made-up chat. Messages typed through adb.
@@ -1813,6 +1814,7 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 
 ### Changelog
 
+- **1.79.1** (2026-10-25): A photo through "+" on the Galaxy S26 Ultra: the system picker, then E4B on the GPU read the made-up screen's battery row correctly. The S26 keeps only the `personal` build.
 - **1.79.0** (2026-10-24): the claim check's repair note goes with the newest message (ADR-124).
   - It ends the newest message, after "From Anu, not the user:", instead of going in the system prompt, on the phone and in the cloud. An answer that quotes it is framing (ADR-058).
   - The memory note gives no example answer, which E4B copied word for word.
