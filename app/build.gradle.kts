@@ -74,6 +74,8 @@ dependencies {
     implementation(project(":feature:keyboard"))
     implementation(project(":feature:camera")) // live camera (ADR-111)
     implementation(project(":brain:vision"))
+    // AI Writing on Gemini Nano through AICore, without ML Kit's usage-log uploader (ADR-116).
+    implementation(project(":brain:nano"))
     implementation(project(":brain:litertlm"))
     implementation(project(":brain:gemini"))
     implementation(project(":brain:ollama"))

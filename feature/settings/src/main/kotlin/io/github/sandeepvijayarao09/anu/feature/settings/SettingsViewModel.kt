@@ -13,6 +13,8 @@ import io.github.sandeepvijayarao09.anu.core.model.Speed
 import io.github.sandeepvijayarao09.anu.core.model.TestStep
 import io.github.sandeepvijayarao09.anu.core.model.ModelState
 import io.github.sandeepvijayarao09.anu.core.model.OnDeviceModels
+import io.github.sandeepvijayarao09.anu.core.model.SystemWriter
+import io.github.sandeepvijayarao09.anu.core.model.SystemWriterStatus
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -196,7 +198,21 @@ class SettingsViewModel(
     private val thinkingSetting: ThinkingSetting? = null,
     /** The user's Mac as the top model (ADR-113). Null where the app has none. */
     private val mac: MacSettings? = null,
+    /** The phone's own writing model, Gemini Nano through AICore (ADR-116). Null where the app has none. */
+    private val systemWriter: SystemWriter? = null,
 ) : ViewModel() {
+
+    /** Gemini Nano's state for the Models page; null where the app has no system writer. */
+    val nano: StateFlow<SystemWriterStatus>? = systemWriter?.status
+    val nanoName: String get() = systemWriter?.name.orEmpty()
+
+    fun refreshNano() {
+        systemWriter?.let { viewModelScope.launch { it.refresh() } }
+    }
+
+    fun downloadNano() {
+        systemWriter?.download()
+    }
 
     val thinking: StateFlow<Boolean> = thinkingSetting?.thinking ?: MutableStateFlow(false)
     val canThink: Boolean get() = thinkingSetting != null

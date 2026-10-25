@@ -9,6 +9,8 @@ import io.github.sandeepvijayarao09.anu.core.agent.TokenSample
 import io.github.sandeepvijayarao09.anu.core.agent.Tokens
 import io.github.sandeepvijayarao09.anu.core.model.ChatMessage
 import io.github.sandeepvijayarao09.anu.core.model.DataClass
+import io.github.sandeepvijayarao09.anu.core.model.SystemWriter
+import io.github.sandeepvijayarao09.anu.core.model.SystemWritingTask
 import io.github.sandeepvijayarao09.anu.core.router.DeviceState
 import io.github.sandeepvijayarao09.anu.core.router.RouteRequest
 import io.github.sandeepvijayarao09.anu.core.router.Skill
@@ -32,6 +34,8 @@ data class WritingUiState(
     val asked: String? = null,
     val result: String = "",
     val tier: Tier? = null,
+    /** The phone's own writing model that wrote [result], such as "Gemini Nano", instead of a [tier] (ADR-116). */
+    val engine: String? = null,
     val busy: Boolean = false,
     /** A status line, such as "Trying Pro…", or why it failed. */
     val note: String? = null,
@@ -53,9 +57,17 @@ class WritingViewModel(
     private val device: () -> DeviceState,
     private val memory: suspend () -> String? = { null },
     private val tokens: TokenCalibration = TokenCalibration.NONE,
+    /** The phone's own writing model, tried first for the built-in actions (ADR-116). */
+    private val system: SystemWriter? = null,
 ) : ViewModel() {
 
-    private data class Task(val asked: String, val instruction: String, val usesMemory: Boolean, val precise: Boolean)
+    private data class Task(
+        val asked: String,
+        val instruction: String,
+        val usesMemory: Boolean,
+        val precise: Boolean,
+        val system: SystemWritingTask? = null,
+    )
 
     private val mutable = MutableStateFlow(WritingUiState())
     val state: StateFlow<WritingUiState> = mutable.asStateFlow()
@@ -67,7 +79,7 @@ class WritingViewModel(
         mutable.value = WritingUiState(original = text, readOnly = readOnly)
     }
 
-    fun run(action: WritingAction) = go(Task(action.label, action.instruction, action.usesMemory, action.precise))
+    fun run(action: WritingAction) = go(Task(action.label, action.instruction, action.usesMemory, action.precise, action.system))
 
     /** The user's own instruction, such as "Translate to Spanish". */
     fun runCustom(instruction: String) {
@@ -97,10 +109,16 @@ class WritingViewModel(
         running?.cancel()
         last = task
         mutable.update {
-            it.copy(asked = task.asked, result = "", tier = null, busy = true, note = null, done = false, failed = false, consentNeeded = false)
+            it.copy(asked = task.asked, result = "", tier = null, engine = null, busy = true, note = null, done = false, failed = false, consentNeeded = false)
         }
         running = viewModelScope.launch {
             try {
+                // Retry with Pro and the cloud are Gemma's; a first try goes to the phone's own model where it can.
+                val byPhone = if (pinned == null && !cloudConsented) task.system?.let { system?.write(it, text) } else null
+                if (byPhone != null && system != null) {
+                    mutable.update { it.copy(result = WritingOutput.clean(byPhone), engine = system.name, note = null, done = true) }
+                    return@launch
+                }
                 val block = if (task.usesMemory) memoryOrNull() else null
                 val request = WritingPrompt.request(text, task.instruction, block, task.precise)
                 val route = RouteRequest(
@@ -154,6 +172,8 @@ class WritingViewModel(
     }
 
     companion object {
+        fun label(state: WritingUiState): String? = state.engine?.let { "On-device · $it" } ?: state.tier?.let(::label)
+
         fun label(tier: Tier) = when (tier) {
             Tier.BASE -> "On-device · Base"
             Tier.PRO -> "On-device · Pro"

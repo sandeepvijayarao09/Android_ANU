@@ -23,6 +23,7 @@ class AnuKeyboardService : KeyboardService() {
                 }
             },
             debug = if (BuildConfig.DEBUG) { line -> Log.d("Anu", line) } else null,
+            system = graph.systemWriter,
         )
     }
 }

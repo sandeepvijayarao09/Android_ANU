@@ -135,7 +135,7 @@ private fun Result(state: WritingUiState, viewModel: WritingViewModel, onReplace
                 Modifier.heightIn(max = 240.dp).verticalScroll(rememberScrollState()),
                 style = MaterialTheme.typography.bodyLarge,
             )
-            val status = listOfNotNull(state.tier?.let(WritingViewModel::label), state.note).joinToString(" · ")
+            val status = listOfNotNull(WritingViewModel.label(state), state.note).joinToString(" · ")
             if (status.isNotEmpty()) {
                 Text(status, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }

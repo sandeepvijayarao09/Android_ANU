@@ -32,6 +32,7 @@ class WritingActivity : ComponentActivity() {
                         device = graph.device::current,
                         memory = { graph.memory.memoryBlock() },
                         tokens = graph.tokenCalibration,
+                        system = graph.systemWriter,
                     ).apply { start(text, readOnly) }
                 }
                 WritingSheet(

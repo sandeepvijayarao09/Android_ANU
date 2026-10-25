@@ -4,6 +4,7 @@ import io.github.sandeepvijayarao09.anu.core.agent.Cascade
 import io.github.sandeepvijayarao09.anu.core.agent.CascadeEvent
 import io.github.sandeepvijayarao09.anu.core.agent.Tokens
 import io.github.sandeepvijayarao09.anu.core.model.DataClass
+import io.github.sandeepvijayarao09.anu.core.model.SystemWriter
 import io.github.sandeepvijayarao09.anu.core.router.DeviceState
 import io.github.sandeepvijayarao09.anu.core.router.RouteRequest
 import io.github.sandeepvijayarao09.anu.core.router.Skill
@@ -29,9 +30,11 @@ sealed interface AssistState {
         val action: KeyboardAction,
         val result: String,
         val plan: EditPlan,
-        val tier: Tier,
+        val tier: Tier?,
         /** Whom the reply is to, from the notification Anu saw. */
         val chatTitle: String? = null,
+        /** The phone's own writing model that wrote it, such as "Gemini Nano", when no Gemma tier did (ADR-116). */
+        val engine: String? = null,
     ) : AssistState {
         val replaces: Boolean get() = plan.mode != EditMode.INSERT && !plan.keep
     }
@@ -54,6 +57,8 @@ class KeyboardAssist(
     private val device: () -> DeviceState,
     private val scope: CoroutineScope,
     private val memory: suspend () -> String? = { null },
+    /** The phone's own writing model, tried first for the rewrites (ADR-116). */
+    private val system: SystemWriter? = null,
 ) {
     private val mutable = MutableStateFlow<AssistState>(AssistState.Idle)
     val state: StateFlow<AssistState> = mutable.asStateFlow()
@@ -83,6 +88,14 @@ class KeyboardAssist(
 
     private suspend fun write(action: KeyboardAction, plan: EditPlan, chat: ChatContext?) {
         val writing = action.writing
+        val byPhone = writing?.system?.let { system?.write(it, plan.input) }
+        if (byPhone != null && system != null) {
+            val result = WritingOutput.clean(byPhone)
+            if (result.isNotBlank()) {
+                mutable.value = AssistState.Ready(action, result, plan, tier = null, engine = system.name)
+                return
+            }
+        }
         val block = if (writing?.usesMemory != false) memoryOrNull() else null
         val request = when {
             writing != null -> KeyboardPrompt.rewrite(writing, plan.input, block)

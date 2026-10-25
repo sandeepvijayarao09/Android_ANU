@@ -122,7 +122,7 @@ private fun Top(policy: FieldPolicy, assist: AssistState, ai: AssistInput) {
             Text("AI isn't offered in this field.", style = type.caption, color = colors.textMuted)
         }
         assist is AssistState.Ready -> Preview(
-            heading = heading(assist.action, assist.chatTitle, assist.tier),
+            heading = heading(assist.action, assist.chatTitle, assist.tier, assist.engine),
             text = assist.result,
             done = true,
             replaces = assist.replaces,
@@ -167,11 +167,12 @@ private fun Top(policy: FieldPolicy, assist: AssistState, ai: AssistInput) {
     }
 }
 
-private fun heading(action: KeyboardAction, chatTitle: String?, tier: Tier?): String = buildString {
+private fun heading(action: KeyboardAction, chatTitle: String?, tier: Tier?, engine: String? = null): String = buildString {
     append(action.label)
     if (chatTitle != null) append(" to ").append(chatTitle)
     append(" · On this phone")
-    when (tier) {
+    if (engine != null) append(" · ").append(engine)
+    else when (tier) {
         Tier.BASE -> append(" · Base")
         Tier.PRO -> append(" · Pro")
         else -> Unit

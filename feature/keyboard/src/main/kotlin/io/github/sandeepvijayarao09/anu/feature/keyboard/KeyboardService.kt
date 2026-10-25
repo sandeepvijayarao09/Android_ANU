@@ -38,6 +38,8 @@ class KeyboardHost(
     val memory: suspend () -> String? = { null },
     val chat: (app: String) -> ChatContext? = { null },
     val debug: ((String) -> Unit)? = null,
+    /** The phone's own writing model, such as Gemini Nano, for the rewrites (ADR-116). */
+    val system: io.github.sandeepvijayarao09.anu.core.model.SystemWriter? = null,
 )
 
 /**
@@ -73,7 +75,7 @@ abstract class KeyboardService : InputMethodService(), LifecycleOwner, SavedStat
         savedState.performRestore(null)
         lifecycleRegistry.currentState = Lifecycle.State.RESUMED
         host = host()
-        assist = KeyboardAssist(host.cascade, host.device, scope, host.memory)
+        assist = KeyboardAssist(host.cascade, host.device, scope, host.memory, host.system)
     }
 
     override fun onCreateInputView(): View {
@@ -202,7 +204,7 @@ abstract class KeyboardService : InputMethodService(), LifecycleOwner, SavedStat
 }
 
 private fun outcome(state: AssistState): String = when (state) {
-    is AssistState.Ready -> "ready on ${state.tier.name.lowercase()}, ${state.result.length} chars"
+    is AssistState.Ready -> "ready on ${state.engine ?: state.tier?.name?.lowercase()}, ${state.result.length} chars"
     is AssistState.Note -> "ended with a note"
     else -> "stopped"
 }

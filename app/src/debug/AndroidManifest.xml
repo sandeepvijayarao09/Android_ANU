@@ -23,6 +23,11 @@
             android:name=".DebugMac"
             android:exported="true"
             android:permission="android.permission.DUMP" />
+        <!-- Debug builds only: adb downloads and tries Gemini Nano for AI Writing (ADR-116). DUMP keeps other apps out. -->
+        <receiver
+            android:name=".DebugNano"
+            android:exported="true"
+            android:permission="android.permission.DUMP" />
         <!-- Debug builds only: adb opens live camera on a chosen backend to compare them (ADR-115). DUMP keeps other apps out. -->
         <activity
             android:name=".LiveCameraActivity"

@@ -1,5 +1,7 @@
 package io.github.sandeepvijayarao09.anu
 
+import io.github.sandeepvijayarao09.anu.brain.nano.MlKitWriter
+import io.github.sandeepvijayarao09.anu.core.model.SystemWriter
 import io.github.sandeepvijayarao09.anu.connector.phone.DoNotDisturbTool
 import io.github.sandeepvijayarao09.anu.core.voice.AndroidVoiceRecorder
 import android.content.Context
@@ -359,6 +361,9 @@ class AppGraph(private val context: Context) {
     private var searchModel: Embedder? = null
     val embedder: () -> Embedder? = { searchModel ?: GemmaEmbedder.installed(File(context.noBackupFilesDir, "models"))?.also { searchModel = it } }
 
+    /** AI Writing's first choice for its built-in actions: Gemini Nano through AICore, where the phone has it (ADR-116). */
+    val systemWriter: SystemWriter by lazy { MlKitWriter(context, scope).also { writer -> scope.launch { writer.refresh() } } }
+
     /**
      * Live camera's EmbeddingGemma 2 (ADR-111), once installed: the Tensor G5 build on that chip's TPU when it's there,
      * else the CPU build, on the GPU where S14 measured it. Checked again until one is.
@@ -454,8 +459,8 @@ class AppGraph(private val context: Context) {
             SetReminderTool(context, reminders),
             ListRemindersTool(context, reminders),
             CancelReminderTool(context, reminders),
-            // Notes kept in Anu, on the phone (ADR-093).
-            CreateNoteTool(notes),
+            // Notes kept in Anu, on the phone (ADR-093), and written into Samsung Notes too with app control (ADR-117).
+            CreateNoteTool(notes, Flavor.noteMirror(context)),
             SearchNotesTool(notes),
             AppendNoteTool(notes),
         // An app task picks each step with a model call: on the TPU when Base is there, as ADK's agents do.

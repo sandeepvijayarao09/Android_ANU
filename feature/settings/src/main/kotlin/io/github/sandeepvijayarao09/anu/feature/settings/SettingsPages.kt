@@ -30,6 +30,8 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.sandeepvijayarao09.anu.core.model.ModelState
+import io.github.sandeepvijayarao09.anu.core.model.SystemWriterStatus
+import kotlinx.coroutines.flow.StateFlow
 import io.github.sandeepvijayarao09.anu.core.ui.AnuButton
 import io.github.sandeepvijayarao09.anu.core.ui.AnuDialog
 import io.github.sandeepvijayarao09.anu.core.ui.AnuIcons
@@ -321,6 +323,7 @@ internal fun ModelsPage(viewModel: SettingsViewModel, sentToday: Int, onOpenPriv
             }
         }
         item(key = "search") { SearchByMeaningGroup(viewModel) }
+        viewModel.nano?.let { nano -> item(key = "nano") { NanoGroup(viewModel, nano) } }
         if (viewModel.canInstallFiles) item(key = "file") { InstallFromFileGroup(viewModel) }
     }
     sheet?.let { open ->
@@ -411,6 +414,52 @@ private fun SearchByMeaningGroup(viewModel: SettingsViewModel) {
                 "Its licence is accepted on Hugging Face, so you download its two files there, then choose each one under From a file. " +
                     "Until then, Anu matches names and topics."
             },
+        )
+    }
+}
+
+/**
+ * AI Writing on Gemini Nano (ADR-116): Android's AICore keeps the model, so the system downloads it, on the user's
+ * tap, and AI Writing and the keyboard use it first for their built-in actions.
+ */
+@Composable
+private fun NanoGroup(viewModel: SettingsViewModel, nano: StateFlow<SystemWriterStatus>) {
+    val status by nano.collectAsStateWithLifecycle()
+    LifecycleResumeEffect(Unit) {
+        viewModel.refreshNano()
+        onPauseOrDispose {}
+    }
+    val colors = AnuTheme.colors
+    Column {
+        SectionHeader("Writing")
+        Group {
+            val name = viewModel.nanoName
+            when (val state = status) {
+                SystemWriterStatus.Ready -> GroupRow(name, subtitle = "Android's AICore · rewrites, grammar and summaries", value = "On device", leadingDot = false)
+                SystemWriterStatus.Downloadable -> GroupRow(
+                    name,
+                    subtitle = "Android's AICore · the system downloads it",
+                    trailing = { AnuTextButton("Download", onClick = viewModel::downloadNano) },
+                )
+                is SystemWriterStatus.Downloading -> Column {
+                    val fraction = if (state.total > 0) (state.done.toFloat() / state.total).coerceIn(0f, 1f) else 0f
+                    GroupRow(name, subtitle = if (state.total > 0) "Downloading · ${(fraction * 100).roundToInt()}% of ${gigabytes(state.total)}" else "Downloading")
+                    LinearProgressIndicator(
+                        progress = { fraction },
+                        modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 12.dp),
+                        color = colors.accent,
+                        trackColor = colors.surface2,
+                        strokeCap = StrokeCap.Round,
+                        gapSize = 0.dp,
+                        drawStopIndicator = {},
+                    )
+                }
+                is SystemWriterStatus.Unavailable -> GroupRow(name, subtitle = state.reason)
+            }
+        }
+        GroupFooter(
+            "AI Writing and Anu's keyboard use it first for Improve, Shorter, More formal, Friendlier, Fix grammar and " +
+                "Summarize in English, and Gemma for everything else. It runs on this phone, and Anu sends nothing for it.",
         )
     }
 }

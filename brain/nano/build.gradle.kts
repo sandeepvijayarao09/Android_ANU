@@ -17,10 +17,15 @@ android {
     }
 }
 
-// Spike S10 (§16): Gemini Nano through AICore, with ML Kit's GenAI Prompt API. Only the spike's device test uses
-// it, so nothing here reaches the app: the library brings Google's usage-log transport, which would bypass the
-// egress pipeline (I3) until the spike shows what it sends.
+// AI Writing on Gemini Nano through AICore (ADR-116): ML Kit's GenAI rewriting, proofreading and summarization.
+// Each brings Google's usage-log transport. ML Kit won't start without its classes, so this module's manifest takes
+// out its upload backend and jobs instead, and Anu's process sends nothing (I3). Spike S10's test uses the Prompt API.
 dependencies {
+    api(project(":core:model"))
+    implementation(libs.mlkit.genai.rewriting)
+    implementation(libs.mlkit.genai.proofreading)
+    implementation(libs.mlkit.genai.summarization)
+    implementation(libs.kotlinx.coroutines.guava)
     androidTestImplementation(libs.mlkit.genai.prompt)
     androidTestImplementation(libs.androidx.test.runner)
     androidTestImplementation(libs.androidx.test.core)

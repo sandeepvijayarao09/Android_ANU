@@ -18,6 +18,8 @@ litert = "2.3.0"
 qnnRuntime = "2.50.0"
 camerax = "1.6.2"
 mlkitGenaiPrompt = "1.0.0-beta4"
+# AI Writing on Gemini Nano (ADR-116): ML Kit's GenAI feature APIs, one release that shares genai-common beta1.
+mlkitGenaiFeatures = "1.0.0-beta1"
 localagentsRag = "0.3.0"
 protobufJavalite = "4.36.2"
 junit = "4.13.2"
@@ -61,6 +63,9 @@ androidx-camera-camera2 = { module = "androidx.camera:camera-camera2", version.r
 androidx-camera-lifecycle = { module = "androidx.camera:camera-lifecycle", version.ref = "camerax" }
 androidx-camera-view = { module = "androidx.camera:camera-view", version.ref = "camerax" }
 mlkit-genai-prompt = { module = "com.google.mlkit:genai-prompt", version.ref = "mlkitGenaiPrompt" }
+mlkit-genai-rewriting = { module = "com.google.mlkit:genai-rewriting", version.ref = "mlkitGenaiFeatures" }
+mlkit-genai-proofreading = { module = "com.google.mlkit:genai-proofreading", version.ref = "mlkitGenaiFeatures" }
+mlkit-genai-summarization = { module = "com.google.mlkit:genai-summarization", version.ref = "mlkitGenaiFeatures" }
 localagents-rag = { module = "com.google.ai.edge.localagents:localagents-rag", version.ref = "localagentsRag" }
 protobuf-javalite = { module = "com.google.protobuf:protobuf-javalite", version.ref = "protobufJavalite" }
 junit = { module = "junit:junit", version.ref = "junit" }
@@ -77,6 +82,7 @@ sqlcipher-android = { module = "net.zetetic:sqlcipher-android", version.ref = "s
 robolectric = { module = "org.robolectric:robolectric", version.ref = "robolectric" }
 play-services-auth = { module = "com.google.android.gms:play-services-auth", version.ref = "playServicesAuth" }
 kotlinx-coroutines-play-services = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-play-services", version.ref = "coroutines" }
+kotlinx-coroutines-guava = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-guava", version.ref = "coroutines" }
 androidx-test-core = { module = "androidx.test:core", version.ref = "androidxTestCore" }
 androidx-test-runner = { module = "androidx.test:runner", version.ref = "androidxTestRunner" }
 androidx-test-ext-junit = { module = "androidx.test.ext:junit", version.ref = "androidxTestExtJunit" }

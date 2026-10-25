@@ -77,7 +77,15 @@ abstract class NoteTool<I : Any, O : Any>(protected val store: NoteStore, protec
     override val untrustedContent: UntrustedContent? = null
 }
 
-class CreateNoteTool(store: NoteStore, now: () -> Long = System::currentTimeMillis) : NoteTool<CreateNoteInput, NoteSaved>(store, now) {
+/**
+ * Saves a note in Anu and, where [mirror] is ready, writes it into that app too, such as Samsung Notes (ADR-117).
+ * That types in another app, so the approval sheet always asks, with the exact title and text (I2).
+ */
+class CreateNoteTool(
+    store: NoteStore,
+    private val mirror: NoteMirror? = null,
+    now: () -> Long = System::currentTimeMillis,
+) : NoteTool<CreateNoteInput, NoteSaved>(store, now) {
     override val name = "notes_create"
     override val description = "Save a new note on this phone"
     override val input: KSerializer<CreateNoteInput> = CreateNoteInput.serializer()
@@ -90,9 +98,22 @@ class CreateNoteTool(store: NoteStore, now: () -> Long = System::currentTimeMill
     override fun risk(input: CreateNoteInput) = RiskTier.WRITE_PRIVATE
     override fun describe(input: CreateNoteInput) = "Save a note, \"${titleOf(input)}\""
 
+    override fun approvalNote(input: CreateNoteInput): String? =
+        mirror?.takeIf { it.ready }?.let { "Anu will also write it in ${it.app}, tapping and typing there" }
+
     override suspend fun invoke(input: CreateNoteInput, context: ToolContext): NoteSaved {
         val note = store.create(titleOf(input), input.text.trim(), now())
-        return NoteSaved("Saved the note \"${note.title}\".", note.title)
+        val app = mirror?.takeIf { it.ready } ?: return NoteSaved("Saved the note \"${note.title}\".", note.title)
+        // The note is kept in Anu whatever happens in the other app.
+        val said = try {
+            app.save(note.title, note.text)
+            "Saved the note \"${note.title}\" in Anu and in ${app.app}."
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            "Saved the note \"${note.title}\" in Anu, but not in ${app.app}: ${e.message}."
+        }
+        return NoteSaved(said, note.title)
     }
 
     private fun titleOf(input: CreateNoteInput) = input.title.trim().ifEmpty { firstWords(input.text) }
