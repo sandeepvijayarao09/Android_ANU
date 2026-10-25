@@ -11,7 +11,7 @@ package io.github.sandeepvijayarao09.anu.core.agent
 object ActionClaims {
     /**
      * What an answer can claim, and what backs it: any write backs an action, and only [REMEMBER_TOOL] backs
-     * memory. [why] names the failure, [note] goes into the repair attempt's system prompt, and [undone] into
+     * memory. [why] names the failure, [note] goes with the newest message for the repair attempt, and [undone] into
      * the warning.
      */
     enum class Claim(val why: String, internal val note: String, internal val undone: String) {
@@ -39,6 +39,12 @@ object ActionClaims {
         RegexOption.IGNORE_CASE,
     )
 
+    /**
+     * Up to eight words inside one sentence, as in "keep Alex's usual 6 PM finish time in mind", which E4B wrote on the
+     * emulator. Four were too few.
+     */
+    private const val GAP = "([^\\s.!?]+\\s+){0,8}?"
+
     /** Words that acknowledge before a bare "Noted", as in "Got it, noted." */
     private const val ACK = "got it|got that|ok|okay|sure|sure thing|alright|all right|thanks|thank you|great|perfect|" +
         "understood|of course|absolutely|yes|lovely|wonderful|excellent"
@@ -48,20 +54,20 @@ object ActionClaims {
             // Done, in the first person, unless it points back ("as I've noted"): "I've noted…", "I've made a note".
             "(?<!\\b(?:as|like)\\s)\\b(i'?ve|i have|we'?ve|we have)\\s+(just\\s+|now\\s+|also\\s+|already\\s+)?" +
                 "(noted|remembered|memori[sz]ed|made\\s+(a\\s+)?notes?|taken\\s+(a\\s+)?note|jotted|written\\s+(that|this|it)\\s+down|" +
-                "(kept|borne)\\s+(\\S+\\s+){0,4}?in\\s+mind|got\\s+(that|this|it)\\s+(noted|down))\\b",
+                "(kept|borne)\\s+${GAP}in\\s+mind|got\\s+(that|this|it)\\s+(noted|down))\\b",
             "\\bi\\s+(just\\s+|also\\s+)?(made\\s+(a\\s+)?note|took\\s+(a\\s+)?note|jotted|(wrote|noted)\\s+(that|this|it)\\s+down)\\b",
             "\\b(i'?ve|i have|i|we'?ve|we have)\\s+(just\\s+|now\\s+|also\\s+|already\\s+)?(saved|stored|added|put|kept|recorded)\\s+" +
-                "(\\S+\\s+){0,4}?(to|in|into)\\s+(your\\s+|my\\s+|the\\s+)?memory\\b",
+                "${GAP}(to|in|into)\\s+(your\\s+|my\\s+|the\\s+)?memory\\b",
             "\\b(i'?ve|i have)\\s+(just\\s+|now\\s+|also\\s+)?updated\\s+(your|my)\\s+(memory|profile)\\b",
             // The same after another action: "I've booked lunch and noted that Maya is vegetarian". Not "and noted
             // the address", which is usually about the event.
             "(?<!\\b(?:as|like)\\s)\\b(i'?ve|i have|we'?ve|we have)\\s+[^.!?\\n]{1,80}?\\band\\s+(also\\s+)?" +
-                "(noted\\s+that|made\\s+(a\\s+)?note|(saved|stored|added|kept)\\s+(\\S+\\s+){0,4}?(to|in|into)\\s+(your\\s+|my\\s+|the\\s+)?memory)\\b",
+                "(noted\\s+that|made\\s+(a\\s+)?note|(saved|stored|added|kept)\\s+${GAP}(to|in|into)\\s+(your\\s+|my\\s+|the\\s+)?memory)\\b",
             // A promise: "I'll remember…", "I'll keep that in mind", "I'll make a note".
             "\\b(i'?ll|i will|i'?m going to)\\s+(always\\s+|definitely\\s+|be sure to\\s+|make sure to\\s+)?" +
-                "(remember|memori[sz]e|(keep|bear)\\s+(\\S+\\s+){0,4}?in\\s+mind|make\\s+(a\\s+)?note|note\\s+(that|this|it|down)|" +
-                "take\\s+(a\\s+)?note|jot\\s+(that|this|it)\\s+down|(save|store|add|keep)\\s+(\\S+\\s+){0,4}?(to|in|into)\\s+(your\\s+|my\\s+)?memory)\\b",
-            "\\b(i'?ll|i will)\\s+[^.!?\\n]{1,80}?\\band\\s+(also\\s+)?(remember|(keep|bear)\\s+(\\S+\\s+){0,4}?in\\s+mind|make\\s+(a\\s+)?note)\\b",
+                "(remember|memori[sz]e|(keep|bear)\\s+${GAP}in\\s+mind|make\\s+(a\\s+)?note|note\\s+(that|this|it|down)|" +
+                "take\\s+(a\\s+)?note|jot\\s+(that|this|it)\\s+down|(save|store|add|keep)\\s+${GAP}(to|in|into)\\s+(your\\s+|my\\s+)?memory)\\b",
+            "\\b(i'?ll|i will)\\s+[^.!?\\n]{1,80}?\\band\\s+(also\\s+)?(remember|(keep|bear)\\s+${GAP}in\\s+mind|make\\s+(a\\s+)?note)\\b",
             // "Noted!", "Got it, noted.", "Duly noted", as the answer's own words at the start of a sentence, maybe in bold.
             "(^|[.!?]\\s+|\\n\\s*)[*_]{0,2}(($ACK)\\s*[,.!—–-]?\\s+)?(duly\\s+)?noted[*_]{0,2}" +
                 "(\\s*[!.,:;—–-]|\\s*(\\n|$)|\\s+(that|it|down)\\b)",
@@ -96,21 +102,21 @@ object ActionClaims {
 
     fun hasControlMarkup(answer: String): Boolean = MARKUP.containsMatchIn(answer)
 
-    /** Added to the system prompt for the one repair attempt. */
+    /** Sent with the newest message for the one repair attempt (ADR-124). */
     const val NOTHING_DONE_NOTE =
         "Important: in this conversation you have not created, sent or changed anything yet. Never say you have. " +
             "If the user wants it done, call the tool now; the user will be asked to approve it. " +
             "Otherwise, say what you propose and ask."
 
     /**
-     * Added to the system prompt for the one repair attempt after a memory claim. It allows what a tool result
-     * confirms, so an answer after a save still passes. On the emulator, E4B's greedy repair still wrote "I have
-     * noted…" when the user had said "please keep that in mind", so the warning is what keeps the chat true.
+     * Sent with the newest message for the one repair attempt after a memory claim (ADR-124). It allows what a tool
+     * result confirms, so an answer after a save still passes. It gives no example answer: E4B copied the one it had
+     * ("Thanks for telling me.") word for word, even after a declined save (`RepairNoteProbeTest`).
      */
     const val NOTHING_REMEMBERED_NOTE =
         "Important: nothing from the user's newest message has been saved to memory yet. " +
             "Don't say \"noted\", \"I'll remember\" or \"I'll keep that in mind\" unless a tool result confirms a save. " +
-            "Answer without saying it's saved, for example \"Thanks for telling me.\" If the user declined, say it won't be remembered."
+            "Answer without saying it's saved. If the user declined, say it won't be remembered."
 
     /**
      * Added after [NOTHING_REMEMBERED_NOTE] only when the turn offers [REMEMBER_TOOL]. A plain chat has no tool to

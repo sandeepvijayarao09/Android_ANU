@@ -3,12 +3,14 @@ package io.github.sandeepvijayarao09.anu.core.agent
 import io.github.sandeepvijayarao09.anu.core.model.BrainId
 import io.github.sandeepvijayarao09.anu.core.model.ChatMessage
 import io.github.sandeepvijayarao09.anu.core.model.DataClass
+import io.github.sandeepvijayarao09.anu.core.model.NOTE_HEADER
 import io.github.sandeepvijayarao09.anu.core.model.Sampling
 import io.github.sandeepvijayarao09.anu.core.model.ScriptedBrain
 import io.github.sandeepvijayarao09.anu.core.model.ScriptedBrain.Step
 import io.github.sandeepvijayarao09.anu.core.model.ToolCall
 import io.github.sandeepvijayarao09.anu.core.model.ToolResult
 import io.github.sandeepvijayarao09.anu.core.model.UntrustedContent
+import io.github.sandeepvijayarao09.anu.core.model.userText
 import io.github.sandeepvijayarao09.anu.core.router.DeviceState
 import io.github.sandeepvijayarao09.anu.core.router.RouteRequest
 import io.github.sandeepvijayarao09.anu.core.router.Router
@@ -161,7 +163,8 @@ class AgentTest {
         assertEquals(ActionClaims.REMEMBER_TOOL, gate.requests.single().toolName)
         assertTrue(remember.remembered.isEmpty())
         assertTrue(events.contains(AgentEvent.Discarded(Tier.PRO, ActionClaims.Claim.MEMORY.why)))
-        assertTrue(pro.requests[3].system!!.contains("${ActionClaims.NOTHING_REMEMBERED_NOTE} ${ActionClaims.REMEMBER_HINT}"))
+        assertEquals("${ActionClaims.NOTHING_REMEMBERED_NOTE} ${ActionClaims.REMEMBER_HINT}", pro.requests[3].note)
+        assertEquals("the note goes with the message, not the system prompt", pro.requests[2].system, pro.requests[3].system)
         assertEquals("the repair is greedy", Sampling.Precise, pro.requests[3].sampling)
         val done = events.last() as AgentEvent.Completed
         assertEquals("Okay, I won't remember that.", done.text)
@@ -180,7 +183,7 @@ class AgentTest {
         pro.enqueue(Step.Reply("Got it, I'll keep that in mind."))
         val events = remembering(RecordingGate(ApprovalDecision.Denied()), tiers = setOf(Tier.BASE, Tier.PRO))
         assertTrue(events.contains(AgentEvent.Escalated(Tier.BASE, Tier.PRO, ActionClaims.Claim.MEMORY.why)))
-        assertTrue("the stronger tier is told too", pro.requests.single().system!!.contains(ActionClaims.NOTHING_REMEMBERED_NOTE))
+        assertEquals("the stronger tier is told too", ActionClaims.NOTHING_REMEMBERED_NOTE + " " + ActionClaims.REMEMBER_HINT, pro.requests.single().note)
         val done = events.last() as AgentEvent.Completed
         assertTrue(done.unverifiedClaim)
         assertEquals("Got it, I'll keep that in mind.\n\n${ActionClaims.NOT_REMEMBERED_WARNING}", done.text)
@@ -218,9 +221,8 @@ class AgentTest {
         val chat = RouteRequest("By the way, I'm vegetarian, so please keep that in mind", Skill.CHAT, setOf(DataClass.PERSONAL), promptTokens = 100)
         pro.enqueue(Step.Reply("I've noted that you are vegetarian."), Step.Reply("Thanks for telling me! How about a mushroom risotto tonight?"))
         val events = agent.run(chat, DeviceState(online = true, availableTiers = setOf(Tier.PRO)), "You are Anu.", listOf(ChatMessage.User(chat.text)), emptyList(), "t1").toList()
-        val repair = pro.requests[1].system!!
-        assertTrue(repair.contains(ActionClaims.NOTHING_REMEMBERED_NOTE))
-        assertFalse(repair.contains(ActionClaims.REMEMBER_HINT))
+        assertEquals("no memory tool to call", ActionClaims.NOTHING_REMEMBERED_NOTE, pro.requests[1].note)
+        assertTrue(pro.requests[1].userText(0).endsWith("$NOTE_HEADER ${ActionClaims.NOTHING_REMEMBERED_NOTE}"))
         assertEquals("Thanks for telling me! How about a mushroom risotto tonight?", (events.last() as AgentEvent.Completed).text)
     }
 

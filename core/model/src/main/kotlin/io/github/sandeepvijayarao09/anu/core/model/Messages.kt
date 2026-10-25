@@ -134,6 +134,12 @@ data class BrainRequest(
      * message; the egress gate replaces personal details in them and the Privacy Ledger counts them (I3).
      */
     val sharedFacts: List<String> = emptyList(),
+    /**
+     * Anu's own note for this answer only, such as the claim check's repair note (ADR-027, ADR-124). Brains show it at
+     * the end of the newest user message, after [NOTE_HEADER], never in [system]: it sits right before the answer, and
+     * the system prompt stays the same. It is never saved with the message.
+     */
+    val note: String? = null,
 ) {
     init {
         require(transcript.isNotEmpty()) { "transcript must not be empty" }
@@ -163,34 +169,41 @@ val BrainRequest.newestUserIndex: Int get() = transcript.indexOfLast { it is Cha
 /**
  * The text a brain shows the model for the user message at [index]. The newest one starts with
  * [BrainRequest.sentAt], after [facts] (the [BrainRequest.relevant] block on the phone, the block of
- * [BrainRequest.sharedFacts] in the cloud) and the week's [BrainRequest.dates].
+ * [BrainRequest.sharedFacts] in the cloud) and the week's [BrainRequest.dates]. It ends with [BrainRequest.note],
+ * when there is one.
  */
 fun BrainRequest.userText(index: Int, facts: String? = relevant): String {
     val text = (transcript[index] as ChatMessage.User).modelText
     if (index != newestUserIndex) return text
     val stamped = if (sentAt != null) "[$sentAt] $text" else text
     val dated = if (dates != null) "$DATES_LABEL$dates.\n$stamped" else stamped
-    return if (facts != null) "$facts\n\n$dated" else dated
+    val framed = if (facts != null) "$facts\n\n$dated" else dated
+    return if (note != null) "$framed\n\n$NOTE_HEADER $note" else framed
 }
 
 /**
  * Whether [answer] quotes the framing [userText] adds to the newest message: its send time in brackets,
- * the facts header, or the week's dates (ADR-058). A sampled model sometimes copies it; such an answer is
- * invalid output.
+ * the facts header, the week's dates or Anu's note (ADR-058, ADR-124). A sampled model sometimes copies it; such an
+ * answer is invalid output.
  */
 fun BrainRequest.echoesFraming(answer: String): Boolean =
-    sentAt != null && "[$sentAt]" in answer || FACTS_HEADER in answer || dates != null && dates in answer
+    sentAt != null && "[$sentAt]" in answer || FACTS_HEADER in answer || dates != null && dates in answer ||
+        note != null && (NOTE_HEADER in answer || note in answer)
 
 /** [answer] without the framing it quoted, for an answer that still quotes it after a retry. */
 fun BrainRequest.withoutFraming(answer: String): String {
     var out = answer.replace(FACTS_HEADER, "")
     if (dates != null) out = out.replace("$DATES_LABEL$dates.", "").replace(dates, "")
     if (sentAt != null) out = out.replace("[$sentAt] ", "").replace("[$sentAt]", "")
+    if (note != null) out = out.replace(note, "").replace(NOTE_HEADER, "")
     return out.trim()
 }
 
 /** Heads the week's dates shown with a message (ADR-114). */
 const val DATES_LABEL = "Dates: "
+
+/** Heads Anu's note at the end of the newest message, so the model never takes it for the user's words (ADR-124). */
+const val NOTE_HEADER = "From Anu, not the user:"
 
 /** Heads the facts shown with a message (ADR-054). */
 const val FACTS_HEADER = "Facts from memory about this message (the user's own data):"
