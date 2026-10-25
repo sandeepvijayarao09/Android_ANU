@@ -112,8 +112,6 @@ sealed interface AgentEvent {
         val decision: RouteDecision? = null,
         /** A phone command done with no model (G6, ADR-076): [tier] means nothing then. */
         val direct: Boolean = false,
-        /** The ADK agents that worked on an orchestrated turn (ADR-110). */
-        val agents: List<AgentStep> = emptyList(),
     ) : AgentEvent
 
     /** A voice note being written down on the phone before the turn goes on (G3, ADR-078): its [words] so far. */
@@ -273,7 +271,9 @@ class Agent(
         var claimRepaired = false
         // Every kind of claim the run has had to repair, so a stronger tier gets all their notes.
         val claimed = mutableSetOf<ActionClaims.Claim>()
-        var systemNote: String? = null
+        // The claim check's note for the repair and any stronger tier after it. It rides with the newest message, so
+        // it sits right before the answer and the system prompt stays the same (ADR-124).
+        var repairNote: String? = null
 
         suspend fun FlowCollector<AgentEvent>.escalate(why: String): Boolean {
             val next = router.escalate(route, decision, why)
@@ -303,7 +303,7 @@ class Agent(
 
             val transcript = history + added
             val request = BrainRequest(
-                system = systemNote?.let { "$system\n\n$it" } ?: system,
+                system = system,
                 // A cloud brain never reads a result that can hold sensitive data, even one from a step on the phone
                 // before an escalation, or from an earlier turn still in view (ADR-087).
                 transcript = if (state.brainLocation == BrainLocation.CLOUD) withoutSensitiveResults(transcript) else transcript,
@@ -325,6 +325,7 @@ class Agent(
                 sharedFacts = sharedFacts,
                 maxOutputTokens = decision.maxOutputTokens,
                 thinking = thinking,
+                note = repairNote,
             )
             val text = StringBuilder()
             val calls = mutableListOf<ToolCall>()
@@ -391,7 +392,7 @@ class Agent(
                     val why = unbacked.joinToString("; ") { it.why }
                     emit(AgentEvent.Discarded(decision.tier, why))
                     claimed += unbacked
-                    systemNote = ActionClaims.note(claimed, canRemember = specs.any { it.name == ActionClaims.REMEMBER_TOOL })
+                    repairNote = ActionClaims.note(claimed, canRemember = specs.any { it.name == ActionClaims.REMEMBER_TOOL })
                     if (!claimRepaired) {
                         claimRepaired = true
                         repaired = true

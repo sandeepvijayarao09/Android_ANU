@@ -6,7 +6,6 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import io.github.sandeepvijayarao09.anu.core.agent.ActionRecord
-import io.github.sandeepvijayarao09.anu.core.agent.AgentStep
 import io.github.sandeepvijayarao09.anu.core.agent.AnswerDetails
 import io.github.sandeepvijayarao09.anu.core.agent.AnswerStore
 import io.github.sandeepvijayarao09.anu.core.model.Speed
@@ -19,7 +18,6 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -126,20 +124,6 @@ internal object AnswerCodec {
             if (details.direct) put("direct", true)
             details.thoughtMs?.let { put("thoughtMs", it) }
             details.heardMs?.let { put("heardMs", it) }
-            if (details.agents.isNotEmpty()) {
-                put(
-                    "agents",
-                    JsonArray(
-                        details.agents.map { step ->
-                            buildJsonObject {
-                                put("agent", step.agent)
-                                put("modelCalls", step.modelCalls)
-                                put("tools", JsonArray(step.tools.map(::JsonPrimitive)))
-                            }
-                        },
-                    ),
-                )
-            }
             put("factIds", JsonArray(details.factIds.map(::JsonPrimitive)))
             put("summaryShown", details.summaryShown)
             put(
@@ -182,15 +166,8 @@ internal object AnswerCodec {
             direct = json["direct"]?.jsonPrimitive?.boolean ?: false,
             thoughtMs = json["thoughtMs"]?.jsonPrimitive?.long,
             heardMs = json["heardMs"]?.jsonPrimitive?.long,
-            agents = json["agents"]?.jsonArray?.map { element -> agentStep(element.jsonObject) }.orEmpty(),
         )
     }
-
-    private fun agentStep(json: JsonObject) = AgentStep(
-        agent = json.getValue("agent").jsonPrimitive.content,
-        modelCalls = json["modelCalls"]?.jsonPrimitive?.int ?: 0,
-        tools = json["tools"]?.jsonArray?.map { it.jsonPrimitive.content }.orEmpty(),
-    )
 
     private fun action(json: JsonObject) = ActionRecord(
         tool = json.getValue("tool").jsonPrimitive.content,

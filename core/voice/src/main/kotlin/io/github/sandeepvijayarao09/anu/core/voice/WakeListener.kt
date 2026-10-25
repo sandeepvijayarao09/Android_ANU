@@ -3,8 +3,9 @@ package io.github.sandeepvijayarao09.anu.core.voice
 import kotlinx.coroutines.delay
 
 /**
- * The "Hey Anu" loop (ADR-045). It listens round after round and calls `onWake` with what followed the
- * wake phrase. Everything else it hears is dropped at once: never kept, logged or sent.
+ * The "Hey Anu" loop on the recognizer (ADR-045), for when the user hasn't taught Anu their voice (ADR-121). It
+ * listens round after round and calls `onWake` with what followed the wake phrase. Everything else it hears is
+ * dropped at once: never kept, logged or sent.
  * - Silence just starts another round.
  * - Other errors back off, doubling each time. After [maxFailures] in a row it stops.
  * - A missing language pack or recognizer stops it at once: waiting won't fix that.
@@ -22,7 +23,7 @@ class WakeListener(
     private val maxQuickRounds: Int = 3,
     private val pauseMillis: Long = 5_000,
     private val roundGapMillis: Long = 250,
-) {
+) : WakeLoop {
     sealed interface Stop {
         /** `onWake` couldn't open Anu, for example because it is no longer the assistant. */
         data object CantOpen : Stop
@@ -31,7 +32,7 @@ class WakeListener(
     }
 
     /** `onWake` gets the request after the wake phrase, or null for just "Hey Anu", and says whether Anu opened. */
-    suspend fun run(onWake: suspend (request: String?) -> Boolean): Stop {
+    override suspend fun run(onWake: suspend (request: String?) -> Boolean): Stop {
         var failures = 0
         var quickRounds = 0
         while (true) {

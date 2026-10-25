@@ -74,6 +74,7 @@ dependencies {
     implementation(project(":feature:keyboard"))
     implementation(project(":feature:camera")) // live camera (ADR-111)
     implementation(project(":brain:vision"))
+    implementation(project(":brain:wakeword")) // "Hey Anu" from the user's own samples (ADR-121)
     // AI Writing on Gemini Nano through AICore, without ML Kit's usage-log uploader (ADR-116).
     implementation(project(":brain:nano"))
     implementation(project(":brain:litertlm"))
@@ -90,8 +91,8 @@ dependencies {
     implementation(project(":connector:shopping"))
     implementation(project(":connector:phone"))
     implementation(project(":connector:notes"))
-    // Sub-agents and workflows on Google's ADK for Kotlin (ADR-104).
-    implementation(project(":agent:adk"))
+    // Agent Skills as AI Edge Gallery defines them: SKILL.md, JS in a hidden WebView, intents (ADR-120).
+    implementation(project(":connector:skills"))
     // Agents on the user's own network, over A2A (ADR-105).
     implementation(project(":connector:a2a"))
     // SMS is Play-restricted, so only the owner's build links it (ADR-012, ADR-032).

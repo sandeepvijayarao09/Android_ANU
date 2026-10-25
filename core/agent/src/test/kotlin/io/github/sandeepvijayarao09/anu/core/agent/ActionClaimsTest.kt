@@ -65,6 +65,9 @@ class ActionClaimsTest {
             "Your preference has been noted.",
             "I've booked lunch with Maya on Friday and noted that she's vegetarian.",
             "I'll add it to your calendar and keep in mind that you prefer mornings.",
+            // E4B's repairs on the emulator, with five and six words before "in mind" (RepairNoteProbeTest).
+            "Got it. I'll keep your weekend night shift schedule in mind for planning.",
+            "I'll keep Alex's usual 6 PM finish time in mind for evening plans.",
         ).forEach { assertTrue(it, ActionClaims.claimsMemory(it)) }
         listOf(
             "As you noted, the store closes at 5.",
@@ -115,7 +118,8 @@ class ActionClaimsTest {
     fun `a false claim is repaired with a note that nothing was done`() = runTest {
         pro.enqueue(Step.Reply("I've scheduled it and sent the invite."), Step.Reply("Shall I add it for Monday at 10:00?"))
         val events = run(setOf(Tier.PRO))
-        assertTrue(pro.requests[1].system!!.contains(ActionClaims.NOTHING_DONE_NOTE))
+        assertEquals(ActionClaims.NOTHING_DONE_NOTE, pro.requests[1].note)
+        assertEquals("the system prompt stays the same", pro.requests[0].system, pro.requests[1].system)
         val done = events.last() as AgentEvent.Completed
         assertEquals("Shall I add it for Monday at 10:00?", done.text)
         assertFalse(done.unverifiedClaim)

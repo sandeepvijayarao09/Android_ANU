@@ -98,6 +98,40 @@ interface VoiceSettings {
     val wakeWord: StateFlow<Boolean>
 
     fun setWakeWord(enabled: Boolean)
+
+    /** Whether the user taught "Hey Anu" their voice (ADR-121). Without it, the speech recognizer listens instead (ADR-045). */
+    val wakeVoice: StateFlow<Boolean>
+
+    /** Starts teaching "Hey Anu" the user's voice. */
+    fun teachWakeVoice(): WakeVoiceSetup
+
+    /** Deletes the user's samples; "Hey Anu" goes back to the recognizer. */
+    fun forgetWakeVoice()
+}
+
+/**
+ * Teaching "Hey Anu" the user's voice (ADR-121): [samples] recordings of them saying it, each checked as it's made,
+ * kept only once the last is in. Nothing is saved until [save]; [close] frees the models.
+ */
+interface WakeVoiceSetup : AutoCloseable {
+    val samples: Int
+
+    /** Cold: collecting records one sample and ends with [WakeSampleEvent.Kept] or [WakeSampleEvent.Again]. */
+    fun record(): Flow<WakeSampleEvent>
+
+    /** Keeps the voice once all [samples] are in. */
+    fun save()
+}
+
+sealed interface WakeSampleEvent {
+    /** How loud the user is, from 0 to 1. */
+    data class Level(val value: Float) : WakeSampleEvent
+
+    /** The sample was kept: [count] of [WakeVoiceSetup.samples] so far. */
+    data class Kept(val count: Int) : WakeSampleEvent
+
+    /** The sample wasn't kept, and why, in words for the user. */
+    data class Again(val reason: String) : WakeSampleEvent
 }
 
 /** Whether the models on the phone reason before answering (G4, ADR-077). Off unless the user chooses it. */
@@ -133,6 +167,24 @@ interface McpServerSettings {
 
     /** Removes the server, and its token from the vault. */
     suspend fun remove(id: String)
+}
+
+/** An Agent Skill as Settings shows it (ADR-120): built in, or added by the user from [source]. */
+data class SkillRow(val name: String, val description: String, val builtIn: Boolean, val enabled: Boolean, val source: String?)
+
+/** Gallery's Agent Skills: the built-in ones and those the user adds from a web address or a folder (ADR-120). */
+interface SkillSettings {
+    val skills: StateFlow<List<SkillRow>>
+
+    fun setEnabled(name: String, on: Boolean)
+
+    /** Adds the skill whose folder is at [address], reading its SKILL.md; throws with a reason the user can act on. */
+    suspend fun addFromUrl(address: String): SkillRow
+
+    /** Adds the skill in the folder the user picked ([tree] is its document tree's address). */
+    suspend fun addFromFolder(tree: String): SkillRow
+
+    fun remove(name: String)
 }
 
 /** A store as Settings shows it (ADR-047). */
@@ -200,6 +252,8 @@ class SettingsViewModel(
     private val mac: MacSettings? = null,
     /** The phone's own writing model, Gemini Nano through AICore (ADR-116). Null where the app has none. */
     private val systemWriter: SystemWriter? = null,
+    /** Agent Skills (ADR-120). Null where the app has none. */
+    private val skillSettings: SkillSettings? = null,
 ) : ViewModel() {
 
     /** Gemini Nano's state for the Models page; null where the app has no system writer. */
@@ -306,6 +360,23 @@ class SettingsViewModel(
 
     fun removeMcpServer(id: String) = connect("Couldn't remove the server") { mcp?.remove(id); null }
 
+    val skillsAvailable: Boolean get() = skillSettings != null
+    val skills: StateFlow<List<SkillRow>> = skillSettings?.skills ?: MutableStateFlow(emptyList())
+
+    fun setSkillEnabled(name: String, on: Boolean) = skillSettings?.setEnabled(name, on)
+
+    fun addSkillFromUrl(address: String) = connect("Couldn't add the skill") {
+        val skill = skillSettings?.addFromUrl(address.trim()) ?: return@connect null
+        "${skill.name} is added. Anu uses it when a request matches: ${skill.description}"
+    }
+
+    fun addSkillFromFolder(tree: String) = connect("Couldn't add the skill") {
+        val skill = skillSettings?.addFromFolder(tree) ?: return@connect null
+        "${skill.name} is added. Anu uses it when a request matches: ${skill.description}"
+    }
+
+    fun removeSkill(name: String) = skillSettings?.remove(name)
+
     fun addStore(address: String) = connect("Couldn't add the store") {
         val store = shopping?.add(address.trim()) ?: return@connect null
         "${store.name} is added. Ask Anu to find or buy something there."
@@ -338,6 +409,14 @@ class SettingsViewModel(
 
     fun setWakeWord(enabled: Boolean) {
         voice?.setWakeWord(enabled)
+    }
+
+    val wakeVoice: StateFlow<Boolean> = voice?.wakeVoice ?: MutableStateFlow(false)
+
+    fun teachWakeVoice(): WakeVoiceSetup? = voice?.teachWakeVoice()
+
+    fun forgetWakeVoice() {
+        voice?.forgetWakeVoice()
     }
 
     /** Null when there is no messaging connector. Re-checked with [refreshMessaging] when the screen resumes. */

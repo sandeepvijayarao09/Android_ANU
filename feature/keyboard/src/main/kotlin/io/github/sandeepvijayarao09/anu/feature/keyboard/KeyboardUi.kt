@@ -2,6 +2,7 @@ package io.github.sandeepvijayarao09.anu.feature.keyboard
 
 import android.view.HapticFeedbackConstants
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -21,6 +22,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -68,8 +70,16 @@ interface KeyboardInput {
 
 /** What the AI strip does. */
 interface AssistInput {
+    /** Runs [action]; [KeyboardAction.ASK] opens the Ask field instead. */
     fun run(action: KeyboardAction)
-    fun accept()
+
+    /** Commits the preview, or the emoji [choice] tapped. */
+    fun accept(choice: String?)
+
+    /** Runs what was typed into the Ask field. */
+    fun ask()
+
+    /** Discard, Stop, OK, or closing the Ask field. */
     fun discard()
 }
 
@@ -87,8 +97,12 @@ fun AnuKeyboard(
     onPage: (KeyPage) -> Unit,
     keys: KeyboardInput,
     ai: AssistInput,
+    /** What's typed into the Ask field while it's open (the keys type there then), or null. */
+    asking: String? = null,
 ) {
     val colors = AnuTheme.colors
+    // While the Ask field is open, enter runs it.
+    val keyPolicy = if (asking != null) policy.copy(enter = EnterKey.GO) else policy
     Column(
         Modifier
             .fillMaxWidth()
@@ -97,12 +111,12 @@ fun AnuKeyboard(
             .padding(horizontal = 3.dp)
             .padding(bottom = 4.dp),
     ) {
-        if (policy.layout == KeyLayout.LETTERS) Top(policy, assist, ai)
+        if (policy.layout == KeyLayout.LETTERS) Top(policy, assist, ai, asking)
         val rows = if (policy.layout == KeyLayout.LETTERS) Keys.rows(page, shift) else Keys.pad(policy.layout)
         Column(Modifier.padding(top = if (policy.layout == KeyLayout.LETTERS) 0.dp else 8.dp)) {
             rows.forEach { row ->
                 Row(Modifier.fillMaxWidth().height(54.dp)) {
-                    row.forEach { key -> KeyCap(key, policy, shift, onShift, onPage, keys) }
+                    row.forEach { key -> KeyCap(key, keyPolicy, shift, onShift, onPage, keys) }
                 }
             }
         }
@@ -110,7 +124,7 @@ fun AnuKeyboard(
 }
 
 @Composable
-private fun Top(policy: FieldPolicy, assist: AssistState, ai: AssistInput) {
+private fun Top(policy: FieldPolicy, assist: AssistState, ai: AssistInput, asking: String?) {
     val colors = AnuTheme.colors
     val type = AnuTheme.type
     when {
@@ -121,8 +135,13 @@ private fun Top(policy: FieldPolicy, assist: AssistState, ai: AssistInput) {
         !policy.ai -> StripLine {
             Text("AI isn't offered in this field.", style = type.caption, color = colors.textMuted)
         }
+        assist is AssistState.Ready && assist.choices.isNotEmpty() -> EmojiChoices(
+            heading = heading(assist.action, null, assist.tier, assist.engine),
+            choices = assist.choices,
+            ai = ai,
+        )
         assist is AssistState.Ready -> Preview(
-            heading = heading(assist.action, assist.chatTitle, assist.tier, assist.engine),
+            heading = heading(assist.action, assist.chatTitle, assist.tier, assist.engine, assist.asked),
             text = assist.result,
             done = true,
             replaces = assist.replaces,
@@ -140,6 +159,7 @@ private fun Top(policy: FieldPolicy, assist: AssistState, ai: AssistInput) {
             Text(assist.action.working, style = type.label, color = colors.textMuted, modifier = Modifier.weight(1f))
             AnuTextButton("Stop", onClick = ai::discard)
         }
+        asking != null && assist !is AssistState.Working -> AskLine(asking, ai)
         assist is AssistState.Note -> StripLine {
             Text(assist.text, style = type.caption, color = colors.textMuted, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
             AnuTextButton("OK", onClick = ai::discard)
@@ -162,13 +182,14 @@ private fun Top(policy: FieldPolicy, assist: AssistState, ai: AssistInput) {
                 PrivacyDot(away = false)
             }
             Spacer(Modifier.size(2.dp))
+            AskPill(onClick = { ai.run(KeyboardAction.ASK) })
             KeyboardAction.strip(policy.chat).forEach { action -> AnuPill(action.label, onClick = { ai.run(action) }) }
         }
     }
 }
 
-private fun heading(action: KeyboardAction, chatTitle: String?, tier: Tier?, engine: String? = null): String = buildString {
-    append(action.label)
+private fun heading(action: KeyboardAction, chatTitle: String?, tier: Tier?, engine: String? = null, asked: String? = null): String = buildString {
+    append(if (asked != null) "“${asked.take(40)}${if (asked.length > 40) "…" else ""}”" else action.label)
     if (chatTitle != null) append(" to ").append(chatTitle)
     append(" · On this phone")
     if (engine != null) append(" · ").append(engine)
@@ -214,7 +235,102 @@ private fun Preview(heading: String, text: String, done: Boolean, replaces: Bool
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             AnuButton(if (done) "Discard" else "Stop", onClick = ai::discard, secondary = true, modifier = Modifier.weight(1f))
-            AnuButton(if (replaces) "Replace" else "Insert", onClick = ai::accept, enabled = done, modifier = Modifier.weight(1f))
+            AnuButton(if (replaces) "Replace" else "Insert", onClick = { ai.accept(null) }, enabled = done, modifier = Modifier.weight(1f))
+        }
+    }
+}
+
+/** "Ask Anu": the first pill, ink rather than tinted, since it opens a field rather than running at once. */
+@Composable
+private fun AskPill(onClick: () -> Unit) {
+    val colors = AnuTheme.colors
+    Row(
+        Modifier
+            .minimumInteractiveComponentSize()
+            .clip(AnuShapes.full)
+            .background(colors.surface)
+            .clickable(role = Role.Button, onClickLabel = "Ask Anu to write or change your text", onClick = onClick)
+            .padding(start = 10.dp, end = 14.dp, top = 6.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(5.dp),
+    ) {
+        Icon(AnuIcons.Sparkle, contentDescription = null, tint = colors.text, modifier = Modifier.size(16.dp))
+        Text("Ask Anu", style = AnuTheme.type.label.copy(fontWeight = FontWeight(600)), color = colors.text)
+    }
+}
+
+/**
+ * The Ask field (ADR-122): the keys type into it instead of the app, and enter (or Go) runs it on the field's text, or
+ * writes new text into an empty field. It's Anu's own text, kept only until it runs or closes.
+ */
+@Composable
+private fun AskLine(text: String, ai: AssistInput) {
+    val colors = AnuTheme.colors
+    val type = AnuTheme.type
+    Row(
+        Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Box(
+            Modifier.size(40.dp).clip(AnuShapes.full).clickable(role = Role.Button, onClickLabel = "Close Ask Anu", onClick = ai::discard),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(AnuIcons.Close, contentDescription = "Close", tint = colors.textMuted, modifier = Modifier.size(18.dp))
+        }
+        Row(
+            Modifier
+                .weight(1f)
+                .height(36.dp)
+                .clip(AnuShapes.full)
+                .background(colors.surface)
+                .padding(horizontal = 14.dp)
+                .semantics(mergeDescendants = true) { contentDescription = if (text.isEmpty()) "Ask Anu, empty" else "Ask Anu: $text" },
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text.ifEmpty { "Ask Anu to write or change…" },
+                style = type.callout,
+                color = if (text.isEmpty()) colors.textFaint else colors.text,
+                maxLines = 1,
+                overflow = TextOverflow.StartEllipsis,
+                modifier = Modifier.weight(1f, fill = false),
+            )
+            if (text.isNotEmpty()) Box(Modifier.padding(start = 1.dp).size(width = 1.5.dp, height = 18.dp).background(colors.accent))
+        }
+        AnuTextButton("Go", onClick = ai::ask)
+    }
+}
+
+/** Emoji to choose from: one tap inserts that one at the cursor. */
+@Composable
+private fun EmojiChoices(heading: String, choices: List<String>, ai: AssistInput) {
+    val colors = AnuTheme.colors
+    Column(
+        Modifier
+            .padding(horizontal = 5.dp, vertical = 6.dp)
+            .fillMaxWidth()
+            .anuCard()
+            .padding(start = 14.dp, end = 8.dp, top = 10.dp, bottom = 6.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+            PrivacyDot(away = false)
+            Text(heading, style = AnuTheme.type.label, color = colors.textMuted, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+            AnuTextButton("Discard", onClick = ai::discard, color = colors.textMuted)
+        }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            choices.forEach { emoji ->
+                Box(
+                    Modifier
+                        .size(48.dp)
+                        .clip(AnuShapes.sm)
+                        .clickable(role = Role.Button, onClickLabel = "Insert $emoji") { ai.accept(emoji) },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(emoji, fontSize = 28.sp)
+                }
+            }
         }
     }
 }

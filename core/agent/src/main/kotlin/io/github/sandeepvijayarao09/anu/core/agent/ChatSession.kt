@@ -90,8 +90,8 @@ class ChatSession(
     private val transcriber: Transcriber? = null,
     /** Reads long PDFs in pieces on the phone (ADR-095). Null when no model can. */
     private val documentReader: DocumentReader? = null,
-    /** Sub-agents and workflows (ADR-104): turns routed to one of its skills go to it instead of [agent]. */
-    private val orchestrator: Orchestrator? = null,
+    /** Agent Skills (ADR-120): listed by name and description whenever the turn offers `load_skill`. */
+    private val skills: () -> List<AgentSkill> = { emptyList() },
     /** Times the first word and the whole answer. */
     private val nanoTime: () -> Long = System::nanoTime,
     private val millis: () -> Long = System::currentTimeMillis,
@@ -257,20 +257,12 @@ class ChatSession(
             // A photo or a screen in view can show a code or a password: the answer about it is guarded (I1, ADR-082).
             // A PDF's text can too, such as a statement's account PIN (ADR-095).
             val shield = if (route.hasPhotos || route.hasScreen || route.hasDocument) SecretShield(text, screen?.secrets.orEmpty()) else null
-            // A brief or a request across several areas goes to ADK's agents, on the phone only (ADR-104).
-            val orchestrated = orchestrator?.takeIf { skill in it.skills && pinned != Tier.CLOUD && !cloudConsented }
-            val events = orchestrated?.run(
-                OrchestratedTurn(
-                    skill, asking.allWords, turnKey, sentAt(now, asking.allWords), untrustedIn(shown + message),
-                    recent = recentChat(shown), facts = relevantBlock,
-                ),
+            val events = agent.run(
+                route, device, system, turn, tools, turnKey = turnKey, sentAt = sentAt(now, asking.allWords), dates = dates, memory = memoryBlock,
+                relevant = relevantBlock, sharedFacts = if (cloudConsented) sharedFacts else emptyList(), consentFacts = consentFacts,
+                inView = untrustedIn(shown + message),
+                thinking = thinking(),
             )
-                ?: agent.run(
-                    route, device, system, turn, tools, turnKey = turnKey, sentAt = sentAt(now, asking.allWords), dates = dates, memory = memoryBlock,
-                    relevant = relevantBlock, sharedFacts = if (cloudConsented) sharedFacts else emptyList(), consentFacts = consentFacts,
-                    inView = untrustedIn(shown + message),
-                    thinking = thinking(),
-                )
             events.collect { raw ->
                 when (raw) {
                     is AgentEvent.TextDelta -> if (firstWord == null && raw.text.isNotEmpty()) firstWord = nanoTime()
@@ -309,7 +301,6 @@ class ChatSession(
                             cut = event.decision?.maxOutputTokens?.let { limit -> (event.usage?.outputTokens ?: 0) >= limit * 95 / 100 } ?: false,
                             thoughtMs = firstThought?.let { thought -> ((firstWord ?: now) - thought) / 1_000_000 },
                             heardMs = heardMs,
-                            agents = event.agents,
                         )
                         out = event.copy(details = details)
                         event.tokens?.let { sample ->
@@ -544,10 +535,14 @@ class ChatSession(
                 append(" phone_call only opens the dialer with the number, for the user to tap call. Find a person's number with contacts_find first.")
             }
             if ("notes_create" in tools) {
-                append(" Notes are kept in Anu on this phone. To add to a note the user names, call notes_append with its title; for a new one, notes_create.")
+                append(" Notes are kept in Anu on this phone. To add to a note the user names, call notes_append with its title; for a new one, notes_create. A grocery or shopping list is a note: add to it, or make it if there is none.")
             }
             if ("contacts_add" in tools) {
                 append(" To save a person or their number or email, call contacts_add with the name and details exactly as the user gave them.")
+            }
+            if (LoadSkillTool.NAME in tools) {
+                val listed = skills()
+                if (listed.isNotEmpty()) append(SkillPrompt.section(listed))
             }
             if (tools.any { it.startsWith("mcp_") }) {
                 append(" Tools named mcp_ belong to services the user added. Use them for what the user asks of that service.")

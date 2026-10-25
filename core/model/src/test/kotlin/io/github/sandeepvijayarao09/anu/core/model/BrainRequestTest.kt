@@ -78,4 +78,23 @@ class BrainRequestTest {
         assertEquals("Plan a dinner: try a risotto.", request.withoutFraming("[Sun 2026-09-27 01:32] Plan a dinner: try a risotto."))
         assertEquals("diet: vegetarian. Try a risotto.", request.withoutFraming("$FACTS_HEADER diet: vegetarian. Try a risotto."))
     }
+
+    @Test
+    fun `Anu's note ends the newest message, never earlier ones, and quoting it is caught`() {
+        val request = BrainRequest(
+            transcript = listOf(ChatMessage.User("Hi"), ChatMessage.Model("Hello!"), ChatMessage.User("I'm vegetarian, keep that in mind")),
+            sentAt = "Tue 2026-09-29 10:40",
+            relevant = "Facts:\n- diet: vegetarian",
+            note = "Don't say \"noted\".",
+        )
+        assertEquals("Hi", request.userText(0))
+        assertEquals(
+            "Facts:\n- diet: vegetarian\n\n[Tue 2026-09-29 10:40] I'm vegetarian, keep that in mind\n\n$NOTE_HEADER Don't say \"noted\".",
+            request.userText(2),
+        )
+        assertEquals("the cloud gets it too", "[Tue 2026-09-29 10:40] I'm vegetarian, keep that in mind\n\n$NOTE_HEADER Don't say \"noted\".", request.userText(2, facts = null))
+        assertTrue(request.echoesFraming("$NOTE_HEADER Don't say \"noted\". Thanks!"))
+        assertFalse("without a note, the words are fine", request.copy(note = null).echoesFraming("$NOTE_HEADER hello"))
+        assertEquals("Thanks!", request.withoutFraming("$NOTE_HEADER Don't say \"noted\". Thanks!"))
+    }
 }

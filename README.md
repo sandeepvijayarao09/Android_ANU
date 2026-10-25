@@ -1,6 +1,6 @@
 # Anu for Android: a private, on-device AI assistant
 
-[![CI](https://github.com/sandeepvijayarao09/Android_ANU/actions/workflows/ci.yml/badge.svg)](https://github.com/sandeepvijayarao09/Android_ANU/actions/workflows/ci.yml)
+[![CI](https://github.com/sandeepvijayarao09/anu-gemma-hackathon/actions/workflows/ci.yml/badge.svg)](https://github.com/sandeepvijayarao09/anu-gemma-hackathon/actions/workflows/ci.yml)
 
 ## In 30 seconds
 

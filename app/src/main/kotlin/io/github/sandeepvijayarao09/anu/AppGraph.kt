@@ -118,6 +118,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import io.github.sandeepvijayarao09.anu.connector.mcp.McpClient
@@ -155,7 +157,15 @@ import io.github.sandeepvijayarao09.anu.connector.phone.Reminders
 import io.github.sandeepvijayarao09.anu.connector.phone.SetReminderTool
 import io.github.sandeepvijayarao09.anu.connector.phone.ShareTool
 import io.github.sandeepvijayarao09.anu.core.data.RoomReminderStore
-import io.github.sandeepvijayarao09.anu.agent.adk.AdkOrchestrator
+import io.github.sandeepvijayarao09.anu.connector.skills.JsSkillRunner
+import io.github.sandeepvijayarao09.anu.connector.skills.RunIntentTool
+import io.github.sandeepvijayarao09.anu.connector.skills.RunJsTool
+import io.github.sandeepvijayarao09.anu.connector.skills.SkillEntry
+import io.github.sandeepvijayarao09.anu.connector.skills.SkillLibrary
+import io.github.sandeepvijayarao09.anu.core.agent.AgentSkill
+import io.github.sandeepvijayarao09.anu.feature.settings.SkillRow
+import io.github.sandeepvijayarao09.anu.feature.settings.SkillSettings
+import io.github.sandeepvijayarao09.anu.core.agent.LoadSkillTool
 import io.github.sandeepvijayarao09.anu.connector.a2a.A2aAgentList
 import io.github.sandeepvijayarao09.anu.connector.a2a.A2aAgents
 import io.github.sandeepvijayarao09.anu.connector.a2a.A2aClient
@@ -324,6 +334,36 @@ class AppGraph(private val context: Context) {
 
     /** Agents the user added on their own network, by the Agent2Agent protocol (ADR-105). */
     val agents by lazy { A2aAgents(PrefsAgentList(prefs), A2aClient(connectorHttp), ledger) }
+
+    /** Agent Skills as AI Edge Gallery defines them: its built-in skills and any the user adds (ADR-120). */
+    val skills by lazy { SkillLibrary(context, prefs, connectorHttp) }
+
+    /** The Skills page's view of [skills] (ADR-120). */
+    val skillSettings: SkillSettings by lazy {
+        object : SkillSettings {
+            override val skills: StateFlow<List<SkillRow>> = this@AppGraph.skills.entries
+                .map { entries -> entries.map(::skillRow) }
+                .stateIn(scope, SharingStarted.Eagerly, this@AppGraph.skills.entries.value.map(::skillRow))
+
+            override fun setEnabled(name: String, on: Boolean) = this@AppGraph.skills.setEnabled(name, on)
+
+            override suspend fun addFromUrl(address: String) = skillRow(SkillEntry(this@AppGraph.skills.addFromUrl(address), enabled = true))
+
+            override suspend fun addFromFolder(tree: String) =
+                skillRow(SkillEntry(this@AppGraph.skills.addFromFolder(android.net.Uri.parse(tree)), enabled = true))
+
+            override fun remove(name: String) = this@AppGraph.skills.remove(name)
+        }
+    }
+
+    private fun skillRow(entry: SkillEntry) = SkillRow(
+        name = entry.skill.name,
+        description = entry.skill.description,
+        builtIn = entry.skill.origin == AgentSkill.Origin.BUILT_IN,
+        enabled = entry.enabled,
+        source = entry.skill.base.takeIf { it.startsWith("https://") }?.toHttpUrlOrNull()?.host
+            ?: if (entry.skill.origin == AgentSkill.Origin.ADDED) "a folder on this phone" else null,
+    )
     val stores by lazy { StoreConnections(connectorSettings, ucp, scope) }
     private val seenProducts = SeenProducts()
 
@@ -463,11 +503,21 @@ class AppGraph(private val context: Context) {
             CreateNoteTool(notes, Flavor.noteMirror(context)),
             SearchNotesTool(notes),
             AppendNoteTool(notes),
-        // An app task picks each step with a model call: on the TPU when Base is there, as ADK's agents do.
+            // Gallery's skill tools (ADR-120): load a skill's instructions, run its JS, or run one of its intents.
+            LoadSkillTool(skills),
+            RunJsTool(skills, JsSkillRunner(context, skills), ledger),
+            RunIntentTool(context, reminders, skills, zone),
+        // An app task picks each step with a model call: on the TPU when Base is there.
         ) + Flavor.tools(context, zone, appBrain = { agentBrain()?.second }, broker = { broker })
     }
 
-    private fun toolsFor(skill: Skill): List<String> = when (skill) {
+    /**
+     * The tools a route offers (§7.3), and on every route Gallery's skill tools (ADR-120): one agent answers every turn,
+     * as in AI Edge Gallery, and a skill brings its instructions only when the model loads it.
+     */
+    private fun toolsFor(skill: Skill): List<String> = routeTools(skill) + SKILL_TOOLS
+
+    private fun routeTools(skill: Skill): List<String> = when (skill) {
         Skill.SCHEDULING -> listOf("calendar_list_events", "calendar_find_free_slots", "calendar_create_event", "contacts_find")
         Skill.EMAIL -> listOf(
             "email_search", "email_get_thread", "email_create_draft", "email_send",
@@ -494,6 +544,11 @@ class AppGraph(private val context: Context) {
         )
         // One call that names the app and the goal; the task picks each step itself (ADR-098). Personal build only.
         Skill.APPS -> if (Flavor.HAS_APP_CONTROL) listOf(AppTaskTool.NAME) else emptyList()
+        // A daily brief reads the day's events, the newest chats and the notes (ADR-120 replaced ADR-104's workflow).
+        Skill.BRIEF -> listOf("calendar_list_events", "messages_list_conversations", "notes_search")
+        // A request across areas gets each area's tools, and the agents on the user's network (ADR-105).
+        Skill.AGENTS -> (routeTools(Skill.SCHEDULING) + routeTools(Skill.MESSAGES) + routeTools(Skill.PHONE)).distinct() +
+            agents.tools().map { it.name }
         else -> emptyList()
     }
 
@@ -527,15 +582,8 @@ class AppGraph(private val context: Context) {
                 PhoneCommands.match(text, LocalDateTime.now(zone())) { launcher.find(it) is AppPick.One }
                     ?: if (Flavor.HAS_APP_CONTROL) AppCommands.match(text) else null
             },
-            // A daily brief, or a request across areas, goes to sub-agents and workflows on Google's ADK (ADR-104).
-            orchestrator = AdkOrchestrator(
-                broker = { broker },
-                available = { (tools.map { it.name } + mcp.registry.tools().map { it.name } + agents.tools().map { it.name }).toSet() },
-                // Pro first: the coordinator plans the specialists' calls. Base on the TPU is faster (ADR-103), and comes
-                // after the agents are checked on Pro.
-                brain = { onDevice.brainFor(BrainId.PRO) ?: onDevice.brainFor(BrainId.BASE) },
-                tier = { if (onDevice.brainFor(BrainId.PRO) != null) Tier.PRO else Tier.BASE },
-            ),
+            // Gallery's skills, listed by name and description on every turn (ADR-120).
+            skills = { skills.skills() },
             thinking = { thinking.thinking.value },
             transcriber = onDevice,
             documentReader = onDevice,
@@ -592,6 +640,9 @@ class AppGraph(private val context: Context) {
 
     private companion object {
         const val TAG = "Anu"
+
+        /** Gallery's skill tools, on every route (ADR-120). */
+        val SKILL_TOOLS = listOf(LoadSkillTool.NAME, RunJsTool.NAME, RunIntentTool.NAME)
 
         /** The app setting that says whether models think before answering (ADR-077). */
         const val THINKING_KEY = "think_before_answering"

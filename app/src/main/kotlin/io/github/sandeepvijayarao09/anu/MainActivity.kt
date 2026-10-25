@@ -178,13 +178,18 @@ private fun AnuHome(graph: AppGraph, shared: MutableStateFlow<Shared?>) {
             thinkingSetting = graph.thinking,
             mac = graph.mac,
             systemWriter = graph.systemWriter,
+            skillSettings = graph.skillSettings,
         )
     }
     // Live camera (ADR-111): "Ask Anu about this" comes back as a photo in the composer, handed over in memory, with
     // what the detector found in it for Gemma to read.
     val liveCamera = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         val frozen = LiveFrame.take()
-        if (result.resultCode == android.app.Activity.RESULT_OK && frozen != null) chat.attachFrame(frozen.jpeg, frozen.found)
+        if (result.resultCode == android.app.Activity.RESULT_OK && frozen != null) {
+            chat.attachFrame(frozen.jpeg, frozen.found)
+            // Back on Talk, where the frame waits, as a shared photo lands there.
+            scope.launch { pager.scrollToPage(0) }
+        }
     }
     var micGranted by remember { mutableStateOf(context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) }
     // What the user was doing when Anu asked for the microphone: talking, or a voice note. It goes on once allowed.

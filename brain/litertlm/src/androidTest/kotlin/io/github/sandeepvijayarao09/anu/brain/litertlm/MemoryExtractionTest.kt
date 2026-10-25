@@ -14,7 +14,6 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.runBlocking
 import org.junit.AfterClass
-import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.BeforeClass
 import org.junit.Test
@@ -23,8 +22,9 @@ import java.time.LocalDate
 
 /**
  * Memory's fact extraction (§8.2) on a real Gemma 4 model, with made-up statements: what the user types in
- * Memory → Add becomes the fact it states. Skips itself without a model, like the S1 tests. The model's raw
- * answers are logged under AnuS1.
+ * Memory → Add, or says in passing in chat, becomes the fact it states, and a request keeps nothing. Each runs on
+ * two days, since a different date line once flipped greedy answers (ADR-123). Skips itself without a model, like
+ * the S1 tests. The model's raw answers are logged under AnuS1.
  */
 @RunWith(AndroidJUnit4::class)
 class MemoryExtractionTest {
@@ -46,21 +46,40 @@ class MemoryExtractionTest {
     @Test
     fun statementsBecomeTheirFacts() = runBlocking {
         val recording = Recording(brain)
-        val extractor = FactExtractor({ recording }, { LocalDate.of(2026, 9, 26) })
+        // Each message, and the values its facts should have: one pattern per fact, over the value in lowercase.
         val cases = listOf(
-            "I'm vegetarian" to setOf("vegetarian"),
-            "I'm vegan" to setOf("vegan"),
-            "I'm left-handed" to setOf("left-handed"),
-            "I'm vegetarian, and my sister is Priya" to setOf("vegetarian", "priya"),
+            "I'm vegetarian" to listOf("vegetarian"),
+            "I'm vegan" to listOf("vegan"),
+            "I'm left-handed" to listOf("left-handed"),
+            "I'm vegetarian, and my sister is Priya" to listOf("vegetarian", "priya"),
+            // Plain chat on anu_api36 (2026-09-29): a fact told in passing, with a request after it.
+            "By the way, I'm vegetarian, so please keep that in mind whenever you suggest recipes or restaurants." to listOf("vegetarian"),
+            "Also, I usually cook for two people, so please keep that in mind whenever you suggest recipes or portion sizes." to
+                listOf("(cooks? )?(for )?(two|2)( people)?"),
+            // Requests, questions and plans: nothing lasting.
+            "Can you remind me to buy milk tomorrow?" to emptyList(),
+            "I need a quick recipe for dinner tonight." to emptyList(),
+            "Can you find me a vegetarian restaurant for tonight?" to emptyList(),
+            "What should I cook for my friends this weekend?" to emptyList(),
         )
-        for ((message, values) in cases) {
-            recording.answers.clear()
-            val result = extractor.extract(message)
-            S1.report("extract", "\"$message\" → ${recording.answers.joinToString(" || ")}")
-            val facts = (result as? FactExtractor.Result.Facts)?.facts.orEmpty()
-            assertEquals(message, values, facts.map { it.value.lowercase() }.toSet())
-            assertTrue("$message is about the user", facts.all { it.subject == USER })
+        // Every case runs and is logged before the test fails, so one run shows all of the model's answers.
+        val wrong = mutableListOf<String>()
+        for (day in listOf(LocalDate.of(2026, 9, 26), LocalDate.of(2026, 9, 29))) {
+            val extractor = FactExtractor({ recording }, { day })
+            for ((message, patterns) in cases) {
+                recording.answers.clear()
+                val result = extractor.extract(message)
+                // A free answer may be laid out on several lines; one line each keeps the log readable.
+                S1.report("extract", "$day \"$message\" → ${recording.answers.joinToString(" || ") { it.replace('\n', ' ') }}")
+                val facts = (result as? FactExtractor.Result.Facts)?.facts.orEmpty()
+                val values = facts.map { it.value.lowercase() }
+                val right = values.size == patterns.size && patterns.all { pattern -> values.any(Regex(pattern)::matches) }
+                if (!right || !facts.all { it.subject == USER }) {
+                    wrong += "$day \"$message\" kept ${facts.map { "${it.subject} ${it.predicate}: ${it.value}" }}"
+                }
+            }
         }
+        assertTrue(wrong.joinToString("\n"), wrong.isEmpty())
     }
 
     companion object {

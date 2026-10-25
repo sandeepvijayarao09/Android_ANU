@@ -271,6 +271,20 @@ class RouterTest {
     }
 
     @Test
+    fun `a grocery or shopping list is a note, not the user's stores or plain chat (ADR-119)`() {
+        assertEquals(Skill.PHONE, SkillDetector.detect("Add tomatoes and onions to my grocery list"))
+        assertEquals(Skill.PHONE, SkillDetector.detect("Put the things I'm missing on my groceries list"))
+        assertEquals("not the user's stores", Skill.PHONE, SkillDetector.detect("Add oat milk to my shopping list"))
+        assertEquals("not scheduling's \"what's on my\"", Skill.PHONE, SkillDetector.detect("What's on my shopping list?"))
+        assertEquals(Skill.PHONE, SkillDetector.detect("Make a grocery list for this recipe"))
+        assertEquals("buying is still the stores", Skill.SHOPPING, SkillDetector.detect("Buy me oat milk"))
+        assertEquals("shopping alone is still the stores", Skill.SHOPPING, SkillDetector.detect("I'm shopping for running shoes"))
+        assertEquals("the calendar keeps its words", Skill.SCHEDULING, SkillDetector.detect("Add the grocery list to my calendar for Saturday"))
+        assertEquals("two areas", Skill.AGENTS, SkillDetector.detect("Text Maya I'm late and add eggs to my grocery list"))
+        assertEquals("a short follow-up keeps the tools", Skill.PHONE, SkillDetector.detect(listOf("Add eggs to my grocery list", "and butter")))
+    }
+
+    @Test
     fun `brightness and volume are the phone's, and a text draft is messages' (ADR-099)`() {
         assertEquals(Skill.PHONE, SkillDetector.detect("Make the screen a bit brighter and turn the volume down"))
         assertEquals(Skill.PHONE, SkillDetector.detect("Set the ringer to half and wake me at 7"))

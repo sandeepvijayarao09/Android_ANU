@@ -5,6 +5,7 @@ import io.github.sandeepvijayarao09.anu.core.model.BrainId
 import io.github.sandeepvijayarao09.anu.core.model.BrainRequest
 import io.github.sandeepvijayarao09.anu.core.model.ChatMessage
 import io.github.sandeepvijayarao09.anu.core.model.DataClass
+import io.github.sandeepvijayarao09.anu.core.model.NOTE_HEADER
 import io.github.sandeepvijayarao09.anu.core.model.StopReason
 import io.github.sandeepvijayarao09.anu.core.model.ToolCall
 import io.github.sandeepvijayarao09.anu.core.model.ToolResult
@@ -155,6 +156,18 @@ class GeminiBrainTest {
         val contents = Json.parseToJsonElement(server.takeRequest().body!!.utf8()).jsonObject.getValue("contents").jsonArray
         val texts = contents.map { it.jsonObject.getValue("parts").jsonArray.single().jsonObject.getValue("text").jsonPrimitive.content }
         assertEquals(listOf("Hi", "Hello!", "[Fri 2026-09-25 14:46] What time is it?"), texts)
+    }
+
+    @Test
+    fun `a repair note escalated to the cloud goes with the newest message, not the system instruction`() = runBlocking {
+        server.enqueue(sse(text("ok", 5)))
+        brain.stream(
+            BrainRequest(system = "You are Anu.", transcript = listOf(ChatMessage.User("I'm vegetarian")), note = "Don't say \"noted\"."),
+        ).toList()
+        val body = Json.parseToJsonElement(server.takeRequest().body!!.utf8()).jsonObject
+        val text = body.getValue("contents").jsonArray.single().jsonObject.getValue("parts").jsonArray.single().jsonObject.getValue("text").jsonPrimitive.content
+        assertEquals("I'm vegetarian\n\n$NOTE_HEADER Don't say \"noted\".", text)
+        assertTrue("noted" !in body.getValue("systemInstruction").toString())
     }
 
     @Test
