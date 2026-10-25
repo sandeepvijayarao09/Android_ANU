@@ -2,12 +2,16 @@ package io.github.sandeepvijayarao09.anu.connector.apps
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
+import android.content.ClipData
+import android.content.ClipDescription
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Path
 import android.graphics.Rect
 import android.os.Bundle
+import android.os.PersistableBundle
 import android.os.SystemClock
 import android.provider.Settings
 import android.view.accessibility.AccessibilityNodeInfo
@@ -223,7 +227,23 @@ class AccessibilityAppDriver(private val context: Context) : AppDriver {
         val node = node(id)
         node.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
         val args = Bundle().apply { putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text) }
-        check(node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)) { "the field didn't take the text" }
+        if (node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)) return
+        // Some editors, such as Samsung Notes' note body, refuse SET_TEXT but take a paste (ADR-117). The text goes
+        // through the clipboard marked sensitive, so the system doesn't show it, and the clipboard is cleared after.
+        withContext(Dispatchers.Main) {
+            val clipboard = context.getSystemService(ClipboardManager::class.java)
+            val clip = ClipData.newPlainText("Anu", text).apply {
+                description.extras = PersistableBundle().apply { putBoolean(ClipDescription.EXTRA_IS_SENSITIVE, true) }
+            }
+            clipboard.setPrimaryClip(clip)
+            try {
+                node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                check(node.performAction(AccessibilityNodeInfo.ACTION_PASTE)) { "the field didn't take the text" }
+            } finally {
+                delay(PASTE_SETTLE_MS)
+                clipboard.clearPrimaryClip()
+            }
+        }
     }
 
     override suspend fun enter(id: Int) {
@@ -298,6 +318,9 @@ class AccessibilityAppDriver(private val context: Context) : AppDriver {
     }
 
     private companion object {
+        /** How long a paste is given to land before the clipboard is cleared. */
+        const val PASTE_SETTLE_MS = 300L
+
         /** Enough for a busy page such as Amazon's results; the model sees only the part that bears on the goal. */
         const val MAX_ELEMENTS = 150
 
