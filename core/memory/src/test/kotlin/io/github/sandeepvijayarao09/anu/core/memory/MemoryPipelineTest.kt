@@ -132,7 +132,7 @@ class MemoryPipelineTest {
         val request = brain.requests.single()
         assertEquals(listOf(ChatMessage.User("My manager Maya wants the report by Friday, and I'm vegetarian")), request.transcript)
         assertTrue(request.system!!, request.system!!.contains("Today is Friday, 25 September 2026."))
-        assertNotNull(request.responseSchema)
+        assertNull("the first answer is free (ADR-123)", request.responseSchema)
         assertEquals(Sampling.Precise, request.sampling)
         assertNull("extraction never carries the memory block", request.memory)
 
@@ -165,6 +165,21 @@ class MemoryPipelineTest {
         val repair = brain.requests[1].transcript
         assertEquals(3, repair.size)
         assertEquals(ChatMessage.Model("Sure! Here are the facts."), repair[1])
+        assertNull(brain.requests[0].responseSchema)
+        assertNotNull("the repair is held to the schema, so it parses", brain.requests[1].responseSchema)
+    }
+
+    @Test
+    fun `a section the model made up keeps its fact, in identity for the user and people for others`() = runTest {
+        learn(
+            "FYI my daughter Ana is allergic to nuts, and I'm diabetic",
+            fact("user", "daughter", "Ana", "people", "my daughter Ana"),
+            fact("Ana", "allergy", "nuts", "health", "Ana is allergic to nuts"),
+            fact("I", "condition", "diabetic", "health", "I'm diabetic"),
+        )
+        assertEquals("no repair was needed", 1, brain.requests.size)
+        val sections = store.activeFacts().associate { it.value to it.section }
+        assertEquals(mapOf("Ana" to ProfileSection.PEOPLE, "nuts" to ProfileSection.PEOPLE, "diabetic" to ProfileSection.IDENTITY), sections)
     }
 
     @Test
