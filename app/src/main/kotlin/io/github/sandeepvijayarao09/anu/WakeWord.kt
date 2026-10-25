@@ -18,13 +18,21 @@ import android.os.IBinder
 import android.os.PowerManager
 import android.os.SystemClock
 import android.provider.Settings
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.edit
+import io.github.sandeepvijayarao09.anu.brain.wakeword.LiteRtSpeechFeatures
+import io.github.sandeepvijayarao09.anu.core.voice.AndroidMic
+import io.github.sandeepvijayarao09.anu.core.voice.SpeechFeatures
 import io.github.sandeepvijayarao09.anu.core.voice.SpeechInput
+import io.github.sandeepvijayarao09.anu.core.voice.WakeDetector
 import io.github.sandeepvijayarao09.anu.core.voice.WakeListener
+import io.github.sandeepvijayarao09.anu.core.voice.WakeLoop
 import io.github.sandeepvijayarao09.anu.feature.settings.VoiceSettings
+import io.github.sandeepvijayarao09.anu.feature.settings.WakeVoiceSetup
+import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -38,14 +46,60 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Anu as the phone's assistant, and the "Hey Anu" switch (ADR-044, ADR-045). Android decides which app
- * is the assistant, so the settings screen sends the user to Android's page for it.
+ * is the assistant, so the settings screen sends the user to Android's page for it. Once the user teaches
+ * it their voice, "Hey Anu" listens with their samples on LiteRT instead of the recognizer (ADR-121).
  */
-class AnuVoiceSettings(private val context: Context, private val prefs: SharedPreferences) : VoiceSettings {
+class AnuVoiceSettings(
+    private val context: Context,
+    private val prefs: SharedPreferences,
+    private val store: WakeVoiceStore = WakeVoiceStore(File(context.noBackupFilesDir, "wake/voice.bin")),
+) : VoiceSettings {
     private val on = MutableStateFlow(prefs.getBoolean(KEY_WAKE_WORD, false))
     override val wakeWord: StateFlow<Boolean> = on.asStateFlow()
+
+    private val taught = MutableStateFlow(store.exists())
+    override val wakeVoice: StateFlow<Boolean> = taught.asStateFlow()
+
+    private val mic = AndroidMic()
+
+    private fun features(): SpeechFeatures = LiteRtSpeechFeatures.open(context.assets)
+
+    /** Whether LiteRT loads the models on this phone, once checked. */
+    @Volatile private var modelsLoad: Boolean? = null
+
+    override fun teachWakeVoice(): WakeVoiceSetup = AnuWakeVoiceSetup(mic, ::features) { voice ->
+        store.save(voice)
+        taught.value = true
+        restart()
+    }
+
+    override fun forgetWakeVoice() {
+        store.delete()
+        taught.value = false
+        restart()
+    }
+
+    /**
+     * How "Hey Anu" listens now: with the user's samples when they've taught it and LiteRT loads its models, else
+     * with the recognizer. Debug builds log each wake's and near miss's distance, never audio.
+     */
+    suspend fun wakeLoop(speech: SpeechInput): WakeLoop {
+        val voice = withContext(Dispatchers.IO) { store.load() }
+        val loads = voice != null && (modelsLoad ?: withContext(Dispatchers.Default) { runCatching { features().close() }.isSuccess }.also { modelsLoad = it })
+        if (voice == null || !loads) return WakeListener(speech, SystemClock::elapsedRealtime)
+        return WakeDetector(mic, ::features, voice, log = { if (BuildConfig.DEBUG) Log.d("Anu", it) })
+    }
+
+    /** A running "Hey Anu" starts again, so it listens the new way. */
+    private fun restart() {
+        if (!on.value) return
+        context.stopService(Intent(context, WakeWordService::class.java))
+        resume()
+    }
 
     override fun isAssistant(): Boolean = context.getSystemService(RoleManager::class.java).isRoleHeld(RoleManager.ROLE_ASSISTANT)
 
@@ -75,10 +129,11 @@ class AnuVoiceSettings(private val context: Context, private val prefs: SharedPr
 }
 
 /**
- * "Hey Anu" (ADR-045). While the screen is on and no Anu screen is showing, the phone's on-device
- * recognizer listens in short rounds.
+ * "Hey Anu" (ADR-045, ADR-121). While the screen is on and no Anu screen is showing, it listens: with the
+ * user's samples on LiteRT once they've taught it their voice, else with the on-device recognizer in short rounds.
  * - What it hears is only checked for the wake phrase, then dropped: it is never kept, logged or sent.
- * - On a match, the assistant opens with whatever followed the phrase, often the request itself.
+ * - On a match, the assistant opens: with whatever followed the phrase when the recognizer heard it, often
+ *   the request itself; with the samples, the card listens for the request.
  * - It runs as a foreground service with a notification, so the user can always see that the microphone
  *   is on and stop it (§12).
  */
@@ -149,7 +204,7 @@ class WakeWordService : Service() {
 
     /** Listens until cancelled, or turns itself off when it can't go on. */
     private suspend fun listen(speech: SpeechInput) {
-        val stop = WakeListener(speech, SystemClock::elapsedRealtime).run { request ->
+        val stop = (application as AnuApp).graph.voice.wakeLoop(speech).run { request ->
             // The assistant opens, and listening pauses because an Anu screen is showing.
             AnuVoiceInteractionService.show(request).also { opened -> if (opened) delay(1_000) }
         }

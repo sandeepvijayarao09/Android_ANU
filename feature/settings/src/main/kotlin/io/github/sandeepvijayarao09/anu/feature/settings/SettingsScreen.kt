@@ -120,21 +120,30 @@ private fun SettingsHome(
 
 /**
  * Talking to Anu over any app (ADR-044, ADR-045). Android decides the assistant, so this checks again
- * whenever the user comes back.
+ * whenever the user comes back. Turning "Hey Anu" on first teaches it the user's voice, unless it knows it
+ * already; it's on once that's done (ADR-121).
  */
 @Composable
 private fun VoiceGroup(viewModel: SettingsViewModel) {
     val assistant by viewModel.isAssistant.collectAsStateWithLifecycle()
     val wakeWord by viewModel.wakeWord.collectAsStateWithLifecycle()
+    val wakeVoice by viewModel.wakeVoice.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val haptics = LocalHapticFeedback.current
+    var teaching by rememberSaveable { mutableStateOf(false) }
+    var turnOnWhenTaught by rememberSaveable { mutableStateOf(false) }
     LifecycleResumeEffect(Unit) {
         viewModel.refreshAssistant()
         onPauseOrDispose {}
     }
     // The notification says when Anu is listening, so it is asked for too. Listening works without it.
     val permissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { results ->
-        if (results[Manifest.permission.RECORD_AUDIO] == true) viewModel.setWakeWord(true)
+        if (results[Manifest.permission.RECORD_AUDIO] != true) return@rememberLauncherForActivityResult
+        if (wakeVoice) viewModel.setWakeWord(true) else teaching = true
+    }
+    // Teaching needs only the microphone.
+    val microphone = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) teaching = true
     }
     val isAssistant = assistant ?: return
     val listening = wakeWord && isAssistant
@@ -153,6 +162,7 @@ private fun VoiceGroup(viewModel: SettingsViewModel) {
                 modifier = Modifier.toggleable(value = listening, enabled = isAssistant, role = Role.Switch) { on ->
                     haptics.performHapticFeedback(if (on) HapticFeedbackType.ToggleOn else HapticFeedbackType.ToggleOff)
                     if (on) {
+                        turnOnWhenTaught = !wakeVoice
                         permissions.launch(arrayOf(Manifest.permission.RECORD_AUDIO, Manifest.permission.POST_NOTIFICATIONS))
                     } else {
                         viewModel.setWakeWord(false)
@@ -162,8 +172,35 @@ private fun VoiceGroup(viewModel: SettingsViewModel) {
                 enabled = isAssistant,
                 trailing = { AnuSwitch(listening, onCheckedChange = null, enabled = isAssistant) },
             )
+            if (isAssistant) {
+                GroupDivider()
+                GroupRow(
+                    "Your voice",
+                    value = if (wakeVoice) "Learned" else "Set up",
+                    chevron = true,
+                    onClick = {
+                        turnOnWhenTaught = false
+                        microphone.launch(Manifest.permission.RECORD_AUDIO)
+                    },
+                )
+            }
         }
-        GroupFooter("Speech is recognized on this phone, never on a server. While Anu listens for “Hey Anu”, a notification shows, and it uses more battery.")
+        GroupFooter(
+            "Heard on this phone, never on a server. Once Anu learns your voice, it listens for your own “Hey Anu”, " +
+                "and the card then listens for your request. While it listens, a notification shows.",
+        )
+    }
+    if (teaching) {
+        WakeVoiceSheet(
+            learned = wakeVoice,
+            setup = viewModel::teachWakeVoice,
+            onDone = { if (turnOnWhenTaught) viewModel.setWakeWord(true) },
+            onForget = viewModel::forgetWakeVoice,
+            onDismiss = {
+                teaching = false
+                turnOnWhenTaught = false
+            },
+        )
     }
 }
 

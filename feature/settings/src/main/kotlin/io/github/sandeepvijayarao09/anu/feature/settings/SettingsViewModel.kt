@@ -98,6 +98,40 @@ interface VoiceSettings {
     val wakeWord: StateFlow<Boolean>
 
     fun setWakeWord(enabled: Boolean)
+
+    /** Whether the user taught "Hey Anu" their voice (ADR-121). Without it, the speech recognizer listens instead (ADR-045). */
+    val wakeVoice: StateFlow<Boolean>
+
+    /** Starts teaching "Hey Anu" the user's voice. */
+    fun teachWakeVoice(): WakeVoiceSetup
+
+    /** Deletes the user's samples; "Hey Anu" goes back to the recognizer. */
+    fun forgetWakeVoice()
+}
+
+/**
+ * Teaching "Hey Anu" the user's voice (ADR-121): [samples] recordings of them saying it, each checked as it's made,
+ * kept only once the last is in. Nothing is saved until [save]; [close] frees the models.
+ */
+interface WakeVoiceSetup : AutoCloseable {
+    val samples: Int
+
+    /** Cold: collecting records one sample and ends with [WakeSampleEvent.Kept] or [WakeSampleEvent.Again]. */
+    fun record(): Flow<WakeSampleEvent>
+
+    /** Keeps the voice once all [samples] are in. */
+    fun save()
+}
+
+sealed interface WakeSampleEvent {
+    /** How loud the user is, from 0 to 1. */
+    data class Level(val value: Float) : WakeSampleEvent
+
+    /** The sample was kept: [count] of [WakeVoiceSetup.samples] so far. */
+    data class Kept(val count: Int) : WakeSampleEvent
+
+    /** The sample wasn't kept, and why, in words for the user. */
+    data class Again(val reason: String) : WakeSampleEvent
 }
 
 /** Whether the models on the phone reason before answering (G4, ADR-077). Off unless the user chooses it. */
@@ -375,6 +409,14 @@ class SettingsViewModel(
 
     fun setWakeWord(enabled: Boolean) {
         voice?.setWakeWord(enabled)
+    }
+
+    val wakeVoice: StateFlow<Boolean> = voice?.wakeVoice ?: MutableStateFlow(false)
+
+    fun teachWakeVoice(): WakeVoiceSetup? = voice?.teachWakeVoice()
+
+    fun forgetWakeVoice() {
+        voice?.forgetWakeVoice()
     }
 
     /** Null when there is no messaging connector. Re-checked with [refreshMessaging] when the screen resumes. */

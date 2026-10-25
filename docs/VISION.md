@@ -27,7 +27,7 @@ Most assistants either know nothing about you or send everything about you to a 
 ## What it feels like (v1 stories)
 
 - You open Anu and talk to the orb. It swells as you speak, swirls while it thinks, and answers out loud, then listens again, so you can keep talking as on a call until you tap Stop. Switch to another app and the conversation goes on, with a notification and a small pill at the bottom of the screen that show Anu is listening, each with Stop. Swipe for Memory and Settings.
-- In any app, you hold the power button, or say "Hey Anu, what's on my calendar today?" while the screen is on. Anu opens over the app, listens and answers.
+- In any app, you hold the power button, or say "Hey Anu" while the screen is on, then "what's on my calendar today?". Anu opens over the app, listens and answers. It learns your own "Hey Anu" from four samples, on the phone.
 - "Find running shoes under $150." Anu searches the stores you added. "Buy the blue ones in size 10." You approve the exact order and its estimated total, then tap **Finish** to review and pay on the store's site.
 - "Add 'buy oat milk' to my Notes." Anu uses the notes service you connected, and asks before it adds anything.
 - "Reply to Maya, say yes, and suggest Thursday afternoon." Anu reads the thread, checks your calendar against your preferences (it knows you avoid meetings before 10), and drafts the reply in the tone you use with Maya. You approve it, and it sends.
@@ -71,7 +71,7 @@ Most assistants either know nothing about you or send everything about you to a 
 - Photos: ask about up to four photos at once, picked, taken with the camera, or shared into Anu. Gemma reads it on the phone, and it's kept with its message in Anu's encrypted store only while Anu can still use it in the chat; after that, its place says it's no longer kept, and your original stays where it was.
 - PDFs: ask about a PDF you pick or share into Anu. Gemma reads it on the phone, a long one in parts for your question; only what it read is kept with the message, and the PDF itself never leaves the phone.
 - Voice notes: record one of up to 5 minutes, or share a recording into Anu. Gemma writes it down on the phone, and Anu proposes the events and other things it asks for, each approved. Only its words are kept; a shared recording is only summarized unless you ask for more, and memory never learns from it.
-- Voice: a Talk page with an orb that reacts to your voice, Anu as the phone's assistant over any app, and opt-in "Hey Anu" while the screen is on. Speech is recognized on the phone.
+- Voice: a Talk page with an orb that reacts to your voice, Anu as the phone's assistant over any app, and opt-in "Hey Anu" while the screen is on, matched against your own samples. Speech is recognized on the phone.
 - Questions about the screen: over any app, "what's this?" or a tap on "Use this screen" lets Anu read the screen on the phone, with codes and password fields blacked out first. It never reads the screen unless you ask, and the picture is never kept. A Quick Settings tile, "Ask Anu about this screen", does it in one tap from any app; in the personal build it reads through app control, so Anu needn't be the assistant.
 - Talking from any app: live talk keeps going when you switch apps, shown by a notification and, in the personal build, a pill with Stop; answers are still spoken.
 - More connectors:
