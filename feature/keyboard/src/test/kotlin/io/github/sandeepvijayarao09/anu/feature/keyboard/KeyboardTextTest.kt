@@ -86,6 +86,8 @@ class KeyboardTextTest {
     fun `emoji are read whole from what the model wrote, words and repeats left out`() {
         assertEquals(listOf("🎉", "🥳", "🎂", "👍🏽", "🇺🇸", "👨‍👩‍👧"), KeyboardText.emoji("🎉 🥳 🎂, 🎉 party 👍🏽 🇺🇸 👨‍👩‍👧 ❤️ ✨", 6))
         assertEquals(emptyList<String>(), KeyboardText.emoji("Sure! Here are some ideas: none", 6))
+        assertEquals("written with no spaces, as E4B did on the S26", listOf("🎂", "🎉", "🥳", "👍🏽", "🇺🇸", "👨‍👩‍👧"), KeyboardText.emoji("🎂🎉🥳👍🏽🇺🇸👨‍👩‍👧", 6))
+        assertEquals(listOf("❤️", "✨"), KeyboardText.singles("❤️✨"))
         assertFalse(KeyboardText.isEmoji("3"))
         assertTrue(KeyboardText.isEmoji("☀️"))
     }
