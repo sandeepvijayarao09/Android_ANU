@@ -101,7 +101,7 @@ data class LoadedSkill(
  * Gallery's `load_skill` (ADR-120): the skill's whole `SKILL.md`, so its instructions enter the model's context only
  * when the request needs them. A skill the user added is someone else's text, so it taints the run (P4).
  */
-class LoadSkillTool(private val catalog: AgentSkillCatalog) : Tool<LoadSkillInput, LoadedSkill> {
+class LoadSkillTool(val catalog: AgentSkillCatalog) : Tool<LoadSkillInput, LoadedSkill> {
     override val name = NAME
     override val description = "Loads a skill."
     override val input: KSerializer<LoadSkillInput> = LoadSkillInput.serializer()

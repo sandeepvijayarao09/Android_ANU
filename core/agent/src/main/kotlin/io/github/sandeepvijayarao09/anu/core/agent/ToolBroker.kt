@@ -176,9 +176,18 @@ class ToolBroker(
     }
 
     suspend fun execute(call: ToolCall, run: RunState): ToolOutcome {
-        val tool = find(call.name)
-            ?: return ToolOutcome.Invalid("There is no tool named ${call.name}. Available: ${byName.keys.sorted().joinToString()}")
+        val tool = find(call.name) ?: return ToolOutcome.Invalid(missing(call.name))
         return executeTyped(tool, call, run)
+    }
+
+    /**
+     * Why [name] can't run. A model often calls a skill as if it were a tool, so, as Gallery's tools do, a skill's name
+     * says to load it first (ADR-120).
+     */
+    private fun missing(name: String): String {
+        val skill = (find(LoadSkillTool.NAME) as? LoadSkillTool)?.catalog?.find(name)
+        if (skill != null) return "There is no tool named $name. ${skill.name} is a skill: call ${LoadSkillTool.NAME} with skill_name \"${skill.name}\" first, then follow its instructions."
+        return "There is no tool named $name. Available: ${byName.keys.sorted().joinToString()}"
     }
 
     private suspend fun <I : Any, O : Any> executeTyped(tool: Tool<I, O>, call: ToolCall, run: RunState): ToolOutcome {

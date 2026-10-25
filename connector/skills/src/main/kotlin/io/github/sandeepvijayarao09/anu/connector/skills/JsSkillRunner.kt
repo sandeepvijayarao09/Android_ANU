@@ -4,6 +4,8 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.net.Uri
 import android.webkit.JavascriptInterface
+import android.webkit.RenderProcessGoneDetail
+import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
@@ -28,6 +30,7 @@ class JsSkillRunner(private val context: Context, private val library: SkillLibr
     suspend fun run(skill: AgentSkill, script: String, data: String, network: Boolean): String = withContext(Dispatchers.Main) {
         val result = CompletableDeferred<String>()
         val web = WebView(context.applicationContext)
+        var gone = false
         try {
             web.settings.javaScriptEnabled = true
             web.settings.domStorageEnabled = true
@@ -47,11 +50,24 @@ class JsSkillRunner(private val context: Context, private val library: SkillLibr
                     if (result.isCompleted) return
                     view.evaluateJavascript(call(data), null)
                 }
+
+                override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
+                    if (request.isForMainFrame) result.completeExceptionally(IllegalStateException("the skill's page didn't load: ${error.description}"))
+                }
+
+                // Unhandled, a renderer that's gone takes the app with it. On the emulator, with E4B loaded, Android
+                // stopped the page's renderer to free memory.
+                override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
+                    val why = if (detail.didCrash()) "the skill's page crashed" else "the phone stopped the skill's page to free memory"
+                    result.completeExceptionally(IllegalStateException(why))
+                    gone = true
+                    return true
+                }
             }
             web.loadUrl(pageUrl(skill, script))
             withTimeout(TIMEOUT_MS) { result.await() }
         } finally {
-            web.removeJavascriptInterface(BRIDGE)
+            if (!gone) web.removeJavascriptInterface(BRIDGE)
             web.destroy()
         }
     }

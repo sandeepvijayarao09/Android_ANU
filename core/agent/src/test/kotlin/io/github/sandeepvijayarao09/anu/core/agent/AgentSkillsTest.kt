@@ -75,4 +75,14 @@ class AgentSkillsTest {
         assertTrue(section.contains("call load_skill"))
         assertFalse("instructions wait for load_skill", section.contains("Call the `run_js` tool"))
     }
+
+    @Test
+    fun `a skill called as a tool is told to load the skill first, as Gallery's guard does`() = runBlocking {
+        val broker = ToolBroker(listOf(LoadSkillTool(InMemorySkillCatalog(listOf(skill(qr))))), ApprovalGate { ApprovalDecision.Denied() })
+        val run = RunState("run", "turn", io.github.sandeepvijayarao09.anu.core.model.BrainLocation.ON_DEVICE, cloudConsented = false)
+        val asSkill = broker.execute(io.github.sandeepvijayarao09.anu.core.model.ToolCall("qr_code", kotlinx.serialization.json.JsonObject(emptyMap())), run)
+        assertTrue((asSkill as ToolOutcome.Invalid).reason.contains("qr-code is a skill: call load_skill"))
+        val other = broker.execute(io.github.sandeepvijayarao09.anu.core.model.ToolCall("weather", kotlinx.serialization.json.JsonObject(emptyMap())), run)
+        assertTrue((other as ToolOutcome.Invalid).reason.startsWith("There is no tool named weather. Available: load_skill"))
+    }
 }

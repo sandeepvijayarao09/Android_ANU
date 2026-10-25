@@ -70,8 +70,8 @@ object JsResult {
         val result = (obj["result"] as? JsonPrimitive)?.contentOrNull ?: (obj["result"]?.toString())
         val error = (obj["error"] as? JsonPrimitive)?.contentOrNull
         val note = when {
-            obj["image"] is JsonObject -> "The skill made a picture, which Anu doesn't show yet."
-            obj["webview"] is JsonObject -> "The skill made a page, which Anu doesn't show yet."
+            obj["image"] is JsonObject -> "Done: the skill made the picture. Anu can't show pictures from skills in the chat yet, so tell the user it was made but can't be shown here."
+            obj["webview"] is JsonObject -> "Done: the skill made a page. Anu can't show pages from skills in the chat yet, so tell the user it was made but can't be shown here."
             else -> null
         }
         return RanJs(result = result?.take(MAX_RESULT), error = error?.take(MAX_RESULT), note = note)
