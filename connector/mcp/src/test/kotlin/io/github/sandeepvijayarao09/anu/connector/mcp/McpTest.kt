@@ -205,9 +205,12 @@ class McpTest {
         assertEquals(0, server.requestCount)
         val offered = registry.toolsFor(listOf("Find groceries in my notes", "Ask My Notes please"))
         assertEquals(McpRegistry.MAX_OFFERED, offered.size)
-        assertEquals("mcp_my_notes_find_groceries", offered.first())
+        assertTrue(offered.toString(), "mcp_my_notes_find_groceries" in offered)
         assertTrue(offered.all { it.matches(Regex("[a-z][a-z0-9_]{0,63}")) })
         assertEquals(9, registry.tools().size)
+        // By name, and the same list for a follow-up, so the on-device conversation is kept (ADR-114).
+        assertEquals(offered.sorted(), offered)
+        assertEquals(offered, registry.toolsFor(listOf("Find groceries in my notes", "Ask My Notes please", "my notes: does thing 8?")))
         // Cached for the server's TTL: asking again doesn't refetch.
         registry.toolsFor(listOf("my notes again"))
         assertEquals(1, server.requestCount)

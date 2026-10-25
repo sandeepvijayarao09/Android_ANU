@@ -120,6 +120,10 @@ class McpRegistry(
     val servers: StateFlow<List<ServerState>> = state.asStateFlow()
     private val clients = mutableMapOf<String, McpClient>()
 
+    /** The last pick for [toolsFor]: the named servers' tools then, and the ones chosen from them. */
+    @Volatile
+    private var picked: Pair<List<String>, List<String>>? = null
+
     /** The saved servers. Tools already fetched are kept for servers that didn't change. */
     fun setServers(servers: List<McpServer>) = state.update { current ->
         val byId = current.associateBy { it.server.id }
@@ -151,7 +155,11 @@ class McpRegistry(
 
     /**
      * The tools to offer for a turn: those of servers named in the user's last few messages, fetched
-     * if they aren't yet, and at most [MAX_OFFERED], best matches first.
+     * if they aren't yet, and at most [MAX_OFFERED], the best matches for the newest message.
+     * - **In a stable order, by name (ADR-114).** The tools key the on-device conversation, so a list in
+     *   another order would make the model read the whole chat again.
+     * - **Picked again only when the named servers' tools change.** While the same servers are named,
+     *   a follow-up keeps the same tools, even one whose words would match others better.
      */
     suspend fun toolsFor(turns: List<String>): List<String> {
         val recent = turns.takeLast(RECENT_TURNS).joinToString("\n")
@@ -159,11 +167,16 @@ class McpRegistry(
         if (named.isEmpty()) return emptyList()
         val now = clock()
         val ready = named.map { entry -> if (entry.expiresAt == null || now.isAfter(entry.expiresAt)) refresh(entry.server.id) else entry }
+        val available = ready.flatMap { it.tools }.map { it.name }
+        picked?.takeIf { it.first == available }?.let { return it.second }
         val words = words(turns.lastOrNull().orEmpty())
-        return ready.flatMap { it.tools }
+        val chosen = ready.flatMap { it.tools }
             .sortedByDescending { tool -> words(tool.info.name.replace('_', ' ') + " " + tool.info.description).count { it in words } }
             .take(MAX_OFFERED)
             .map { it.name }
+            .sorted()
+        picked = available to chosen
+        return chosen
     }
 
     private fun name(server: McpServer, tools: List<McpToolInfo>, client: McpClient): List<McpTool> {

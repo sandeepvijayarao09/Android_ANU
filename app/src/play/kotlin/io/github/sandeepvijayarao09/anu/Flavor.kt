@@ -1,6 +1,7 @@
 package io.github.sandeepvijayarao09.anu
 
 import android.content.Context
+import io.github.sandeepvijayarao09.anu.connector.notes.NoteMirror
 import io.github.sandeepvijayarao09.anu.core.agent.Tool
 import io.github.sandeepvijayarao09.anu.core.agent.ToolBroker
 import io.github.sandeepvijayarao09.anu.core.model.Brain
@@ -18,6 +19,8 @@ internal object Flavor {
     val tileReader: TileReader? = null
 
     val floatingControl: FloatingControl? = null
+
+    fun noteMirror(context: Context): NoteMirror? = null
 
     fun tools(context: Context, zone: () -> ZoneId, appBrain: () -> Brain?, broker: () -> ToolBroker): List<Tool<*, *>> = emptyList()
 }

@@ -184,7 +184,7 @@ class LiteRtLmBrainTest {
         @BeforeClass
         fun setUp() {
             S1.assumeModelPresent()
-            holder = EngineHolder(EngineConfig(modelPath = S1.modelPath, backend = S1.backend(), maxNumTokens = 4096, cacheDir = S1.cacheDir()), S1.options())
+            holder = EngineHolder(EngineConfig(modelPath = S1.modelPath, backend = S1.backend(), maxNumTokens = S1.maxNumTokens, cacheDir = S1.cacheDir()), S1.options())
             brain = LiteRtLmBrain(
                 id = BrainId.PRO,
                 capabilities = BrainCapabilities(BrainLocation.ON_DEVICE, maxContextTokens = 4096, toolCalling = true, structuredOutput = true),

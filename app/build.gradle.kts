@@ -46,6 +46,12 @@ android {
     packaging {
         jniLibs {
             excludes += setOf("**/libgecko_embedding_model_jni.so", "**/libsqlite_vector_store_jni.so", "**/libtext_chunker_jni.so")
+            // Qualcomm's QNN runtime (ADR-115) carries every Hexagon generation and its DSP and GPU backends; live
+            // camera needs only the HTP for the Snapdragon 8 Elite Gen 5 (v81), which saves about 60 MB.
+            excludes += setOf(
+                "**/libQnnDsp.so", "**/libQnnDspV*.so", "**/libQnnGpu.so",
+                "**/libQnnHtpV6*.so", "**/libQnnHtpV73*.so", "**/libQnnHtpV75*.so", "**/libQnnHtpV79*.so",
+            )
             // Native libraries are extracted on install, because LiteRT-LM looks for the TPU's dispatch library as a
             // file in the app's native library folder (ADR-103).
             useLegacyPackaging = true
@@ -68,6 +74,8 @@ dependencies {
     implementation(project(":feature:keyboard"))
     implementation(project(":feature:camera")) // live camera (ADR-111)
     implementation(project(":brain:vision"))
+    // AI Writing on Gemini Nano through AICore, without ML Kit's usage-log uploader (ADR-116).
+    implementation(project(":brain:nano"))
     implementation(project(":brain:litertlm"))
     implementation(project(":brain:gemini"))
     implementation(project(":brain:ollama"))
@@ -90,6 +98,10 @@ dependencies {
     "personalImplementation"(project(":connector:sms"))
     // So is app control's accessibility service (ADR-098).
     "personalImplementation"(project(":connector:apps"))
+    // Live camera's YOLOX on the Snapdragon's NPU (ADR-115): LiteRT's Qualcomm dispatch library and compiler plugin
+    // (Apache 2.0) and Qualcomm's QNN runtime (Qualcomm AI Hub Model License), in the owner's build only.
+    "personalImplementation"(libs.litert.npu.qualcomm)
+    "personalImplementation"(libs.qnn.runtime)
     implementation(libs.androidx.work.runtime) // memory learning (ADR-037)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.core.ktx)

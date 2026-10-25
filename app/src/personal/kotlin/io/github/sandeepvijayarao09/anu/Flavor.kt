@@ -5,6 +5,8 @@ import android.util.Log
 import io.github.sandeepvijayarao09.anu.connector.apps.AccessibilityAppDriver
 import io.github.sandeepvijayarao09.anu.connector.apps.LiveControl
 import io.github.sandeepvijayarao09.anu.connector.apps.TileScreen
+import io.github.sandeepvijayarao09.anu.connector.notes.NoteMirror
+import io.github.sandeepvijayarao09.anu.connector.notes.SamsungNotesMirror
 import io.github.sandeepvijayarao09.anu.connector.sms.ProviderSms
 import io.github.sandeepvijayarao09.anu.connector.sms.SmsSearchTool
 import io.github.sandeepvijayarao09.anu.core.agent.AppStepTool
@@ -46,9 +48,22 @@ internal object Flavor {
         override fun hide() = LiveControl.hide()
     }
 
+    /** App control's driver, one for app tasks and for writing notes into Samsung Notes. */
+    @Volatile
+    private var driver: AccessibilityAppDriver? = null
+
+    private fun driver(context: Context) = driver ?: synchronized(this) { driver ?: AccessibilityAppDriver(context.applicationContext).also { driver = it } }
+
+    /** Samsung Notes, where a new note is written too once app control is on (ADR-117). */
+    fun noteMirror(context: Context): NoteMirror = SamsungNotesMirror(driver(context)) {
+        context.packageManager.getLaunchIntentForPackage(SAMSUNG_NOTES) != null
+    }
+
+    private const val SAMSUNG_NOTES = "com.samsung.android.app.notes"
+
     /** [appBrain] picks an app task's steps; [broker] runs them, the broker these tools join. */
     fun tools(context: Context, zone: () -> ZoneId, appBrain: () -> Brain?, broker: () -> ToolBroker): List<Tool<*, *>> {
-        val apps = AccessibilityAppDriver(context)
+        val apps = driver(context)
         return listOf(SmsSearchTool(ProviderSms(context.contentResolver), zone), AppTaskTool(apps, appBrain, broker, log = { if (BuildConfig.DEBUG) Log.d("Anu", it) }), AppStepTool(apps))
     }
 }

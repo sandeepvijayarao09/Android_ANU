@@ -47,6 +47,10 @@ dependencies {
     androidTestImplementation(project(":connector:contacts"))
     androidTestImplementation(project(":connector:phone"))
     androidTestImplementation(project(":connector:notes"))
+    // Spike S15: the Snapdragon's NPU through LiteRT's Qualcomm dispatch and compiler plugin, with Qualcomm's QNN
+    // libraries (HTP v81 for the SM8850). Device tests only until the spike passes.
+    androidTestImplementation(libs.litert.npu.qualcomm)
+    androidTestImplementation(libs.qnn.runtime)
     androidTestImplementation(libs.androidx.test.runner)
     androidTestImplementation(libs.androidx.test.ext.junit)
     androidTestImplementation(libs.kotlinx.coroutines.test)

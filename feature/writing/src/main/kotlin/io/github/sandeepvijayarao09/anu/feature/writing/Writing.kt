@@ -6,15 +6,25 @@ import io.github.sandeepvijayarao09.anu.core.agent.Tokens
 import io.github.sandeepvijayarao09.anu.core.model.BrainRequest
 import io.github.sandeepvijayarao09.anu.core.model.ChatMessage
 import io.github.sandeepvijayarao09.anu.core.model.Sampling
+import io.github.sandeepvijayarao09.anu.core.model.SystemWritingTask
 
-/** What the user can ask Anu to do with selected text (§10, AI Writing). */
-enum class WritingAction(val label: String, val instruction: String, val usesMemory: Boolean, val precise: Boolean = false) {
-    IMPROVE("Improve", "Improve the writing: clearer and smoother, with the same meaning.", usesMemory = true),
-    SHORTER("Shorter", "Make it shorter, keeping what matters.", usesMemory = false),
-    FORMAL("More formal", "Make it more formal and polished.", usesMemory = true),
-    FRIENDLY("Friendlier", "Make it warmer and friendlier.", usesMemory = true),
-    PROOFREAD("Fix grammar", "Fix spelling, grammar and punctuation only. Change nothing else.", usesMemory = false, precise = true),
-    SUMMARIZE("Summarize", "Summarize it in a few short sentences.", usesMemory = false),
+/**
+ * What the user can ask Anu to do with selected text (§10, AI Writing). [system] is the same task on the phone's own
+ * writing model, which goes first where it's ready (ADR-116).
+ */
+enum class WritingAction(
+    val label: String,
+    val instruction: String,
+    val usesMemory: Boolean,
+    val precise: Boolean = false,
+    val system: SystemWritingTask? = null,
+) {
+    IMPROVE("Improve", "Improve the writing: clearer and smoother, with the same meaning.", usesMemory = true, system = SystemWritingTask.REPHRASE),
+    SHORTER("Shorter", "Make it shorter, keeping what matters.", usesMemory = false, system = SystemWritingTask.SHORTEN),
+    FORMAL("More formal", "Make it more formal and polished.", usesMemory = true, system = SystemWritingTask.PROFESSIONAL),
+    FRIENDLY("Friendlier", "Make it warmer and friendlier.", usesMemory = true, system = SystemWritingTask.FRIENDLY),
+    PROOFREAD("Fix grammar", "Fix spelling, grammar and punctuation only. Change nothing else.", usesMemory = false, precise = true, system = SystemWritingTask.PROOFREAD),
+    SUMMARIZE("Summarize", "Summarize it in a few short sentences.", usesMemory = false, system = SystemWritingTask.SUMMARIZE),
 }
 
 /**

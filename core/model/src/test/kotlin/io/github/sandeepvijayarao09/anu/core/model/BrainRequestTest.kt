@@ -51,6 +51,24 @@ class BrainRequestTest {
     }
 
     @Test
+    fun `the week's dates travel with the newest message, after the facts and before the time`() {
+        val request = BrainRequest(
+            transcript = listOf(ChatMessage.User("Lunch?"), ChatMessage.Model("Sure."), ChatMessage.User("Book it tomorrow")),
+            sentAt = "Fri 2026-09-25 23:58",
+            dates = "today Fri 2026-09-25; tomorrow Sat 2026-09-26",
+            relevant = "Facts:\n- likes sushi",
+        )
+        assertEquals("Lunch?", request.userText(0))
+        assertEquals(
+            "Facts:\n- likes sushi\n\nDates: today Fri 2026-09-25; tomorrow Sat 2026-09-26.\n[Fri 2026-09-25 23:58] Book it tomorrow",
+            request.userText(2),
+        )
+        assertTrue(request.echoesFraming("Dates: today Fri 2026-09-25; tomorrow Sat 2026-09-26. Booked."))
+        assertFalse(request.echoesFraming("Booked for tomorrow, Sat 2026-09-26."))
+        assertEquals("Booked.", request.withoutFraming("Dates: today Fri 2026-09-25; tomorrow Sat 2026-09-26. Booked."))
+    }
+
+    @Test
     fun `an answer that quotes the framing is spotted, and the framing can be cut from it`() {
         val request = BrainRequest(transcript = listOf(ChatMessage.User("Plan a dinner")), sentAt = "Sun 2026-09-27 01:32")
         assertTrue(request.echoesFraming("You mentioned: \"[Sun 2026-09-27 01:32] Plan a dinner.\""))

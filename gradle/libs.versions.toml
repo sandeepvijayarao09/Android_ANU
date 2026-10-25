@@ -13,8 +13,13 @@ litertlm = "0.18.1"
 litertNpuGoogleTensor = "2.3.0"
 # Live object detection (ADR-111): LiteRT's CompiledModel runs YOLOX; the same release as the Tensor NPU runtime.
 litert = "2.3.0"
+# Spike S15 (Qualcomm NPU): Qualcomm's QNN runtime, under the Qualcomm AI Hub Model License, in device tests only.
+# 2.50.0 matches what Google's compiled Qualcomm Gemma file embeds; 2.51.0 broke E2B's compile.
+qnnRuntime = "2.50.0"
 camerax = "1.6.2"
 mlkitGenaiPrompt = "1.0.0-beta4"
+# AI Writing on Gemini Nano (ADR-116): ML Kit's GenAI feature APIs, one release that shares genai-common beta1.
+mlkitGenaiFeatures = "1.0.0-beta1"
 localagentsRag = "0.3.0"
 protobufJavalite = "4.36.2"
 junit = "4.13.2"
@@ -52,10 +57,15 @@ androidx-compose-ui-test-manifest = { module = "androidx.compose.ui:ui-test-mani
 litertlm-android = { module = "com.google.ai.edge.litertlm:litertlm-android", version.ref = "litertlm" }
 litert-npu-google-tensor = { module = "com.google.ai.edge.litert:litert-npu-runtime-google-tensor", version.ref = "litertNpuGoogleTensor" }
 litert-gpu = { module = "com.google.ai.edge.litert:litert-gpu", version.ref = "litert" }
+litert-npu-qualcomm = { module = "com.google.ai.edge.litert:litert-npu-runtime-qualcomm", version.ref = "litert" }
+qnn-runtime = { module = "com.qualcomm.qti:qnn-runtime", version.ref = "qnnRuntime" }
 androidx-camera-camera2 = { module = "androidx.camera:camera-camera2", version.ref = "camerax" }
 androidx-camera-lifecycle = { module = "androidx.camera:camera-lifecycle", version.ref = "camerax" }
 androidx-camera-view = { module = "androidx.camera:camera-view", version.ref = "camerax" }
 mlkit-genai-prompt = { module = "com.google.mlkit:genai-prompt", version.ref = "mlkitGenaiPrompt" }
+mlkit-genai-rewriting = { module = "com.google.mlkit:genai-rewriting", version.ref = "mlkitGenaiFeatures" }
+mlkit-genai-proofreading = { module = "com.google.mlkit:genai-proofreading", version.ref = "mlkitGenaiFeatures" }
+mlkit-genai-summarization = { module = "com.google.mlkit:genai-summarization", version.ref = "mlkitGenaiFeatures" }
 localagents-rag = { module = "com.google.ai.edge.localagents:localagents-rag", version.ref = "localagentsRag" }
 protobuf-javalite = { module = "com.google.protobuf:protobuf-javalite", version.ref = "protobufJavalite" }
 junit = { module = "junit:junit", version.ref = "junit" }
@@ -72,6 +82,7 @@ sqlcipher-android = { module = "net.zetetic:sqlcipher-android", version.ref = "s
 robolectric = { module = "org.robolectric:robolectric", version.ref = "robolectric" }
 play-services-auth = { module = "com.google.android.gms:play-services-auth", version.ref = "playServicesAuth" }
 kotlinx-coroutines-play-services = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-play-services", version.ref = "coroutines" }
+kotlinx-coroutines-guava = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-guava", version.ref = "coroutines" }
 androidx-test-core = { module = "androidx.test:core", version.ref = "androidxTestCore" }
 androidx-test-runner = { module = "androidx.test:runner", version.ref = "androidxTestRunner" }
 androidx-test-ext-junit = { module = "androidx.test.ext:junit", version.ref = "androidxTestExtJunit" }

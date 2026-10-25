@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <!-- Spike S15: QNN reaches the Snapdragon's NPU through the vendor's FastRPC library. -->
+        <uses-native-library android:name="libcdsprpc.so" android:required="false" />
+    </application>
+</manifest>
