@@ -1,6 +1,6 @@
 # Anu for Android: Architecture
 
-Version 1.79.1 · Draft · 2026-10-24
+Version 1.79.3 · Draft · 2026-10-24
 Status: proposed. OD-1 to OD-4 were resolved on 2026-09-25 (§16).
 Product intent lives in [VISION.md](VISION.md).
 
@@ -1227,6 +1227,20 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
   - **S11, photos with vision on the GPU** (`S11PhotoTest`, `backend=GPU`, the default `visionBackend=GPU`; thermal status 0): the made-up sign took 289 tokens, read at 451 tok/s with the first token after 0.71 s, written at 14.3 tok/s, and E4B answered "LUNCH 12:30" beside a red circle. The engine with vision loaded in 10.7 s and peaked at 1.09 GB, against 4.6 s to the first token and 5.65 GB on the emulator's CPU. Four numbered pictures were read 4 of 4 in 5.5 s (17.4 s on the emulator), and a fifth in a later turn; five in one prefill were read too, so the GPU runtime doesn't enforce `maxNumImages` either.
   - **A photo shared from adb** (`am start -a SEND` with a MediaStore URI) showed "This photo can't be read": the shell can't grant a URI it doesn't own, so `readPhoto` got a refusal. That's the test's limit, not the app's; the picker and real shares grant their own.
   - **A photo through "+" in the app** (2026-10-25, the `personal` build alone on the phone): "+" → Photo opened the system picker ("Anu will only have access to the photos you select"), which handed over just the made-up Settings screen. "What does the Battery row say?" got "The Battery row says 82%." Pro on the GPU read 1,489 tokens at 732 tok/s, its first token after 2.9 s, and the photo showed in the user's turn. An earlier try had gone astray because three Anu builds were installed (`personal`, `play` and a keyboard test build) and other sessions drove the `play` one at the same time; the S26 now keeps only `personal`.
+  - **Against AI Edge Gallery (2026-10-25).** Gallery's own benchmark call in Anu's test process (`GalleryParityBenchmarkTest`: LiteRT-LM's `benchmark()`, 256 tokens read and 256 written, 3 runs), E4B's usual file, thermal status 0 to 1. Gallery 1.0.15 is installed on the phone too.
+
+    | E4B | Gallery's benchmark, CPU | Gallery's benchmark, GPU | Anu in the app, Pro on the GPU |
+    |---|---|---|---|
+    | Tokens read | 256 | 256 | 241 to 1,947 (a real chat) |
+    | First token | 2.85 s | 0.39 s | 0.29 s (conversation kept) to 3.6 s (1,947 tokens, new) |
+    | Reading | 92.4 tok/s | 742.5 tok/s | 427 to 837 tok/s |
+    | Writing | 13.5 tok/s | 21.1 tok/s | 14 to 21 tok/s |
+    | Load, first / later | 18.5 s / 1.6 s | 21.5 s / 11.7 s | about 10 s with the vision encoder |
+
+    - Anu reads as fast as Gallery's benchmark on the GPU, and faster on long prompts (837 tok/s on 1,947 tokens against 743 on 256), and writes in the same range. Its slower first tokens are the chat's length: a new conversation reads the system prompt, the tools and the history, about 1.9k tokens, where the benchmark reads 256.
+    - Against the Pixel 10 Pro's numbers in the same test, the S26's GPU reads 3.3× faster (743 against 228 tok/s) and writes 2.6× faster (21.1 against 8.0), and its CPU reads 1.5× and writes 1.6× faster.
+    - Gallery's app on this phone offers E2B on the CPU and GPU. The owner's screenshots of its Benchmark screen show 377 tok/s reading and 25.7 writing on the CPU, and 2,312 and 46.8 on the GPU. Not re-measured here.
+    - **Where each part runs on this phone:** Gemma 4 E4B (chat, photos, memory) on the GPU, ADR-112; YOLOX on the NPU, ADR-115; EmbeddingGemma 2 on the GPU, ADR-111; "Hey Anu" on the CPU, ADR-121; AI Writing's six actions on Gemini Nano through ML Kit GenAI in AICore, ADR-116. Gallery runs every model through LiteRT-LM and uses no ML Kit.
   - **Connecting it:** with Auto Blocker on, the phone offered only MTP and a modem over USB, and adb saw nothing. Turning it off and allowing the computer's key fixed that.
 
 - **The pair in the app, 2026-10-24.** Pixel 10 Pro, the debug build at 74c05c4, E2B's Tensor G5 file and E4B's usual file installed, an existing made-up chat. Messages typed through adb.
@@ -1817,6 +1831,7 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 - **1.79.1** (2026-10-25): A photo through "+" on the Galaxy S26 Ultra: the system picker, then E4B on the GPU read the made-up screen's battery row correctly. The S26 keeps only the `personal` build.
 - **1.79.0** (2026-10-24): the claim check's repair note goes with the newest message (ADR-124).
   - It ends the newest message, after "From Anu, not the user:", instead of going in the system prompt, on the phone and in the cloud. An answer that quotes it is framing (ADR-058).
+- **1.79.3** (2026-10-25): The Galaxy S26 Ultra against AI Edge Gallery: Gallery's benchmark on E4B read 743 tok/s and wrote 21.1 on the GPU, 92 and 13.5 on the CPU; Anu's chat on the GPU reads as fast on longer prompts. Where each model runs on the phone.
   - The memory note gives no example answer, which E4B copied word for word.
   - `RepairNoteProbeTest` (spike log, REPAIR-1): on the emulator, E4B's repairs of plain-chat answers to "keep that in mind" still claimed a save in 11 of 15 with the note in the system prompt, and in 2 of 12 now. In the app, a chat that already held two such warned answers got the claim again: E4B copies earlier answers.
   - A memory claim with up to eight words before "in mind" is caught; E4B wrote six.
