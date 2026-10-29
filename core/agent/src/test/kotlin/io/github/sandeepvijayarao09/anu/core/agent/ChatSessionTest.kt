@@ -16,6 +16,7 @@ import io.github.sandeepvijayarao09.anu.core.model.UntrustedContent
 import io.github.sandeepvijayarao09.anu.core.model.VoiceNote
 import io.github.sandeepvijayarao09.anu.core.model.newestUserIndex
 import io.github.sandeepvijayarao09.anu.core.model.userText
+import io.github.sandeepvijayarao09.anu.core.router.PhoneArea
 import io.github.sandeepvijayarao09.anu.core.router.Skill
 import io.github.sandeepvijayarao09.anu.core.router.DeviceState
 import io.github.sandeepvijayarao09.anu.core.router.Router
@@ -123,7 +124,7 @@ class ChatSessionTest {
         val now = java.time.ZonedDateTime.parse("2026-09-25T10:31:00-04:00[America/New_York]")
         val scheduling = ChatSession(
             agent(mapOf(Tier.BASE to base, Tier.PRO to pro), broker),
-            toolsFor = { skill -> if (skill == io.github.sandeepvijayarao09.anu.core.router.Skill.SCHEDULING) listOf(create.name) else emptyList() },
+            toolsFor = { skill, _ -> if (skill == io.github.sandeepvijayarao09.anu.core.router.Skill.SCHEDULING) listOf(create.name) else emptyList() },
             clock = { now },
         )
         pro.enqueue(Step.Reply("Booked."))
@@ -142,7 +143,7 @@ class ChatSessionTest {
         // A fresh conversation: "Hello there" right after scheduling would count as a follow-up and keep the tools.
         val plain = ChatSession(
             agent(mapOf(Tier.BASE to base, Tier.PRO to pro), broker),
-            toolsFor = { skill -> if (skill == io.github.sandeepvijayarao09.anu.core.router.Skill.SCHEDULING) listOf(create.name) else emptyList() },
+            toolsFor = { skill, _ -> if (skill == io.github.sandeepvijayarao09.anu.core.router.Skill.SCHEDULING) listOf(create.name) else emptyList() },
             clock = { now },
         )
         base.enqueue(Step.Reply("Hi!"))
@@ -157,7 +158,7 @@ class ChatSessionTest {
         var now = java.time.ZonedDateTime.parse("2026-09-25T23:58:00-04:00[America/New_York]")
         val chat = ChatSession(
             agent(mapOf(Tier.BASE to base, Tier.PRO to pro), ToolBroker(listOf(create), RecordingGate())),
-            toolsFor = { listOf(create.name) },
+            toolsFor = { _, _ -> listOf(create.name) },
             clock = { now },
         )
         pro.enqueue(Step.Reply("Which time?"), Step.Reply("Noon, then."))
@@ -325,7 +326,7 @@ class ChatSessionTest {
     @Test
     fun `a reply after reading texts keeps the messaging tools`() = runTest {
         val skills = mutableListOf<io.github.sandeepvijayarao09.anu.core.router.Skill>()
-        val chat = ChatSession(agent(mapOf(Tier.BASE to base, Tier.PRO to pro)), toolsFor = { skills += it; emptyList() })
+        val chat = ChatSession(agent(mapOf(Tier.BASE to base, Tier.PRO to pro)), toolsFor = { skill, _ -> skills += skill; emptyList() })
         repeat(3) { base.enqueue(Step.Reply("Okay.")); pro.enqueue(Step.Reply("Okay.")) }
         listOf("Any new texts from Maya?", "Reply that 1 works", "Make it 1:30").forEach { chat.send(it, device).toList() }
         assertEquals(List(3) { io.github.sandeepvijayarao09.anu.core.router.Skill.MESSAGES }, skills)
@@ -373,7 +374,7 @@ class ChatSessionTest {
         val inbox = FakeReadInbox()
         val create = FakeCreateEvent()
         val gate = RecordingGate()
-        val chat = ChatSession(agent(mapOf(Tier.BASE to base, Tier.PRO to base), ToolBroker(listOf(inbox, create), gate)), toolsFor = { listOf(inbox.name, create.name) })
+        val chat = ChatSession(agent(mapOf(Tier.BASE to base, Tier.PRO to base), ToolBroker(listOf(inbox, create), gate)), toolsFor = { _, _ -> listOf(inbox.name, create.name) })
         base.enqueue(
             Step.Reply(listOf(""), toolCalls = listOf(ToolCall("email_search", buildJsonObject { put("query", "lunch") }))),
             Step.Reply("Maya asked about lunch."),
@@ -400,7 +401,7 @@ class ChatSessionTest {
         val chat = ChatSession(
             agent(mapOf(Tier.BASE to base, Tier.PRO to base), ToolBroker(listOf(FakeReadInbox(), create), gate)),
             InMemoryTranscriptStore(email + later),
-            toolsFor = { listOf(create.name) },
+            toolsFor = { _, _ -> listOf(create.name) },
             window = ContextWindow(budget = 3_000),
         )
         base.enqueue(Step.Reply(listOf(""), toolCalls = listOf(addLunch)), Step.Reply("Added."))
@@ -428,7 +429,7 @@ class ChatSessionTest {
         val chat = ChatSession(
             agent(mapOf(Tier.BASE to base, Tier.PRO to base), ToolBroker(listOf(FakeReadInbox(), create), gate)),
             InMemoryTranscriptStore(saved),
-            toolsFor = { listOf(create.name) },
+            toolsFor = { _, _ -> listOf(create.name) },
         )
         base.enqueue(Step.Reply(listOf(""), toolCalls = listOf(addLunch)), Step.Reply("Added."))
         chat.send("Add lunch tomorrow", onPhone).toList()
@@ -451,7 +452,7 @@ class ChatSessionTest {
         val chat = ChatSession(
             agent(mapOf(Tier.BASE to base, Tier.PRO to base), ToolBroker(listOf(create), gate)),
             InMemoryTranscriptStore(saved),
-            toolsFor = { listOf(create.name) },
+            toolsFor = { _, _ -> listOf(create.name) },
         )
         base.enqueue(Step.Reply(listOf(""), toolCalls = listOf(addLunch)), Step.Reply("Added."))
         chat.send("Add lunch tomorrow", onPhone).toList()
@@ -466,7 +467,7 @@ class ChatSessionTest {
         val create = FakeCreateEvent()
         val chat = ChatSession(
             agent(mapOf(Tier.BASE to base, Tier.PRO to base), ToolBroker(listOf(create), RecordingGate())),
-            toolsFor = { listOf(create.name) },
+            toolsFor = { _, _ -> listOf(create.name) },
             memory = { "The user is vegetarian." },
             relevant = { _, _ -> listOf(RelevantFact("manager: Maya Chen", sensitive = false, id = 7)) },
             answers = answers,
@@ -638,7 +639,7 @@ class ChatSessionTest {
         val gate = RecordingGate()
         val chat = ChatSession(
             agent(mapOf(Tier.BASE to base, Tier.PRO to base, Tier.CLOUD to cloud), ToolBroker(listOf(create), gate)),
-            toolsFor = { listOf(create.name) },
+            toolsFor = { _, _ -> listOf(create.name) },
         )
         base.enqueue(Step.Reply("It's a lunch invitation."))
         val first = chat.send("What is this?", device, photos = listOf(io.github.sandeepvijayarao09.anu.core.model.Photo(0, sign))).toList()
@@ -726,7 +727,7 @@ class ChatSessionTest {
         val reader = FakeReader()
         val chat = ChatSession(
             agent(mapOf(Tier.BASE to base, Tier.PRO to base, Tier.CLOUD to cloud), ToolBroker(listOf(create), gate)),
-            toolsFor = { listOf(create.name) }, documentReader = reader,
+            toolsFor = { _, _ -> listOf(create.name) }, documentReader = reader,
         )
         base.enqueue(Step.Reply("Rent is \$1,850."))
         val events = chat.send("How much is the rent?", device, pdf = pdf("Rent: \$1,850 a month.", "Deposit: one month.")).toList()
@@ -794,7 +795,7 @@ class ChatSessionTest {
         val gate = RecordingGate()
         val chat = ChatSession(
             agent(mapOf(Tier.BASE to base, Tier.PRO to base, Tier.CLOUD to cloud), ToolBroker(listOf(create), gate)),
-            toolsFor = { listOf(create.name) },
+            toolsFor = { _, _ -> listOf(create.name) },
         )
         val screen = io.github.sandeepvijayarao09.anu.core.model.Screen("Messages", atMillis = 5, image = byteArrayOf(7, 7))
         base.enqueue(Step.Reply("Maya invites you to lunch on Friday."))
@@ -992,7 +993,7 @@ class ChatSessionTest {
         val gate = RecordingGate()
         val chat = ChatSession(
             agent(mapOf(Tier.BASE to base, Tier.PRO to base, Tier.CLOUD to cloud), ToolBroker(listOf(create), gate)),
-            toolsFor = { skill -> if (skill == Skill.VOICE_NOTE) listOf(create.name) else emptyList() },
+            toolsFor = { skill, _ -> if (skill == Skill.VOICE_NOTE) listOf(create.name) else emptyList() },
             transcriber = FakeTranscriber(listOf("Lunch with Maya on Friday.")),
         )
         base.enqueue(Step.Reply(listOf(""), toolCalls = listOf(addLunch)), Step.Reply("Added."))
@@ -1013,7 +1014,7 @@ class ChatSessionTest {
         val tools = mutableListOf<Skill>()
         val chat = ChatSession(
             agent(mapOf(Tier.BASE to base, Tier.PRO to base)),
-            toolsFor = { skill -> tools += skill; emptyList() },
+            toolsFor = { skill, _ -> tools += skill; emptyList() },
             transcriber = FakeTranscriber(listOf("Hi, it's Jordan. Can you send me the plan?")),
         )
         base.enqueue(Step.Reply("Jordan asks for the plan."), Step.Reply("Here's a summary."))
@@ -1024,11 +1025,27 @@ class ChatSessionTest {
     }
 
     @Test
+    fun `a phone request gets the parts of the phone it names, and a short follow-up keeps them (ADR-125)`() = runTest {
+        val offered = mutableListOf<Pair<Skill, Set<PhoneArea>>>()
+        val chat = ChatSession(
+            agent(mapOf(Tier.BASE to base, Tier.PRO to base)),
+            toolsFor = { skill, areas -> offered += skill to areas; emptyList() },
+        )
+        base.enqueue(Step.Reply("Which note?"), Step.Reply("Okay."), Step.Reply("Done."))
+        chat.send("Add oat milk and eggs to my shopping list", onPhone).toList()
+        assertEquals(Skill.PHONE to setOf(PhoneArea.NOTES), offered.last())
+        chat.send("and butter", onPhone).toList()
+        assertEquals(Skill.PHONE to setOf(PhoneArea.NOTES), offered.last())
+        chat.send("Wake me at 6:30 and turn the flashlight off", onPhone).toList()
+        assertEquals(Skill.PHONE to setOf(PhoneArea.CONTROLS), offered.last())
+    }
+
+    @Test
     fun `a voice note that starts by asking to remember gets memory's tools, and others don't`() = runTest {
         val skills = mutableListOf<Skill>()
         val chat = ChatSession(
             agent(mapOf(Tier.BASE to base, Tier.PRO to base)),
-            toolsFor = { skill -> skills += skill; emptyList() },
+            toolsFor = { skill, _ -> skills += skill; emptyList() },
             transcriber = FakeTranscriber(listOf("Remember that my sister's birthday is May 3.")),
         )
         base.enqueue(Step.Reply("Okay."), Step.Reply("Summary."))
@@ -1036,7 +1053,7 @@ class ChatSessionTest {
         assertEquals(Skill.MEMORY, skills.last())
         val shared = ChatSession(
             agent(mapOf(Tier.BASE to base, Tier.PRO to base)),
-            toolsFor = { skill -> skills += skill; emptyList() },
+            toolsFor = { skill, _ -> skills += skill; emptyList() },
             transcriber = FakeTranscriber(listOf("Remember that my sister's birthday is May 3.")),
         )
         shared.send("", onPhone, recording = Recording(byteArrayOf(1), seconds = 3, shared = true)).toList()

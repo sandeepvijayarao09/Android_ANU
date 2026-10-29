@@ -410,7 +410,7 @@ class ChatViewModelTest {
         val center = ApprovalCenter()
         val brains = mapOf(Tier.BASE to base, Tier.PRO to pro)
         val scheduling = ChatViewModel(
-            ChatSession(Agent(Router(), BrainProvider { brains[it] }, ToolBroker(listOf(tool), center)), toolsFor = { listOf(tool.name) }),
+            ChatSession(Agent(Router(), BrainProvider { brains[it] }, ToolBroker(listOf(tool), center)), toolsFor = { _, _ -> listOf(tool.name) }),
             device = { device },
             approvals = center,
         )

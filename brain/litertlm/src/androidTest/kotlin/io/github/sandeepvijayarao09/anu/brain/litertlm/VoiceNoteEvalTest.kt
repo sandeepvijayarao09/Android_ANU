@@ -181,7 +181,7 @@ class VoiceNoteEvalTest {
                     val tools = listOf(CreateEventTool(calendar) { zone }, FindFreeSlotsTool(calendar, { zone }), FindContactTool(MayaOnly), QuietAlarm(SetAlarmTool(context)))
                     val chat = ChatSession(
                         Agent(Router(), BrainProvider { tier -> if (tier == Tier.BASE || tier == Tier.PRO) brain else null }, ToolBroker(tools, gate)),
-                        toolsFor = { skill -> if (skill == Skill.VOICE_NOTE) tools.map { it.name } else emptyList() },
+                        toolsFor = { skill, _ -> if (skill == Skill.VOICE_NOTE) tools.map { it.name } else emptyList() },
                         transcriber = transcriber,
                     )
                     brain.reset()

@@ -47,6 +47,14 @@ data class TopModel(val name: String, val title: String, val where: String, val 
 enum class Skill { CHAT, WRITING, EMAIL, SCHEDULING, MESSAGES, BRIEF, MEMORY, SHOPPING, VOICE_NOTE, PHONE, APPS, AGENTS }
 
 /**
+ * The parts of the phone a [Skill.PHONE] request names, so the turn is offered only their tools (§7.3, ADR-125): its
+ * [CONTROLS] (timers, alarms, the torch, sound and screen), other [APPS] through Android's intents (calls, apps, directions,
+ * sharing, reminders), and the user's [NOTES] and contacts. All of them came to about 2,500 tokens, near a whole turn's
+ * budget on the phone.
+ */
+enum class PhoneArea { CONTROLS, APPS, NOTES }
+
+/**
  * Whether a skill may send personal data to the cloud. ASK is the default (OD-6).
  * Turning the cloud off entirely is a device setting: CLOUD is then not in [DeviceState.availableTiers].
  */

@@ -212,7 +212,8 @@ class DeviceControlEvalTest {
                     val log = Log()
                     val notes = FakeNotes(log)
                     val contacts = FakeContacts(log)
-                    // The device skill's tools, as the app offers them (AppGraph, ADR-093).
+                    // The device skill's tools, as the app offered them before ADR-125 picked them by the request's words: more
+                    // tools than the app now gives one request, so a harder test of choosing.
                     val tools: List<Tool<*, *>> = listOf(
                         Quiet(SetTimerTool(context), log), Quiet(SetAlarmTool(context), log), Quiet(FlashlightTool(context), log),
                         Quiet(DoNotDisturbTool(context), log), Quiet(OpenSettingsTool(context), log),
@@ -221,7 +222,7 @@ class DeviceControlEvalTest {
                     var skill: Skill? = null
                     val chat = ChatSession(
                         Agent(Router(), BrainProvider { tier -> if (tier == Tier.BASE || tier == Tier.PRO) brain else null }, ToolBroker(tools, Approving)),
-                        toolsFor = { found -> skill = found; if (found == Skill.PHONE) tools.map { it.name } else emptyList() },
+                        toolsFor = { found, _ -> skill = found; if (found == Skill.PHONE) tools.map { it.name } else emptyList() },
                     )
                     brain.reset()
                     val started = System.nanoTime()

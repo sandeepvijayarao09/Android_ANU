@@ -104,7 +104,7 @@ class RepairNoteProbeTest {
         val chat = ChatSession(
             Agent(Router(), BrainProvider { tier -> if (tier == Tier.PRO) capturing else null }, ToolBroker(listOf(RememberLike), never)),
             // As the app offers them: memory's tools only to the memory skill.
-            toolsFor = { skill -> if (skill == Skill.MEMORY) listOf(RememberLike.name) else emptyList() },
+            toolsFor = { skill, _ -> if (skill == Skill.MEMORY) listOf(RememberLike.name) else emptyList() },
         )
         chat.send(case.text, DeviceState(online = false, availableTiers = setOf(Tier.PRO))).toList()
         val request = requireNotNull(capturing.request) { "the chat sent nothing for ${case.key}" }

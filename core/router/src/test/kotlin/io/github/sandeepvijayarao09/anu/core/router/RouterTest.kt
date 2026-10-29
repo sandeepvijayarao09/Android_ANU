@@ -285,6 +285,22 @@ class RouterTest {
     }
 
     @Test
+    fun `a phone request names the parts of the phone whose tools it gets (ADR-125)`() {
+        assertEquals(setOf(PhoneArea.NOTES), SkillDetector.phoneAreas("Add oat milk and eggs to my shopping list"))
+        assertEquals(setOf(PhoneArea.NOTES), SkillDetector.phoneAreas("Save Raj's number, it's 555 0100"))
+        assertEquals(setOf(PhoneArea.CONTROLS), SkillDetector.phoneAreas("Wake me at 6:30 and turn the flashlight off"))
+        assertEquals(setOf(PhoneArea.APPS), SkillDetector.phoneAreas("Call Maya"))
+        assertEquals(setOf(PhoneArea.APPS), SkillDetector.phoneAreas("Remind me on Friday to pay the rent"))
+        assertEquals(setOf(PhoneArea.CONTROLS, PhoneArea.NOTES), SkillDetector.phoneAreas("Set an alarm for 6 and add eggs to my groceries note"))
+        assertEquals("the meeting's note", emptySet<PhoneArea>(), SkillDetector.phoneAreas("Add a note to my 3pm meeting on the calendar"))
+        assertEquals(emptySet<PhoneArea>(), SkillDetector.phoneAreas("What's a good name for a cat?"))
+        // The newest turn that names a part decides, so a follow-up keeps it, and a new request replaces it.
+        val turns = listOf("Turn the torch on", "Add eggs to my grocery list", "and butter").map(SkillDetector::Turn)
+        assertEquals(setOf(PhoneArea.NOTES), SkillDetector.phoneAreas(turns))
+        assertEquals(emptySet<PhoneArea>(), SkillDetector.phoneAreas(listOf(SkillDetector.Turn("Thanks!"))))
+    }
+
+    @Test
     fun `brightness and volume are the phone's, and a text draft is messages' (ADR-099)`() {
         assertEquals(Skill.PHONE, SkillDetector.detect("Make the screen a bit brighter and turn the volume down"))
         assertEquals(Skill.PHONE, SkillDetector.detect("Set the ringer to half and wake me at 7"))

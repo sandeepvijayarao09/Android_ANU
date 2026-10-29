@@ -87,6 +87,7 @@ import io.github.sandeepvijayarao09.anu.core.router.ComplexityScorer
 import io.github.sandeepvijayarao09.anu.core.router.DeviceState
 import io.github.sandeepvijayarao09.anu.core.router.GuardLimits
 import io.github.sandeepvijayarao09.anu.core.router.HeatForecast
+import io.github.sandeepvijayarao09.anu.core.router.PhoneArea
 import io.github.sandeepvijayarao09.anu.core.router.Router
 import io.github.sandeepvijayarao09.anu.core.router.Skill
 import io.github.sandeepvijayarao09.anu.core.router.Tier
@@ -515,9 +516,9 @@ class AppGraph(private val context: Context) {
      * The tools a route offers (§7.3), and on every route Gallery's skill tools (ADR-120): one agent answers every turn,
      * as in AI Edge Gallery, and a skill brings its instructions only when the model loads it.
      */
-    private fun toolsFor(skill: Skill): List<String> = routeTools(skill) + SKILL_TOOLS
+    private fun toolsFor(skill: Skill, areas: Set<PhoneArea>): List<String> = routeTools(skill, areas) + SKILL_TOOLS
 
-    private fun routeTools(skill: Skill): List<String> = when (skill) {
+    private fun routeTools(skill: Skill, areas: Set<PhoneArea>): List<String> = when (skill) {
         Skill.SCHEDULING -> listOf("calendar_list_events", "calendar_find_free_slots", "calendar_create_event", "contacts_find")
         Skill.EMAIL -> listOf(
             "email_search", "email_get_thread", "email_create_draft", "email_send",
@@ -534,23 +535,36 @@ class AppGraph(private val context: Context) {
         // lists, so only a note that starts by asking to remember gets memory's tools (ADR-085).
         Skill.VOICE_NOTE -> listOf("calendar_create_event", "calendar_find_free_slots", "contacts_find", "phone_set_alarm")
         // More than one whole command: the model gets the phone's controls, each still run by the broker (G6).
-        // With notes and contacts, the device skill (ADR-093): each is one small call, so it routes to Base.
-        Skill.PHONE -> listOf(
-            "phone_set_timer", "phone_set_alarm", "phone_flashlight", "phone_do_not_disturb", "phone_open_settings",
-            "phone_brightness", "phone_volume", "phone_draft_text",
-            "phone_call", "phone_open_app", "phone_navigate", "phone_share",
-            "phone_set_reminder", "phone_list_reminders", "phone_cancel_reminder",
-            "notes_create", "notes_search", "notes_append", "contacts_find", "contacts_add",
-        )
+        // With notes and contacts, the device skill (ADR-093): each is one small call, so it routes to Base. Only the
+        // parts of the phone the request names (ADR-125): all twenty tools filled most of a turn's budget.
+        Skill.PHONE -> phoneTools(areas.ifEmpty { PhoneArea.entries.toSet() })
         // One call that names the app and the goal; the task picks each step itself (ADR-098). Personal build only.
         Skill.APPS -> if (Flavor.HAS_APP_CONTROL) listOf(AppTaskTool.NAME) else emptyList()
         // A daily brief reads the day's events, the newest chats and the notes (ADR-120 replaced ADR-104's workflow).
         Skill.BRIEF -> listOf("calendar_list_events", "messages_list_conversations", "notes_search")
         // A request across areas gets each area's tools, and the agents on the user's network (ADR-105).
-        Skill.AGENTS -> (routeTools(Skill.SCHEDULING) + routeTools(Skill.MESSAGES) + routeTools(Skill.PHONE)).distinct() +
+        Skill.AGENTS -> (routeTools(Skill.SCHEDULING, areas) + routeTools(Skill.MESSAGES, areas) + phoneTools(areas)).distinct() +
             agents.tools().map { it.name }
         else -> emptyList()
     }
+
+    /**
+     * The tools for each part of the phone (ADR-125). An alarm for another day is a reminder, so the controls have that
+     * too; a call needs the person's number, and a note's neighbours are the address book's.
+     */
+    private fun phoneTools(areas: Set<PhoneArea>): List<String> = areas.sorted().flatMap { area ->
+        when (area) {
+            PhoneArea.CONTROLS -> listOf(
+                "phone_set_timer", "phone_set_alarm", "phone_flashlight", "phone_do_not_disturb", "phone_open_settings",
+                "phone_brightness", "phone_volume", "phone_set_reminder",
+            )
+            PhoneArea.APPS -> listOf(
+                "phone_call", "phone_open_app", "phone_navigate", "phone_share", "phone_draft_text",
+                "phone_set_reminder", "phone_list_reminders", "phone_cancel_reminder", "contacts_find",
+            )
+            PhoneArea.NOTES -> listOf("notes_create", "notes_search", "notes_append", "contacts_find", "contacts_add")
+        }
+    }.distinct()
 
     /** The text of memory's current facts among [ids], for "About this answer" (ADR-071). */
     suspend fun factTexts(ids: List<Long>): Map<Long, String> {

@@ -178,6 +178,23 @@ object SkillDetector {
         if (PHONE_CONTROLS.containsMatchIn(text) || NOTES_AND_CONTACTS.containsMatchIn(text) && !CALENDAR_WORDS.containsMatchIn(text)) add(Skill.PHONE)
     }
 
+    /**
+     * The parts of the phone [text] names (ADR-125), for the tools a Phone or across-areas request gets. Empty when it
+     * names none. As in [areas], a note beside the calendar's own words is the meeting's.
+     */
+    fun phoneAreas(text: String): Set<PhoneArea> = buildSet {
+        if (PHONE_CONTROLS.containsMatchIn(text)) add(PhoneArea.CONTROLS)
+        if (PHONE_INTENTS.containsMatchIn(text)) add(PhoneArea.APPS)
+        if (NOTES_AND_CONTACTS.containsMatchIn(text) && !CALENDAR_WORDS.containsMatchIn(text)) add(PhoneArea.NOTES)
+    }
+
+    /**
+     * The parts of the phone the user's [turns] are about: those of the newest turn that names any, so a short follow-up
+     * such as "and butter" keeps the notes tools. Empty when none does.
+     */
+    fun phoneAreas(turns: List<Turn>): Set<PhoneArea> =
+        turns.takeLast(REPLAY_TURNS).asReversed().firstNotNullOfOrNull { turn -> phoneAreas(turn.text).ifEmpty { null } }.orEmpty()
+
     /** "ask the Home Lab agent", "tell my robot agent" (ADR-105). */
     private val ASK_AGENT = Regex(
         "\\b(ask|tell|have) (the |my )?[\\p{L}\\p{N}][\\p{L}\\p{N} '-]{0,30}? agent\\b",

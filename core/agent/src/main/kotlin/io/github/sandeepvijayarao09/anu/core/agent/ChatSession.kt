@@ -18,6 +18,7 @@ import io.github.sandeepvijayarao09.anu.core.model.UntrustedContent
 import io.github.sandeepvijayarao09.anu.core.model.VoiceNote
 import io.github.sandeepvijayarao09.anu.core.model.allWords
 import io.github.sandeepvijayarao09.anu.core.router.DeviceState
+import io.github.sandeepvijayarao09.anu.core.router.PhoneArea
 import io.github.sandeepvijayarao09.anu.core.router.RouteRequest
 import io.github.sandeepvijayarao09.anu.core.router.Skill
 import io.github.sandeepvijayarao09.anu.core.router.SkillDetector
@@ -52,7 +53,8 @@ import java.util.Locale
 class ChatSession(
     private val agent: Agent,
     private val store: TranscriptStore = InMemoryTranscriptStore(),
-    private val toolsFor: (Skill) -> List<String> = { emptyList() },
+    /** A turn's tools, by its skill and, for the phone's, the parts of the phone it names (ADR-125). */
+    private val toolsFor: (Skill, Set<PhoneArea>) -> List<String> = { _, _ -> emptyList() },
     private val clock: () -> ZonedDateTime = ZonedDateTime::now,
     private val sessionId: String = "main",
     private val basePrompt: String = DEFAULT_SYSTEM,
@@ -201,7 +203,7 @@ class ChatSession(
             val users = transcript.filterIsInstance<ChatMessage.User>() + asking
             val turns = users.map { it.allWords }
             val skill = SkillDetector.replay(users.map(::skillTurn))
-            val tools = (toolsFor(skill) + currentExtraTools(turns)).distinct()
+            val tools = (toolsFor(skill, SkillDetector.phoneAreas(users.map(::skillTurn))) + currentExtraTools(turns)).distinct()
             val now = clock()
             val memoryBlock = currentMemory()
             val relevantFacts = currentRelevant(asking.allWords, turns.getOrNull(turns.size - 2))

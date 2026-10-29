@@ -94,7 +94,7 @@ class ConversationReuseTest {
         var now = ZonedDateTime.parse("2026-09-25T23:58:00-04:00[America/New_York]")
         val chat = ChatSession(
             Agent(Router(), BrainProvider { tier -> if (tier == Tier.BASE || tier == Tier.PRO) brain else null }, ToolBroker(listOf(EmptyCalendar), Approving)),
-            toolsFor = { listOf(EmptyCalendar.name) },
+            toolsFor = { _, _ -> listOf(EmptyCalendar.name) },
             clock = { now },
         )
         val first = chat.send(LONG_MESSAGE, device).toList()
