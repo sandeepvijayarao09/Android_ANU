@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -34,6 +35,7 @@ internal fun NotificationLearningPage(viewModel: SettingsViewModel, sentToday: I
     val apps by viewModel.notifyingApps.collectAsStateWithLifecycle()
     val access by viewModel.messagingEnabled.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    LaunchedEffect(Unit) { viewModel.refreshNotifyingApps() }
     AnuPage(
         "Learn from notifications",
         sentToday,
@@ -54,10 +56,21 @@ internal fun NotificationLearningPage(viewModel: SettingsViewModel, sentToday: I
                 }
             }
         }
+        // Apps that have notified come first: they're the ones there is something to learn from.
+        val notified = apps.filter { it.notified }
+        val others = apps.filterNot { it.notified }
+        if (notified.isNotEmpty()) {
+            item(key = "notified") {
+                Column {
+                    SectionHeader("Recently notified")
+                    AppGroup(notified, viewModel)
+                }
+            }
+        }
         item(key = "apps") {
             Column {
-                SectionHeader("Apps")
-                if (apps.isEmpty()) {
+                SectionHeader(if (notified.isEmpty()) "Apps" else "Other apps")
+                if (others.isEmpty()) {
                     Text(
                         "Apps appear here once they post a notification.",
                         Modifier.fillMaxWidth().padding(horizontal = 40.dp, vertical = 24.dp),
@@ -66,18 +79,23 @@ internal fun NotificationLearningPage(viewModel: SettingsViewModel, sentToday: I
                         textAlign = TextAlign.Center,
                     )
                 } else {
-                    Group {
-                        apps.forEachIndexed { i, app ->
-                            if (i > 0) GroupDivider()
-                            AppToggle(app, viewModel)
-                        }
-                    }
+                    AppGroup(others, viewModel)
                 }
                 GroupFooter(
                     "Other people and apps write notifications, so Anu never follows what they say. It skips codes and " +
                         "passwords, keeps their words for 30 days, and asks before acting on its own when it uses what it noticed.",
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun AppGroup(apps: List<NotifyingApp>, viewModel: SettingsViewModel) {
+    Group {
+        apps.forEachIndexed { i, app ->
+            if (i > 0) GroupDivider()
+            AppToggle(app, viewModel)
         }
     }
 }

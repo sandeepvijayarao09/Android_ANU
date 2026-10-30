@@ -410,7 +410,7 @@ With no model installed, the page is one row, "Download a model to use the lab",
   - Learned facts end with a Confirm pill (`accent` at 12%).
   - Facts noticed in notifications (ADR-127) come first, under "Anu noticed", newest first, with a Confirm pill and "Noticed in notifications" on the second line. The group's footer says other people and apps wrote them, and that Anu asks before acting on its own when it uses one.
 - **Details:** tapping a fact opens a sheet with "Kept on this phone", its dated source quotes (a chat message or a day's notifications can be forgotten), and That's right, Correct and Delete.
-- **Learn from notifications** (Settings → Connections, `personal` build): a page listing each app that has posted a notification, by name, with a switch, all off at first; "Allow notification access" in `accent` when Anu can't read them yet. Its footer says what is skipped and kept.
+- **Learn from notifications** (Settings → Connections, `personal` build): a page listing the phone's apps by name, with a switch, all off at first: "Recently notified" first, then "Other apps"; a "Notification types" row that opens Android's page for Anu once access is granted; "Allow notification access" in `accent` when Anu can't read them yet. Its footer says what is skipped and kept.
 
 ### Privacy report
 - **Title:** the large title "Privacy report".

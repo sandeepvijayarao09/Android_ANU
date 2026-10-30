@@ -9,6 +9,8 @@ import io.github.sandeepvijayarao09.anu.core.memory.MemoryPipeline
 import io.github.sandeepvijayarao09.anu.feature.settings.NotificationLearning
 import io.github.sandeepvijayarao09.anu.feature.settings.NotifyingApp
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -16,10 +18,19 @@ import kotlinx.coroutines.launch
 import org.json.JSONObject
 
 /**
- * Which apps memory learns from (ADR-127), in the app's settings. Apps are listed as they post a notification, by
- * package and name only, never what they said; each starts off until the user turns it on.
+ * Which apps memory learns from (ADR-127), in the app's settings: the phone's apps with a launcher icon, and those that
+ * posted a notification, listed by package and name only, never what they said. Each starts off until the user turns
+ * it on. On the Pixel, the list of apps that had notified held one app, so choosing waited on apps posting first.
  */
-class PrefsNotificationLearning(private val prefs: SharedPreferences) : NotificationLearning {
+class PrefsNotificationLearning(
+    private val prefs: SharedPreferences,
+    /** The phone's apps with a launcher icon, as package to name. Asked off the main thread. */
+    private val installed: () -> Map<String, String> = { emptyMap() },
+    private val ownPackage: String = "",
+) : NotificationLearning {
+    @Volatile
+    private var launchable: Map<String, String> = emptyMap()
+
     private val state = MutableStateFlow(read())
 
     override val apps: StateFlow<List<NotifyingApp>> = state.asStateFlow()
@@ -28,7 +39,7 @@ class PrefsNotificationLearning(private val prefs: SharedPreferences) : Notifica
 
     /** An app posted a notification: list it, if it isn't already. */
     fun seen(packageName: String, label: String) {
-        if (state.value.any { it.packageName == packageName && it.label == label }) return
+        if (state.value.any { it.packageName == packageName && it.label == label && it.notified }) return
         synchronized(this) {
             val known = JSONObject(prefs.getString(SEEN, "{}") ?: "{}").put(packageName, label)
             prefs.edit().putString(SEEN, known.toString()).apply()
@@ -42,10 +53,18 @@ class PrefsNotificationLearning(private val prefs: SharedPreferences) : Notifica
         state.value = read()
     }
 
+    override suspend fun refresh() {
+        launchable = withContext(Dispatchers.IO) { runCatching(installed).getOrDefault(emptyMap()) }
+        state.value = read()
+    }
+
     private fun read(): List<NotifyingApp> {
         val known = JSONObject(prefs.getString(SEEN, "{}") ?: "{}")
+        val seen = known.keys().asSequence().associateWith { known.getString(it) }
         val learning = prefs.getStringSet(LEARNING, emptySet()).orEmpty()
-        return known.keys().asSequence().map { NotifyingApp(it, known.getString(it), it in learning) }.sortedBy { it.label.lowercase() }.toList()
+        return (launchable + seen).filterKeys { it != ownPackage }
+            .map { (pkg, label) -> NotifyingApp(pkg, label, pkg in learning, notified = pkg in seen) }
+            .sortedBy { it.label.lowercase() }
     }
 
     private companion object {

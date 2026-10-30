@@ -134,8 +134,11 @@ sealed interface WakeSampleEvent {
     data class Again(val reason: String) : WakeSampleEvent
 }
 
-/** An app that posted a notification since Anu could read them, and whether memory learns from it (ADR-127). */
-data class NotifyingApp(val packageName: String, val label: String, val learning: Boolean)
+/**
+ * An app memory may learn from (ADR-127): one with a launcher icon, or one that [notified] since Anu could read
+ * notifications, and whether memory learns from it.
+ */
+data class NotifyingApp(val packageName: String, val label: String, val learning: Boolean, val notified: Boolean = false)
 
 /**
  * Which apps' notifications memory learns from (ADR-127), in the `personal` build. Every app starts off: the user
@@ -145,6 +148,9 @@ interface NotificationLearning {
     val apps: StateFlow<List<NotifyingApp>>
 
     fun setLearning(packageName: String, on: Boolean)
+
+    /** Lists the phone's apps again, off the main thread: one may have been installed since. */
+    suspend fun refresh()
 }
 
 /** Whether the models on the phone reason before answering (G4, ADR-077). Off unless the user chooses it. */
@@ -276,6 +282,10 @@ class SettingsViewModel(
 
     fun setLearningFrom(packageName: String, on: Boolean) {
         notificationLearning?.setLearning(packageName, on)
+    }
+
+    fun refreshNotifyingApps() {
+        notificationLearning?.let { viewModelScope.launch { it.refresh() } }
     }
 
     /** Gemini Nano's state for the Models page; null where the app has no system writer. */
