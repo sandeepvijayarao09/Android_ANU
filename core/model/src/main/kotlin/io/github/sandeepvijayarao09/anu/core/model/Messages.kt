@@ -215,8 +215,16 @@ fun factsBlock(facts: List<String>): String? =
 /**
  * A fact from memory that bears on a message (§8.3, ADR-054). A [sensitive] one never leaves the phone.
  * [id] lets "About this answer" refer to the fact rather than keep a copy of its text (ADR-071).
+ * A [noticed] one came from notifications and isn't confirmed (ADR-127): someone else wrote it, so the turn it goes
+ * with is tainted (P4), the model is told where it came from, and it never goes to the cloud.
  */
-data class RelevantFact(val text: String, val sensitive: Boolean, val id: Long? = null)
+data class RelevantFact(val text: String, val sensitive: Boolean, val id: Long? = null, val noticed: Boolean = false) {
+    /** How it reads with the message. */
+    val shown: String get() = if (noticed) "$text ($NOTICED_NOTE)" else text
+}
+
+/** Said of a fact noticed in notifications, where the model reads it (ADR-127). */
+const val NOTICED_NOTE = "noticed in a notification someone else wrote; not confirmed by the user"
 
 /** The system instruction an on-device brain uses: [BrainRequest.system], [BrainRequest.onDeviceNote], then [BrainRequest.memory]. */
 val BrainRequest.onDeviceSystem: String?

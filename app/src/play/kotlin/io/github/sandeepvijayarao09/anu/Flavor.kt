@@ -16,6 +16,9 @@ internal object Flavor {
     const val HAS_SMS = false
     const val HAS_APP_CONTROL = false
 
+    /** Learning from notifications waits for Play's review of notification access for it (ADR-127). */
+    const val HAS_NOTIFICATION_MEMORY = false
+
     val tileReader: TileReader? = null
 
     val floatingControl: FloatingControl? = null

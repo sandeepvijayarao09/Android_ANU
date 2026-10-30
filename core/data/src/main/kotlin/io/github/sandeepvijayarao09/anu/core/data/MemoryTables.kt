@@ -92,6 +92,15 @@ interface MemoryDao {
     @Query("UPDATE memory_events SET status = :status, attempts = :attempts WHERE id = :id")
     suspend fun setStatus(id: Long, status: String, attempts: Int)
 
+    @Query("SELECT * FROM memory_events WHERE ref = :ref AND status = 'PENDING' ORDER BY id LIMIT 1")
+    suspend fun pendingWithRef(ref: String): MemoryEventEntity?
+
+    @Query("UPDATE memory_events SET content = :content WHERE id = :id")
+    suspend fun setContent(id: Long, content: String)
+
+    @Query("SELECT * FROM memory_events WHERE source = :source AND atMillis < :beforeMillis ORDER BY id")
+    suspend fun eventsBefore(source: String, beforeMillis: Long): List<MemoryEventEntity>
+
     @Query("DELETE FROM memory_events WHERE id = :id")
     suspend fun deleteEvent(id: Long)
 
@@ -176,6 +185,12 @@ class RoomMemoryStore(private val db: AnuDatabase, private val clock: () -> Long
     override suspend fun pending(limit: Int) = dao.pending(limit).map(::event)
 
     override suspend fun setStatus(id: Long, status: EventStatus, attempts: Int) = dao.setStatus(id, status.name, attempts)
+
+    override suspend fun pendingWithRef(ref: String) = dao.pendingWithRef(ref)?.let(::event)
+
+    override suspend fun setContent(id: Long, content: String) = dao.setContent(id, content)
+
+    override suspend fun eventsBefore(source: EventSource, before: Instant) = dao.eventsBefore(source.name, before.toEpochMilli()).map(::event)
 
     override suspend fun deleteEvent(id: Long) = db.withTransaction {
         dao.deleteLinksToEvent(id)

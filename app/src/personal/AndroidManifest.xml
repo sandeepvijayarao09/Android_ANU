@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
     <!--
         Reminders on the minute (ADR-107). Granted at install, but Play allows it only for alarm and calendar apps, so only
         the personal build asks; the play build uses SCHEDULE_EXACT_ALARM, which the user allows in Settings.
@@ -9,5 +10,18 @@
     <application>
         <!-- Live camera on the Snapdragon's NPU (ADR-115): QNN reaches it through the vendor's FastRPC library. -->
         <uses-native-library android:name="libcdsprpc.so" android:required="false" />
+
+        <!--
+            Memory learns from the notifications of apps the user chooses (ADR-127), so the listener asks Android for
+            alerting and silent notifications too, not only conversations. The play build keeps ADR-031's conversations.
+        -->
+        <service
+            android:name="io.github.sandeepvijayarao09.anu.connector.messages.AnuNotificationListener"
+            tools:node="merge">
+            <meta-data
+                android:name="android.service.notification.default_filter_types"
+                android:value="conversations|alerting|silent"
+                tools:replace="android:value" />
+        </service>
     </application>
 </manifest>

@@ -5,6 +5,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import java.time.Instant
 
 /**
  * Where memory is kept (§8.1). `core:data` implements it on the encrypted database; only it touches
@@ -22,6 +23,15 @@ interface MemoryStore {
     suspend fun pending(limit: Int): List<MemoryEvent>
 
     suspend fun setStatus(id: Long, status: EventStatus, attempts: Int)
+
+    /** The pending event with this [ref], if any: a day's notifications from one sender gather in one (ADR-127). */
+    suspend fun pendingWithRef(ref: String): MemoryEvent?
+
+    /** Replaces an event's words: more notifications for the same day, or their text cleared after 30 days (ADR-127). */
+    suspend fun setContent(id: Long, content: String)
+
+    /** Events from [source] older than [before], oldest first. */
+    suspend fun eventsBefore(source: EventSource, before: Instant): List<MemoryEvent>
 
     /** Deletes the event and every provenance link to it. The pipeline decides what happens to the facts (I5). */
     suspend fun deleteEvent(id: Long)
@@ -96,6 +106,17 @@ class InMemoryMemoryStore : MemoryStore {
         val event = s.events[id] ?: return@update s
         s.copy(events = s.events + (id to event.copy(status = status, attempts = attempts)))
     }
+
+    override suspend fun pendingWithRef(ref: String) =
+        state.value.events.values.firstOrNull { it.ref == ref && it.status == EventStatus.PENDING }
+
+    override suspend fun setContent(id: Long, content: String) = update { s ->
+        val event = s.events[id] ?: return@update s
+        s.copy(events = s.events + (id to event.copy(content = content)))
+    }
+
+    override suspend fun eventsBefore(source: EventSource, before: Instant) =
+        state.value.events.values.filter { it.source == source && it.at < before }.sortedBy { it.id }
 
     override suspend fun deleteEvent(id: Long) = update { s ->
         s.copy(events = s.events - id, facts = s.facts.mapValues { (_, f) -> f.copy(sources = f.sources - id) })

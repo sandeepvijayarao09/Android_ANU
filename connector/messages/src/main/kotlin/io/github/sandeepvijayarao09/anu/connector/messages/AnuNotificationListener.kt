@@ -10,8 +10,8 @@ import androidx.core.app.NotificationManagerCompat
 
 /**
  * Captures messaging conversations from notifications (ARCHITECTURE §9, ADR-031). Android starts it
- * only after the user turns on notification access for Anu in system settings. Non-messaging
- * notifications are ignored and never stored, and so are Anu's own.
+ * only after the user turns on notification access for Anu in system settings. Anu's own are ignored. Other
+ * notifications are never stored here; they go to [MessagingHub.onPosted] when memory learns from them (ADR-127).
  */
 class AnuNotificationListener : NotificationListenerService() {
 
@@ -25,8 +25,11 @@ class AnuNotificationListener : NotificationListenerService() {
 
     private fun capture(sbn: StatusBarNotification) {
         if (sbn.packageName == packageName) return
-        NotificationParser.parse(this, sbn.notification, sbn.packageName, label(sbn.packageName), keyOf(sbn))
+        val label = label(sbn.packageName)
+        NotificationParser.parse(this, sbn.notification, sbn.packageName, label, keyOf(sbn))
             ?.let(MessagingHub.store::update)
+        // Memory learns from the apps the user chose, in builds that offer it (ADR-127).
+        MessagingHub.onPosted?.let { posted -> NotificationText.read(sbn, label)?.let(posted) }
     }
 
     private fun label(app: String): String = runCatching {

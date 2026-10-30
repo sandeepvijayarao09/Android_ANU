@@ -134,6 +134,19 @@ sealed interface WakeSampleEvent {
     data class Again(val reason: String) : WakeSampleEvent
 }
 
+/** An app that posted a notification since Anu could read them, and whether memory learns from it (ADR-127). */
+data class NotifyingApp(val packageName: String, val label: String, val learning: Boolean)
+
+/**
+ * Which apps' notifications memory learns from (ADR-127), in the `personal` build. Every app starts off: the user
+ * turns each one on. Only an app's name is kept for this list, never what its notifications said.
+ */
+interface NotificationLearning {
+    val apps: StateFlow<List<NotifyingApp>>
+
+    fun setLearning(packageName: String, on: Boolean)
+}
+
 /** Whether the models on the phone reason before answering (G4, ADR-077). Off unless the user chooses it. */
 interface ThinkingSetting {
     val thinking: StateFlow<Boolean>
@@ -254,7 +267,16 @@ class SettingsViewModel(
     private val systemWriter: SystemWriter? = null,
     /** Agent Skills (ADR-120). Null where the app has none. */
     private val skillSettings: SkillSettings? = null,
+    /** Learning from notifications (ADR-127). Null where the build doesn't offer it. */
+    private val notificationLearning: NotificationLearning? = null,
 ) : ViewModel() {
+
+    val notificationLearningAvailable: Boolean get() = notificationLearning != null
+    val notifyingApps: StateFlow<List<NotifyingApp>> = notificationLearning?.apps ?: MutableStateFlow(emptyList())
+
+    fun setLearningFrom(packageName: String, on: Boolean) {
+        notificationLearning?.setLearning(packageName, on)
+    }
 
     /** Gemini Nano's state for the Models page; null where the app has no system writer. */
     val nano: StateFlow<SystemWriterStatus>? = systemWriter?.status

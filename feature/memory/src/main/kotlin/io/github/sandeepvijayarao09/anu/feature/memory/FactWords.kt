@@ -53,6 +53,7 @@ private fun words(text: String): List<String> = text.lowercase().split(' ').filt
 internal fun originText(fact: Fact, date: (Instant) -> String): String = when (fact.origin) {
     FactOrigin.USER_STATED -> "You said · ${date(fact.lastConfirmed)}"
     FactOrigin.INFERRED -> if (fact.sources.size == 1) "Learned from 1 message" else "Learned from ${fact.sources.size} messages"
+    FactOrigin.NOTICED -> if (fact.sources.size == 1) "Noticed in notifications" else "Noticed in notifications on ${fact.sources.size} days"
 }
 
 /**
@@ -61,7 +62,7 @@ internal fun originText(fact: Fact, date: (Instant) -> String): String = when (f
  */
 internal fun rowSubtitle(fact: Fact, words: FactWords, date: (Instant) -> String): String = buildList {
     words.relationship?.let(::add)
-    if (fact.origin == FactOrigin.INFERRED || words.relationship == null) add(originText(fact, date))
+    if (fact.origin != FactOrigin.USER_STATED || words.relationship == null) add(originText(fact, date))
     if (fact.sensitive) add("Sensitive")
 }.joinToString(" · ")
 
@@ -79,6 +80,7 @@ internal fun sourceName(source: EventSource): String = when (source) {
     EventSource.CHAT -> "Your message"
     EventSource.STATEMENT -> "You asked Anu to remember"
     EventSource.EDIT -> "Your edit"
+    EventSource.NOTIFICATION -> "A notification"
 }
 
 private val YES = setOf("true", "yes")

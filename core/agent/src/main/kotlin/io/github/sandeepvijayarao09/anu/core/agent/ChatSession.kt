@@ -207,9 +207,10 @@ class ChatSession(
             val now = clock()
             val memoryBlock = currentMemory()
             val relevantFacts = currentRelevant(asking.allWords, turns.getOrNull(turns.size - 2))
-            val relevantBlock = factsBlock(relevantFacts.map { it.text })
-            // The cloud may see only facts the user saw on the consent sheet: relevant ones, never sensitive.
-            val consentFacts = relevantFacts.filterNot { it.sensitive }.map { it.text }
+            val relevantBlock = factsBlock(relevantFacts.map { it.shown })
+            // The cloud may see only facts the user saw on the consent sheet: relevant ones, never sensitive, and never
+            // one noticed in a notification (ADR-127).
+            val consentFacts = relevantFacts.filterNot { it.sensitive || it.noticed }.map { it.text }
             // Small models are poor at date arithmetic, so a turn that can act gets the week's dates (§7.3). They go
             // with the message, like the time, so the first turn after midnight keeps the system prompt (ADR-114).
             val dates = if (tools.isNotEmpty()) dateTable(now.toLocalDate()) else null
@@ -262,7 +263,8 @@ class ChatSession(
             val events = agent.run(
                 route, device, system, turn, tools, turnKey = turnKey, sentAt = sentAt(now, asking.allWords), dates = dates, memory = memoryBlock,
                 relevant = relevantBlock, sharedFacts = if (cloudConsented) sharedFacts else emptyList(), consentFacts = consentFacts,
-                inView = untrustedIn(shown + message),
+                // A fact noticed in a notification is someone else's words, so the turn it goes with is tainted (ADR-127).
+                inView = untrustedIn(shown + message) + listOfNotNull(UntrustedContent.NOTICED.takeIf { relevantFacts.any { it.noticed } }),
                 thinking = thinking(),
             )
             events.collect { raw ->

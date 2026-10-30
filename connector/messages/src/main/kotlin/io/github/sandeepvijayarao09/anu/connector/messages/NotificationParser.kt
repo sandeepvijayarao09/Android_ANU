@@ -22,7 +22,7 @@ object NotificationParser {
      * The stand-in text Android 15+ gives notification listeners in place of sensitive content, such
      * as one-time codes, in the phone's language. Null on versions that don't hide anything.
      */
-    private val hiddenByAndroid: String? by lazy {
+    internal val hiddenByAndroid: String? by lazy {
         val system = Resources.getSystem()
         val id = system.getIdentifier("redacted_notification_message", "string", "android")
         if (id == 0) null else runCatching { system.getString(id) }.getOrNull()

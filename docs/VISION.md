@@ -79,6 +79,7 @@ Most assistants either know nothing about you or send everything about you to a 
   - agents on your own network that speak the Agent2Agent protocol (A2A), such as a lab robot or a Raspberry Pi. Anu asks you before every message it sends one, and never lets them call into the phone;
   - stores that support the Universal Commerce Protocol (UCP): search, and checkouts you approve.
 - A living memory and user profile, with a screen to inspect, edit and add to it.
+- Memory that learns from the notifications of apps you choose, one by one (in the personal build). What it notices waits in the Memory screen for you to confirm, and Anu never follows what a notification says.
 - AI features: writing, email, scheduling, messages, shopping, and a daily brief.
 - A keyboard (ADR-109): plain QWERTY typing with AI Writing's actions, Continue and Reply above the keys, on the phone only, each result inserted only on your tap.
 - Several steps at once: "Brief me" reads your calendar, chats and notes and writes your day in a few lines, and a request that spans areas ("check my calendar for Friday and text Maya I'm free") gets each area's tools. Every action still asks you as any other does.

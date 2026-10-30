@@ -390,6 +390,7 @@ class ToolBroker(
                     UntrustedContent.RECORDING -> "a recording"
                     UntrustedContent.SCREEN -> "your screen"
                     UntrustedContent.DOCUMENT -> "a PDF"
+                    UntrustedContent.NOTICED -> "something Anu noticed in your notifications"
                 }
             }
             val listed = if (names.size == 1) names.single() else names.dropLast(1).joinToString(", ") + " and " + names.last()

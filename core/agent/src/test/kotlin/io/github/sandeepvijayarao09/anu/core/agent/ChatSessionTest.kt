@@ -440,6 +440,36 @@ class ChatSessionTest {
     }
 
     @Test
+    fun `a fact noticed in a notification taints the turn it goes with, and never reaches the consent sheet`() = runTest {
+        val create = FakeCreateEvent()
+        val gate = RecordingGate()
+        var facts = listOf(RelevantFact("dentist: Dr. Patel", sensitive = false, noticed = true))
+        val chat = ChatSession(
+            agent(mapOf(Tier.BASE to base, Tier.PRO to base), ToolBroker(listOf(create), gate)),
+            toolsFor = { _, _ -> listOf(create.name) },
+            relevant = { _, _ -> facts },
+        )
+        base.enqueue(Step.Reply(listOf(""), toolCalls = listOf(addLunch)), Step.Reply("Added."))
+        chat.send("Add my dentist visit", onPhone).toList()
+        assertEquals(
+            "Anu asks because this chat shows something Anu noticed in your notifications, which others can write. Check this closely",
+            gate.requests.single().reason,
+        )
+        assertTrue("the model is told where it came from", base.requests.first().relevant!!.contains("noticed in a notification"))
+
+        // Once the user confirms it, it is theirs, and the next turn runs on its own.
+        facts = listOf(RelevantFact("dentist: Dr. Patel", sensitive = false))
+        base.enqueue(Step.Reply(listOf(""), toolCalls = listOf(addLunch)), Step.Reply("Added."))
+        chat.send("Add it again", onPhone).toList()
+        assertEquals(1, gate.requests.size)
+
+        val cloudOnly = DeviceState(online = true, availableTiers = setOf(Tier.CLOUD))
+        val toCloud = ChatSession(agent(mapOf(Tier.CLOUD to cloud)), relevant = { _, _ -> listOf(RelevantFact("dentist: Dr. Patel", sensitive = false, noticed = true)) })
+        val blocked = toCloud.send("Who is my dentist?", cloudOnly).toList().single() as AgentEvent.ConsentNeeded
+        assertTrue(blocked.facts.isEmpty())
+    }
+
+    @Test
     fun `a call that never ran leaves nothing untrusted in view`() = runTest {
         val create = FakeCreateEvent()
         val gate = RecordingGate()

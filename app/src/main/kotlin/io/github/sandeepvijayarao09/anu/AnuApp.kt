@@ -28,6 +28,8 @@ class AnuApp : Application(), ReminderHost {
         super.onCreate()
         graph = AppGraph(this)
         ScreenHandoff.install(this)
+        // The chosen apps' notifications go to memory, in builds that offer it (ADR-127).
+        graph.notificationLearning?.let { NotificationMemory.install(this, it, { graph.memory }, graph.scope) }
         // Off the main thread: this also opens the database, and it gives the memory tools their facts. Then facts
         // without a vector for the installed search model get one, as after that model is installed or replaced
         // (ADR-062). The model loads only if a fact is missing its vector.

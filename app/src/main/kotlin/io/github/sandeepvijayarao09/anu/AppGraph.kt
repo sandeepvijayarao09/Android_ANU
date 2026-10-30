@@ -452,8 +452,12 @@ class AppGraph(private val context: Context) {
             RoomMemoryStore(db),
             FactExtractor({ onDevice.memoryBrain() }),
             embedder = embedder,
+            zone = zone,
         )
     }
+
+    /** Which apps' notifications memory learns from (ADR-127). Null in builds that don't offer it. */
+    val notificationLearning: PrefsNotificationLearning? by lazy { if (Flavor.HAS_NOTIFICATION_MEMORY) PrefsNotificationLearning(prefs) else null }
 
     /** Every tool Anu has. Each skill offers only its own subset to the model (§7.3). */
     private val tools: List<Tool<*, *>> by lazy {

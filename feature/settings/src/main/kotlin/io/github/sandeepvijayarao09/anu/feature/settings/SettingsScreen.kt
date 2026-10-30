@@ -57,6 +57,7 @@ enum class SettingsPage(val title: String) {
     VAULT("Vault activity"),
     LAB("Prompt lab"),
     SKILLS("Skills"),
+    NOTIFICATIONS("Learn from notifications"),
 }
 
 /**
@@ -93,6 +94,7 @@ fun SettingsScreen(
             SettingsPage.ACTIVITY -> ActivityPage(viewModel, sentToday, onOpenPrivacy, back)
             SettingsPage.VAULT -> VaultPage(viewModel, sentToday, onOpenPrivacy, back)
             SettingsPage.SKILLS -> SkillsPage(viewModel, sentToday, onOpenPrivacy, back)
+            SettingsPage.NOTIFICATIONS -> NotificationLearningPage(viewModel, sentToday, onOpenPrivacy, back)
             SettingsPage.LAB -> if (lab != null) LabPage(lab, sentToday, onOpenPrivacy, back, onOpenModels = { onPage(SettingsPage.MODELS) }) else back()
         }
     }
@@ -275,6 +277,18 @@ private fun ConnectionsGroup(viewModel: SettingsViewModel, onPage: (SettingsPage
             messaging?.let { enabled ->
                 GroupDivider()
                 MessagingRow(enabled, viewModel)
+                if (viewModel.notificationLearningAvailable) {
+                    val apps by viewModel.notifyingApps.collectAsStateWithLifecycle()
+                    val on = apps.count { it.learning }
+                    GroupDivider()
+                    // Memory learns from the apps the user turns on (ADR-127).
+                    GroupRow(
+                        "Learn from notifications",
+                        value = if (on == 0) "Off" else if (on == 1) "1 app" else "$on apps",
+                        chevron = true,
+                        onClick = { onPage(SettingsPage.NOTIFICATIONS) },
+                    )
+                }
             }
             if (viewModel.smsAvailable) {
                 GroupDivider()

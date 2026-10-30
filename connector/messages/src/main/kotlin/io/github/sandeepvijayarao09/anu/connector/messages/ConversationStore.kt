@@ -107,6 +107,13 @@ class ConversationStore(private val maxConversations: Int = 30, private val maxL
 /** One store per process, shared by the notification listener and the tools. */
 object MessagingHub {
     val store = ConversationStore()
+
+    /**
+     * Where every other app's notification goes, besides the chats above, when the build learns from notifications
+     * (ADR-127). Null keeps nothing: the app sets it, and decides which apps count.
+     */
+    @Volatile
+    var onPosted: ((PostedNotification) -> Unit)? = null
 }
 
 /** Two phone numbers match when their last digits agree, so "+1 555-123-4567" is "(555) 123-4567". */

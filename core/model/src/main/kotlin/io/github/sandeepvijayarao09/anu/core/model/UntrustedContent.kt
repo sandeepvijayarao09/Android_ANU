@@ -32,4 +32,7 @@ enum class UntrustedContent {
 
     /** A PDF the user attached, read on the phone: someone else may have written it (ADR-095). */
     DOCUMENT,
+
+    /** A fact from memory that Anu noticed in a notification and the user hasn't confirmed (ADR-127). */
+    NOTICED,
 }

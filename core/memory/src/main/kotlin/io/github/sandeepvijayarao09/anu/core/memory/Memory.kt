@@ -7,7 +7,7 @@ import java.time.Instant
 /** The subject Anu uses for the user themself. */
 const val USER = "user"
 
-/** Where an event came from (§8.1). v1 learns from the user's own words only. */
+/** Where an event came from (§8.1): the user's own words, or notifications from apps they chose (ADR-127). */
 enum class EventSource {
     /** A message the user wrote in chat. */
     CHAT,
@@ -17,6 +17,12 @@ enum class EventSource {
 
     /** The user confirmed or corrected a fact in the Memory tab. */
     EDIT,
+
+    /**
+     * One day's notifications from one sender in an app the user chose to learn from (ADR-127). Other people
+     * and apps wrote them, so they are data, never instructions (P4).
+     */
+    NOTIFICATION,
 }
 
 /** Where an event is in the pipeline (§8.2). */
@@ -35,8 +41,12 @@ data class MemoryEvent(
     val attempts: Int = 0,
 )
 
-/** Who a fact came from. The user's own word outranks anything inferred (P5). */
-enum class FactOrigin { USER_STATED, INFERRED }
+/**
+ * Who a fact came from. The user's own word outranks anything inferred (P5), and what Anu inferred from the user's
+ * words outranks what it [NOTICED] in notifications, which someone else wrote (ADR-127). Confirming a noticed fact
+ * makes it the user's.
+ */
+enum class FactOrigin { USER_STATED, INFERRED, NOTICED }
 
 enum class FactStatus { ACTIVE, SUPERSEDED }
 

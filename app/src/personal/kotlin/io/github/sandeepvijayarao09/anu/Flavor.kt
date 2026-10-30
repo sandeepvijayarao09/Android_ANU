@@ -25,6 +25,9 @@ internal object Flavor {
     const val HAS_SMS = true
     const val HAS_APP_CONTROL = true
 
+    /** Memory learns from the notifications of apps the user chooses (ADR-127). The owner's build only, for now. */
+    const val HAS_NOTIFICATION_MEMORY = true
+
     val tileReader: TileReader? = object : TileReader {
         override val on: Boolean get() = TileScreen.ready
 

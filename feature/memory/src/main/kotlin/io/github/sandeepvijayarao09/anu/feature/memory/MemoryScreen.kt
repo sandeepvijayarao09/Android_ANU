@@ -66,7 +66,8 @@ import java.util.Locale
 
 /**
  * The Memory tab (§8.4, DESIGN.md "Memory"): what Anu knows, grouped like a contacts list. The user's
- * own facts say so; guesses ask to be confirmed. Tapping a fact shows the words it came from, with
+ * own facts say so; guesses ask to be confirmed. Facts noticed in notifications come first, under "Anu noticed",
+ * until the user confirms or deletes them (ADR-127). Tapping a fact shows the words it came from, with
  * Correct, Delete and Forget.
  */
 @Composable
@@ -102,16 +103,33 @@ fun MemoryScreen(viewModel: MemoryViewModel, sentToday: Int, onOpenPrivacy: () -
         when {
             state.facts.isEmpty() -> item(key = "empty") { Empty() }
             shown.isEmpty() -> item(key = "none") { NoMatches(query) }
-            else -> ProfileSection.entries.forEach { section ->
-                val facts = shown.filter { it.section == section }.sortedWith(MemoryPipeline.IMPORTANCE)
-                if (facts.isNotEmpty()) {
-                    item(key = section.name) {
+            else -> {
+                val noticed = shown.filter { it.origin == FactOrigin.NOTICED }.sortedByDescending { it.lastConfirmed }
+                if (noticed.isNotEmpty()) {
+                    item(key = "noticed") {
                         Column {
-                            SectionHeader(section.shortName)
+                            SectionHeader("Anu noticed")
                             Group {
-                                facts.forEachIndexed { index, fact ->
+                                noticed.forEachIndexed { index, fact ->
                                     if (index > 0) GroupDivider()
                                     FactRow(fact, onOpen = { openFact = fact.id }, onConfirm = { viewModel.confirm(fact.id) })
+                                }
+                            }
+                            GroupFooter("From notifications other people and apps wrote. Until you confirm one, Anu asks before acting on its own when it uses it.")
+                        }
+                    }
+                }
+                ProfileSection.entries.forEach { section ->
+                    val facts = shown.filter { it.section == section && it.origin != FactOrigin.NOTICED }.sortedWith(MemoryPipeline.IMPORTANCE)
+                    if (facts.isNotEmpty()) {
+                        item(key = section.name) {
+                            Column {
+                                SectionHeader(section.shortName)
+                                Group {
+                                    facts.forEachIndexed { index, fact ->
+                                        if (index > 0) GroupDivider()
+                                        FactRow(fact, onOpen = { openFact = fact.id }, onConfirm = { viewModel.confirm(fact.id) })
+                                    }
                                 }
                             }
                         }
@@ -213,10 +231,10 @@ private fun FactSheet(fact: Fact, sources: Map<Long, MemoryEvent>, viewModel: Me
         SheetTitle(words.label, overline = words.relationship)
         WhereLine(leaves = false, text = "Kept on this phone", modifier = Modifier.padding(top = 10.dp))
         Text(
-            if (fact.origin == FactOrigin.USER_STATED) {
-                "You said this, so it outranks anything Anu works out on its own."
-            } else {
-                "Anu worked this out from what you wrote. Confirm it if it's right, or correct it."
+            when (fact.origin) {
+                FactOrigin.USER_STATED -> "You said this, so it outranks anything Anu works out on its own."
+                FactOrigin.INFERRED -> "Anu worked this out from what you wrote. Confirm it if it's right, or correct it."
+                FactOrigin.NOTICED -> "Anu noticed this in notifications someone else wrote. Until you confirm it, Anu asks before acting on its own when it uses it."
             },
             Modifier.padding(top = 12.dp),
             style = AnuTheme.type.callout,
@@ -239,10 +257,10 @@ private fun FactSheet(fact: Fact, sources: Map<Long, MemoryEvent>, viewModel: Me
         } else {
             Text("Where it came from", Modifier.padding(top = 20.dp, bottom = 2.dp), style = AnuTheme.type.label, color = colors.textMuted)
             fact.sources.mapNotNull(sources::get).sortedByDescending { it.at }.forEach { event ->
-                SourceQuote(event, onForget = if (event.source == EventSource.CHAT) ({ forgetting = event }) else null)
+                SourceQuote(event, onForget = if (event.source == EventSource.CHAT || event.source == EventSource.NOTIFICATION) ({ forgetting = event }) else null)
             }
             Spacer(Modifier.height(20.dp))
-            if (fact.origin == FactOrigin.INFERRED) {
+            if (fact.origin != FactOrigin.USER_STATED) {
                 AnuButton("That's right", onClick = { viewModel.confirm(fact.id) }, Modifier.fillMaxWidth())
                 Spacer(Modifier.height(10.dp))
             }
@@ -267,8 +285,12 @@ private fun FactSheet(fact: Fact, sources: Map<Long, MemoryEvent>, viewModel: Me
     }
     forgetting?.let { event ->
         AnuDialog(
-            title = "Forget this message?",
-            text = "Anu forgets the message, and anything it learned only from it. The chat itself isn't changed.",
+            title = if (event.source == EventSource.NOTIFICATION) "Forget these notifications?" else "Forget this message?",
+            text = if (event.source == EventSource.NOTIFICATION) {
+                "Anu forgets them, and anything it learned only from them. The app's own messages aren't changed."
+            } else {
+                "Anu forgets the message, and anything it learned only from it. The chat itself isn't changed."
+            },
             confirm = "Forget",
             onConfirm = { forgetting = null; viewModel.forgetSource(event.id) },
             dismiss = "Keep",
