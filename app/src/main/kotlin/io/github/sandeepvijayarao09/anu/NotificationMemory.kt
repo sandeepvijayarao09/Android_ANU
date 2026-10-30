@@ -49,7 +49,10 @@ class PrefsNotificationLearning(
 
     override fun setLearning(packageName: String, on: Boolean) = synchronized(this) {
         val learning = prefs.getStringSet(LEARNING, emptySet()).orEmpty()
-        prefs.edit().putStringSet(LEARNING, if (on) learning + packageName else learning - packageName).apply()
+        val now = if (on) learning + packageName else learning - packageName
+        // Saved at once: a choice made just before the app is closed must not be lost.
+        val saved = prefs.edit().putStringSet(LEARNING, now).commit()
+        if (BuildConfig.DEBUG) Log.d("Anu", "Learn from notifications: $packageName ${if (on) "on" else "off"}, ${now.size} apps on, saved $saved")
         state.value = read()
     }
 
