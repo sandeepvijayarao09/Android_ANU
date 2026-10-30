@@ -91,7 +91,29 @@ object KeyboardText {
 
     /** The emoji in what the model wrote, each whole (skin tones, flags, joined families), without repeats: at most [max]. */
     fun emoji(raw: String, max: Int): List<String> =
-        raw.split(Regex("[\\s,;|]+")).map { it.trim('.', '"', '\'') }.filter(::isEmoji).distinct().take(max)
+        raw.split(Regex("[\\s,;|]+")).map { it.trim('.', '"', '\'') }.filter(::isEmoji).flatMap(::singles).distinct().take(max)
+
+    /**
+     * A run of emoji, as models often write them with no spaces ("🎂🎉🥳"), split into one emoji each. A joiner, a variation
+     * selector, a keycap or a skin tone stays with the emoji before it, and two regional indicators make one flag.
+     */
+    internal fun singles(run: String): List<String> {
+        val out = mutableListOf<StringBuilder>()
+        var joined = false
+        var i = 0
+        while (i < run.length) {
+            val cp = run.codePointAt(i)
+            val attaches = cp == 0x200D || cp == 0xFE0F || cp == 0x20E3 || cp in 0x1F3FB..0x1F3FF
+            val flagHalf = cp in 0x1F1E6..0x1F1FF && out.lastOrNull()?.let { last ->
+                last.codePointCount(0, last.length) == 1 && last.codePointAt(0) in 0x1F1E6..0x1F1FF
+            } == true
+            if (out.isEmpty() || !(attaches || joined || flagHalf)) out += StringBuilder()
+            out.last().appendCodePoint(cp)
+            joined = cp == 0x200D
+            i += Character.charCount(cp)
+        }
+        return out.map(StringBuilder::toString)
+    }
 
     /** A token of emoji only: no letters or digits, and at least one symbol from the emoji ranges. */
     internal fun isEmoji(token: String): Boolean {
