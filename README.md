@@ -6,7 +6,7 @@
 
 - **What it is:** an Android assistant that runs Google's Gemma 4 language models on the phone itself. It can read your calendar, contacts, messages and email, use tools on your behalf, and learn facts about you, while keeping that data on the device.
 - **Why it matters:** most assistants either know nothing about you or send everything to a server. Anu answers on the phone by default, uses the cloud (Gemini) only with your consent and with as little data as possible, and logs every request that leaves the phone in a ledger you can read.
-- **Key result:** Gemma 4 E4B runs on-device through Google's LiteRT-LM runtime (tested on an Android 16 emulator and a Pixel 10 Pro, where the CPU build writes about 6 to 7 tokens per second). A router that picks the lightest model for each request puts 83% of a held-out eval set on the right tier. 547 tests across 86 test files; CI builds both app flavors and runs every unit test on each push.
+- **Key result:** Gemma 4 E4B runs on-device through Google's LiteRT-LM runtime (tested on an Android 16 emulator and a Pixel 10 Pro, where the CPU build writes about 6 to 7 tokens per second). A router that picks the lightest model for each request puts 83% of a held-out eval set on the right tier. 751 `@Test` methods across 113 test files (693 unit in 83 files, 58 device in 30 files); CI builds both app flavors and runs every unit test on each push.
 - **What I did:** designed and built the app end to end: architecture (written up in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)), the agent loop and approval system, the router and its eval, encrypted storage, memory, connectors and the UI.
 - **Built with:** Kotlin, Jetpack Compose, LiteRT-LM, EmbeddingGemma (Google's AI Edge RAG library), Room on SQLCipher, Android Keystore with Tink, OkHttp, WorkManager, GitHub Actions.
 - **Try it:** `./gradlew assemblePersonalDebug` on JDK 21, install on an arm64 device or emulator running Android 12 or newer, then download a model in Settings, Models (see [Build and run](#build-and-run)).
@@ -92,11 +92,13 @@ The `play` build ships no model and is useful for seeing the UI without one.
 
 | Kind | Files | `@Test` methods | Where they run |
 |---|---|---|---|
-| Unit and Robolectric (JVM) | 66 | 507 | CI and locally |
-| Device (instrumented) | 20 | 40 | Locally; CI compiles them |
-| Total | 86 | 547 | |
+| Unit and Robolectric (JVM) | 83 | 693 | CI and locally |
+| Device (instrumented) | 30 | 58 | Locally; CI compiles them |
+| Total | 113 | 751 | |
 
-Counts are from `src/test` and `src/androidTest` at the commit that added this README.
+Counts were taken at commit `97d94a9` by counting lines matching `grep -rE '^\s*@Test' --include=*.kt`, split by
+`src/test` (unit) and `src/androidTest` (device); "Files" is the number of `.kt` files with at least one match. They count
+`@Test` annotations, not test runs, so parameterized cases count once.
 
 ```bash
 # All unit tests (what CI runs, plus both flavors)
@@ -138,3 +140,7 @@ Working prototype, built by one developer since September 2026. It runs end to e
 
 - [Anu-iOS](https://github.com/sandeepvijayarao09/Anu-iOS): the iOS sibling, Gemma 4 E4B on-device through LiteRT, written in Swift. Anu for iOS won the Apple Swift Student Challenge 2026.
 - Design documents: [docs/VISION.md](docs/VISION.md) (what and why), [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (how, with a decision log), [DESIGN.md](DESIGN.md) (visual design).
+
+## License
+
+MIT. See [LICENSE](LICENSE).
