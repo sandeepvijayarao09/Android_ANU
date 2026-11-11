@@ -16,6 +16,22 @@ object SkillDetector {
         RegexOption.IGNORE_CASE,
     )
 
+    /** A question: it ends with "?" or starts as one ("What is my favorite color", "Do I like tea"). */
+    private val QUESTION = Regex(
+        "\\?\\s*$|^\\W*(what|who|whom|whose|when|where|which|why|how|do|does|did|is|are|am|was|were|can|could|will|would|have|has)\\b",
+        RegexOption.IGNORE_CASE,
+    )
+
+    /**
+     * Whether [text] is a question that asks nothing to be kept: "What is my favorite color?" after "Remember that…"
+     * keeps the memory skill as a follow-up, but must not save anything (ADR-130). "Do you remember…" is a question too.
+     */
+    fun asksOnly(text: String): Boolean = QUESTION.containsMatchIn(text.trim()) &&
+        !KEEP.containsMatchIn(text)
+
+    /** Asking to keep something, anywhere in a message: "Can you remember that my sister is Ana?" still saves. */
+    private val KEEP = Regex("^\\W*(please\\s+)?(remember|don'?t forget|note that|keep in mind)\\b|\\b(remember that|note that|keep in mind|don'?t forget)\\b", RegexOption.IGNORE_CASE)
+
     /** Words that only mean email. */
     private val EMAIL = Regex(
         "\\b(e-?mails?|e-?mailed|gmail|inbox|mail from|newsletter|subject line|cc)\\b",

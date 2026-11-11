@@ -204,6 +204,9 @@ class ChatSession(
             val turns = users.map { it.allWords }
             val skill = SkillDetector.replay(users.map(::skillTurn))
             val tools = (toolsFor(skill, SkillDetector.phoneAreas(users.map(::skillTurn))) + currentExtraTools(turns)).distinct()
+                // A question keeps memory's tools as a follow-up, but can't save: given memory_remember for "What is my favorite
+                // color?", E2B kept "favorite color's favorite color is teal" (ADR-130).
+                .filterNot { it == ActionClaims.REMEMBER_TOOL && SkillDetector.asksOnly(asking.allWords) }
             val now = clock()
             val memoryBlock = currentMemory()
             val relevantFacts = currentRelevant(asking.allWords, turns.getOrNull(turns.size - 2))
@@ -213,7 +216,9 @@ class ChatSession(
             val consentFacts = relevantFacts.filterNot { it.sensitive || it.noticed }.map { it.text }
             // Small models are poor at date arithmetic, so a turn that can act gets the week's dates (§7.3). They go
             // with the message, like the time, so the first turn after midnight keeps the system prompt (ADR-114).
-            val dates = if (tools.isNotEmpty()) dateTable(now.toLocalDate()) else null
+            // Only a turn with a tool that takes a date gets the week's dates: given them for "What's my favorite color?",
+            // E2B recited them (ADR-130).
+            val dates = if (tools.any(::takesDates)) dateTable(now.toLocalDate()) else null
             val attached = pictures.map { photo ->
                 if (photo.id != 0L) photo else Photo(photoStore.save(requireNotNull(photo.bytes) { "a new photo needs its bytes" }).also(fresh::add), photo.bytes, photo.found)
             }
@@ -666,6 +671,16 @@ class ChatSession(
 
         private val SENT_AT = DateTimeFormatter.ofPattern("EEE yyyy-MM-dd HH:mm", Locale.ENGLISH)
         private val DAY = DateTimeFormatter.ofPattern("EEE yyyy-MM-dd", Locale.ENGLISH)
+
+        /** Tools that never take a date or time: memory, notes, contacts, shopping and the phone's simple controls. */
+        private val DATELESS_PREFIXES = listOf("memory_", "notes_", "mcp_notes_", "contacts_", "shop_")
+        private val DATELESS = setOf(
+            "phone_brightness", "phone_flashlight", "phone_volume", "phone_do_not_disturb", "phone_open_app", "phone_open_settings",
+            "phone_share", "phone_navigate", "phone_call", "phone_draft_text", "phone_set_timer",
+        )
+
+        /** Whether [tool] may need the coming week's dates, such as the calendar, reminders or a search of messages. */
+        fun takesDates(tool: String): Boolean = tool !in DATELESS && DATELESS_PREFIXES.none { tool.startsWith(it) }
 
         /** Today, tomorrow and the rest of the coming week, e.g. "today Fri 2026-09-25; tomorrow Sat 2026-09-26; Sun 2026-09-27; …". */
         fun dateTable(today: java.time.LocalDate): String = (0L..7L).joinToString("; ") { offset ->

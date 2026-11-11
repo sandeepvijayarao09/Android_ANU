@@ -429,7 +429,13 @@ class Agent(
                     return@flow emit(AgentEvent.Failed(listOf("stopped after ${budgets.maxToolCalls} tool calls")))
                 }
                 emit(AgentEvent.ToolStarted(call))
-                val outcome = broker.execute(call, state)
+                // Only the tools this turn offered run: given no memory_remember for "What is my favorite color?", E4B
+                // called it anyway, and the broker would have kept a made-up fact (ADR-130).
+                val outcome = if (specs.none { it.name == call.name }) {
+                    ToolOutcome.Invalid("${call.name} isn't available for this request. Use only the tools you were given.")
+                } else {
+                    broker.execute(call, state)
+                }
                 emit(AgentEvent.ToolFinished(call, outcome))
                 when (outcome) {
                     is ToolOutcome.Ok -> actions += ActionRecord(call.name, outcome.summary, ActionRecord.Status.DONE, outcome.wrote, destination = outcome.destination)

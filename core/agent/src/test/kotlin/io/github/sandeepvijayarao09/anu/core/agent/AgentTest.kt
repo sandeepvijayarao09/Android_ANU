@@ -61,6 +61,16 @@ class AgentTest {
     }
 
     @Test
+    fun `a call to a tool the turn didn't offer never runs`() = runTest {
+        base.enqueue(Step.Reply(listOf(""), toolCalls = listOf(createDentist)), Step.Reply("I can't add events here."))
+        val events = agent.run(route, device, system = "You are Anu.", history = history, tools = listOf(inbox.name), turnKey = "t1").toList()
+        assertTrue(create.created.isEmpty())
+        val finished = events.filterIsInstance<AgentEvent.ToolFinished>().single()
+        assertTrue(finished.outcome is ToolOutcome.Invalid)
+        assertEquals("I can't add events here.", (events.last() as AgentEvent.Completed).text)
+    }
+
+    @Test
     fun `a completed turn reports its estimate against the runtime's count`() = runTest {
         base.enqueue(Step.Reply(listOf(""), toolCalls = listOf(createDentist)), Step.Reply("Added."))
         val completed = run().last() as AgentEvent.Completed

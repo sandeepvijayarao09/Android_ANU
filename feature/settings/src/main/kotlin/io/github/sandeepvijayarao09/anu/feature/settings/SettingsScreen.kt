@@ -279,6 +279,8 @@ private fun ConnectionsGroup(viewModel: SettingsViewModel, onPage: (SettingsPage
                 MessagingRow(enabled, viewModel)
                 if (viewModel.notificationLearningAvailable) {
                     val apps by viewModel.notifyingApps.collectAsStateWithLifecycle()
+                    // The phone's apps too, not only those that notified, so apps turned on before they post count.
+                    LaunchedEffect(Unit) { viewModel.refreshNotifyingApps() }
                     val on = apps.count { it.learning }
                     GroupDivider()
                     // Memory learns from the apps the user turns on (ADR-127).

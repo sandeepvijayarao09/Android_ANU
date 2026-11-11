@@ -2,6 +2,7 @@ package io.github.sandeepvijayarao09.anu.core.router
 
 import io.github.sandeepvijayarao09.anu.core.model.DataClass
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
@@ -20,6 +21,15 @@ class RouterTest {
 
     private val heavy = "Write a detailed proposal comparing our three vendors on cost and risk, " +
         "then draft an email to the team and schedule a review"
+
+    @Test
+    fun `a plain question asks nothing to be kept, a request to remember does`() {
+        assertTrue(SkillDetector.asksOnly("What is my favorite color?"))
+        assertTrue(SkillDetector.asksOnly("do I like tea"))
+        assertFalse(SkillDetector.asksOnly("Remember that my favorite color is teal."))
+        assertFalse(SkillDetector.asksOnly("Can you remember that my sister is Ana?"))
+        assertFalse(SkillDetector.asksOnly("Maya Chen"))
+    }
 
     @Test
     fun `simple chat goes to Base`() {

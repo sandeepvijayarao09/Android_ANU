@@ -153,6 +153,16 @@ class ChatSessionTest {
     }
 
     @Test
+    fun `a turn whose tools take no date gets no dates`() {
+        assertFalse(ChatSession.takesDates("memory_search"))
+        assertFalse(ChatSession.takesDates("memory_remember"))
+        assertFalse(ChatSession.takesDates("phone_flashlight"))
+        assertTrue(ChatSession.takesDates("calendar_create_event"))
+        assertTrue(ChatSession.takesDates("phone_set_reminder"))
+        assertTrue(ChatSession.takesDates("sms_search"))
+    }
+
+    @Test
     fun `the first turn after midnight keeps the system prompt, and the new dates travel with the message`() = runTest {
         val create = FakeCreateEvent()
         var now = java.time.ZonedDateTime.parse("2026-09-25T23:58:00-04:00[America/New_York]")
