@@ -19,3 +19,6 @@ Call the `run_js` tool with the following exact parameters:
 - script name: `index.html`
 - data: A JSON string with the following field
   - text: the text to calculate hash for
+  - algorithm: `SHA-1`, `SHA-256`, `SHA-384` or `SHA-512`, as the user asked; `SHA-1` if they named none
+
+Say which algorithm the result names.

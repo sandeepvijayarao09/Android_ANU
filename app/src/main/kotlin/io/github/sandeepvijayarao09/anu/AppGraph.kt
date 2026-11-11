@@ -586,7 +586,11 @@ class AppGraph(private val context: Context) {
     }
 
     private val broker by lazy {
-        ToolBroker(tools, approvals, RoomToolResultStore(db.toolResults()), toolAudit, dynamicTools = { mcp.registry.tools() + agents.tools() })
+        ToolBroker(
+            tools, approvals, RoomToolResultStore(db.toolResults()), toolAudit, dynamicTools = { mcp.registry.tools() + agents.tools() },
+            // Each call's tool and how it ended, never its arguments or result.
+            onOutcome = if (BuildConfig.DEBUG) { tool, outcome -> Log.d(TAG, "Tool: $tool, $outcome") } else null,
+        )
     }
 
     val chat by lazy {

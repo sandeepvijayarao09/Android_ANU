@@ -430,8 +430,9 @@ class Agent(
                 }
                 emit(AgentEvent.ToolStarted(call))
                 // Only the tools this turn offered run: given no memory_remember for "What is my favorite color?", E4B
-                // called it anyway, and the broker would have kept a made-up fact (ADR-130).
-                val outcome = if (specs.none { it.name == call.name }) {
+                // called it anyway, and the broker would have kept a made-up fact (ADR-130). A name no tool has goes to the
+                // broker, which runs nothing and points a skill's name to load_skill (ADR-131).
+                val outcome = if (specs.none { it.name == call.name } && broker.has(call.name)) {
                     ToolOutcome.Invalid("${call.name} isn't available for this request. Use only the tools you were given.")
                 } else {
                     broker.execute(call, state)

@@ -145,6 +145,8 @@ class ToolBroker(
      * The same policy applies to them. A fixed tool wins if a name is ever shared.
      */
     private val dynamicTools: () -> Collection<Tool<*, *>> = { emptyList() },
+    /** Told each call's tool and the kind of its outcome, never its arguments or result, for debug builds' log. */
+    private val onOutcome: ((tool: String, outcome: String) -> Unit)? = null,
 ) {
     private val byName: Map<String, Tool<*, *>> = tools.associateBy { it.name }
 
@@ -175,9 +177,21 @@ class ToolBroker(
         requireNotNull(find(name)) { "No tool named $name" }.spec()
     }
 
+    /** Whether a tool named [name] is registered, offered to this turn or not. */
+    fun has(name: String): Boolean = find(name) != null
+
     suspend fun execute(call: ToolCall, run: RunState): ToolOutcome {
-        val tool = find(call.name) ?: return ToolOutcome.Invalid(missing(call.name))
-        return executeTyped(tool, call, run)
+        val tool = find(call.name)
+        val outcome = if (tool == null) ToolOutcome.Invalid(missing(call.name)) else executeTyped(tool, call, run)
+        onOutcome?.invoke(call.name, kind(outcome, known = tool != null))
+        return outcome
+    }
+
+    private fun kind(outcome: ToolOutcome, known: Boolean): String = when (outcome) {
+        is ToolOutcome.Ok -> "ok"
+        is ToolOutcome.Rejected -> "rejected"
+        is ToolOutcome.Failed -> "failed"
+        is ToolOutcome.Invalid -> if (known) "invalid arguments" else "no such tool"
     }
 
     /**

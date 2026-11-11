@@ -14,20 +14,28 @@
  * limitations under the License.
  */
 
-async function digestMessage(message) {
+// Modified for Anu (ADR-131): an optional `algorithm` (SHA-1, SHA-256, SHA-384 or SHA-512; SHA-1 as in the
+// original), named in the result, so an answer can't call a SHA-1 hash SHA-256.
+const ALGORITHMS = ['SHA-1', 'SHA-256', 'SHA-384', 'SHA-512'];
+
+async function digestMessage(message, asked) {
+  const algorithm = String(asked || 'SHA-1').toUpperCase().replace(/^SHA(\d)/, 'SHA-$1');
+  if (!ALGORITHMS.includes(algorithm)) {
+    return {error: `Unsupported algorithm ${asked}. Use one of ${ALGORITHMS.join(', ')}.`};
+  }
   const msgUint8 = new TextEncoder().encode(message); // encode as (utf-8) Uint8Array
-  const hashBuffer = await crypto.subtle.digest('SHA-1', msgUint8); // hash the message
+  const hashBuffer = await crypto.subtle.digest(algorithm, msgUint8); // hash the message
   const hashArray = Array.from(new Uint8Array(hashBuffer)); // convert buffer to byte array
   const hashHex = hashArray
     .map((b) => b.toString(16).padStart(2, '0'))
     .join(''); // convert bytes to hex string
-  return {result: hashHex};
+  return {algorithm, result: hashHex};
 }
 
 window['ai_edge_gallery_get_result'] = async (data) => {
   try {
     const jsonData = JSON.parse(data);
-    return JSON.stringify(await digestMessage(jsonData['text']));
+    return JSON.stringify(await digestMessage(jsonData['text'], jsonData['algorithm']));
   } catch (e) {
     console.error(e);
     return JSON.stringify({error: `Failed to calculate hash: ${e.message}`});
