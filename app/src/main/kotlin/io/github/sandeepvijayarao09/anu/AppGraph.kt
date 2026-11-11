@@ -73,6 +73,7 @@ import io.github.sandeepvijayarao09.anu.core.data.RoomAnswerStore
 import io.github.sandeepvijayarao09.anu.core.data.RoomPhotoStore
 import io.github.sandeepvijayarao09.anu.core.data.RoomToolResultStore
 import io.github.sandeepvijayarao09.anu.core.memory.FactExtractor
+import io.github.sandeepvijayarao09.anu.core.voice.AndroidBargeIn
 import io.github.sandeepvijayarao09.anu.core.voice.AndroidSpeechInput
 import io.github.sandeepvijayarao09.anu.core.voice.AndroidSpeechOutput
 import io.github.sandeepvijayarao09.anu.core.memory.ForgetMemoryTool
@@ -279,11 +280,19 @@ class AppGraph(private val context: Context) {
     val keyboardWriting by lazy { Cascade(router, BrainProvider { tier -> if (tier == Tier.CLOUD) null else brains.brainFor(tier) }) }
 
     /** Speech in and out, on the phone only (ADR-043). */
-    val speechIn by lazy { AndroidSpeechInput(context).let { if (BuildConfig.DEBUG) ShellSpeech(it) else it } }
+    val speechIn by lazy { AndroidSpeechInput(context, log = ::voiceLog).let { if (BuildConfig.DEBUG) ShellSpeech(it) else it } }
 
     /** Records voice notes, in memory only (G3, ADR-078). */
     val recorder by lazy { AndroidVoiceRecorder(context) }
-    val speechOut by lazy { AndroidSpeechOutput(context) }
+    val speechOut by lazy { AndroidSpeechOutput(context, log = ::voiceLog) }
+
+    /** Talking over Anu in live talk, on the echo-cancelled microphone (ADR-129). */
+    val bargeIn by lazy { AndroidBargeIn(log = ::voiceLog) }
+
+    /** Debug builds log voice timings, never words or audio (ADR-129). */
+    private fun voiceLog(line: String) {
+        if (BuildConfig.DEBUG) Log.d("Anu", line)
+    }
 
     /** Anu as the assistant, and "Hey Anu" (ADR-044, ADR-045). */
     val voice by lazy { AnuVoiceSettings(context, prefs) }

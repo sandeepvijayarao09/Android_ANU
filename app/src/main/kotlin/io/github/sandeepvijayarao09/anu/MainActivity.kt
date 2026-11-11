@@ -131,7 +131,7 @@ private fun AnuHome(graph: AppGraph, shared: MutableStateFlow<Shared?>) {
         ChatViewModel(
             graph.chat, graph.device::current, graph.approvals, graph.speechIn, graph.speechOut, facts = graph::factTexts,
             brainStatus = graph.onDevice.status, warm = graph::warmStart, recorder = graph.recorder, hears = graph.onDevice::available,
-            behind = graph.liveTalk,
+            behind = graph.liveTalk, bargeIn = graph.bargeIn,
         ).also(graph.liveTalk::attach)
     }
     val memory = viewModel { MemoryViewModel(graph.memory) }

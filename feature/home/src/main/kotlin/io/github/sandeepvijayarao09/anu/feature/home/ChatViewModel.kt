@@ -24,6 +24,7 @@ import io.github.sandeepvijayarao09.anu.core.router.DeviceState
 import io.github.sandeepvijayarao09.anu.core.router.Guard
 import io.github.sandeepvijayarao09.anu.core.router.Tier
 import io.github.sandeepvijayarao09.anu.core.router.TopModel
+import io.github.sandeepvijayarao09.anu.core.voice.BargeIn
 import io.github.sandeepvijayarao09.anu.core.voice.RecordingEvent
 import io.github.sandeepvijayarao09.anu.core.voice.Sentences
 import io.github.sandeepvijayarao09.anu.core.voice.SpeechEvent
@@ -39,6 +40,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.delay
@@ -242,6 +244,8 @@ class ChatViewModel(
     private val replies: ReplyTargets? = null,
     /** Whether live talk can go on behind other apps (ADR-108). Without it, leaving Anu ends live talk. */
     private val behind: LiveBehind? = null,
+    /** Hears the user talk over Anu in live talk, so the speech stops and Anu listens (ADR-129). */
+    private val bargeIn: BargeIn? = null,
 ) : ViewModel() {
 
     private val mutable = MutableStateFlow(
@@ -265,6 +269,12 @@ class ChatViewModel(
     private var speakTurn = false
     private var spokenUpTo = 0
 
+    /** Whether any of this turn's answer has been spoken, so its first clause can go early (ADR-129). */
+    private var spokeThisTurn = false
+
+    /** The user talked over Anu, so live talk listens at once rather than after [LIVE_PAUSE_MS]. */
+    private var interrupted = false
+
     /** Listens in a row that heard nothing during live talk. */
     private var liveMisses = 0
 
@@ -286,9 +296,20 @@ class ChatViewModel(
                 .distinctUntilChanged()
                 .collectLatest { free ->
                     if (free < 0) return@collectLatest
-                    delay(LIVE_PAUSE_MS)
+                    if (!interrupted) delay(LIVE_PAUSE_MS)
+                    interrupted = false
                     listen(live = true)
                 }
+        }
+        // Barge-in (ADR-129): while Anu speaks in live talk, the user talking stops it, and it listens.
+        bargeIn?.let { ears ->
+            viewModelScope.launch {
+                mutable.map { it.live && it.speaking && !it.listening }.distinctUntilChanged().collectLatest { talking ->
+                    if (!talking) return@collectLatest
+                    if (ears.watch().firstOrNull() == null) return@collectLatest
+                    talkedOver()
+                }
+            }
         }
         viewModelScope.launch { session.context.collect { view -> mutable.update { it.copy(trimmed = view.trimmed) } } }
         // After a second with no word, the answer names what the model is doing (design review D10).
@@ -444,6 +465,18 @@ class ChatViewModel(
         blocked?.let { why -> mutable.update { it.copy(voiceProblem = why) } }
     }
 
+    /**
+     * The user talked over Anu in live talk (ADR-129): the speech stops, an answer still being written stops too (its
+     * words so far stay on screen), and Anu listens at once.
+     */
+    private fun talkedOver() {
+        if (!mutable.value.live) return
+        interrupted = true
+        speakTurn = false
+        speechOut?.stop()
+        if (mutable.value.busy) stop()
+    }
+
     /** Ends live talk: stops listening and speaking, and doesn't listen again. */
     fun endLive() {
         mutable.update { it.copy(live = false) }
@@ -508,6 +541,7 @@ class ChatViewModel(
         if ((trimmed.isEmpty() && picked.isEmpty() && voice == null && pdf == null) || state.busy || state.recordingSeconds != null) return
         speakTurn = spoken && !state.muted && speechOut != null
         spokenUpTo = 0
+        spokeThisTurn = false
         val photos = picked.map { Photo(0, it, foundIn[it]) }
         foundIn.clear()
         val asked = nextId++
@@ -916,8 +950,9 @@ class ChatViewModel(
         if (!speakTurn) return
         val out = speechOut ?: return
         val text = mutable.value.bubbles.firstOrNull { it.id == id }?.text ?: return
-        val (sentences, next) = Sentences.next(text, spokenUpTo, final)
+        val (sentences, next) = Sentences.next(text, spokenUpTo, final, first = !spokeThisTurn)
         spokenUpTo = next
+        if (sentences.isNotEmpty()) spokeThisTurn = true
         sentences.forEach(out::speak)
     }
 
