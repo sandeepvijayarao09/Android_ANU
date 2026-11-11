@@ -236,6 +236,13 @@ class LiteRtLmBrain(
         val finished = CompletableDeferred<Boolean>()
         var open: Conversation? = null
         try {
+            // The TPU's compiled model holds one conversation's state: after Base's opinion ran beside it, the chat's
+            // kept conversation answered "PRO" to "What is on my Anu test note?" (ADR-131). On the NPU, the chat reads
+            // its transcript again instead.
+            if (backend?.startsWith("NPU") == true) {
+                cached.forEach { it.conversation.close() }
+                cached.clear()
+            }
             val conversation = engines.get().createConversation(config)
             open = conversation
             val sent = AtomicLong()

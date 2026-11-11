@@ -98,7 +98,15 @@ object Relevance {
 
     private val PRONOUNS = setOf("he", "she", "him", "her", "his", "hers", "they", "them", "their", "theirs")
 
-    private val GREETING = Regex("\\bgood (morning|afternoon|evening|night)\\b", RegexOption.IGNORE_CASE)
+    /**
+     * Greetings and small talk, which ask nothing of memory. "Hi, how are you today?" had searched by meaning and
+     * found "favorite color: teal", which E2B then brought up (ADR-131).
+     */
+    private val GREETING = Regex(
+        "\\bgood (morning|afternoon|evening|night)\\b|\\bhow (are|r) (you|u)( doing| going)?( today| tonight| this (morning|afternoon|evening))?\\b|" +
+            "\\bhow'?s it going\\b|\\bwhat'?s up\\b|\\bnice to meet you\\b",
+        RegexOption.IGNORE_CASE,
+    )
 
     private val STOP_WORDS = setOf(
         "a", "an", "the", "and", "or", "but", "if", "so", "to", "for", "of", "in", "on", "at", "by", "with", "from", "about", "into",

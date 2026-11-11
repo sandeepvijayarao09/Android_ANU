@@ -157,6 +157,7 @@ class ChatSessionTest {
         assertFalse(ChatSession.takesDates("memory_search"))
         assertFalse(ChatSession.takesDates("memory_remember"))
         assertFalse(ChatSession.takesDates("phone_flashlight"))
+        assertFalse(ChatSession.takesDates("load_skill"))
         assertTrue(ChatSession.takesDates("calendar_create_event"))
         assertTrue(ChatSession.takesDates("phone_set_reminder"))
         assertTrue(ChatSession.takesDates("sms_search"))

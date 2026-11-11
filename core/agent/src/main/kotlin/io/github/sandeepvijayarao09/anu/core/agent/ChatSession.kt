@@ -672,11 +672,15 @@ class ChatSession(
         private val SENT_AT = DateTimeFormatter.ofPattern("EEE yyyy-MM-dd HH:mm", Locale.ENGLISH)
         private val DAY = DateTimeFormatter.ofPattern("EEE yyyy-MM-dd", Locale.ENGLISH)
 
-        /** Tools that never take a date or time: memory, notes, contacts, shopping and the phone's simple controls. */
+        /**
+         * Tools that never take a date or time: memory, notes, contacts, shopping, the phone's simple controls, and the
+         * skill tools every turn gets (ADR-131), else every turn had the dates and E2B answered "Hi" with them. A day the
+         * message names still comes with its date (ADR-085).
+         */
         private val DATELESS_PREFIXES = listOf("memory_", "notes_", "mcp_notes_", "contacts_", "shop_")
         private val DATELESS = setOf(
             "phone_brightness", "phone_flashlight", "phone_volume", "phone_do_not_disturb", "phone_open_app", "phone_open_settings",
-            "phone_share", "phone_navigate", "phone_call", "phone_draft_text", "phone_set_timer",
+            "phone_share", "phone_navigate", "phone_call", "phone_draft_text", "phone_set_timer", "load_skill", "run_js", "run_intent",
         )
 
         /** Whether [tool] may need the coming week's dates, such as the calendar, reminders or a search of messages. */

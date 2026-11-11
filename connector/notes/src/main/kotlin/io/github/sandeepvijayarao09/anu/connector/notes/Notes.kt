@@ -130,7 +130,16 @@ class SearchNotesTool(store: NoteStore, now: () -> Long = System::currentTimeMil
         if (input.query.isBlank()) "Look at your newest notes" else "Look for \"${input.query.trim()}\" in your notes"
 
     override suspend fun invoke(input: SearchNotesInput, context: ToolContext): NotesOutput =
-        NotesOutput(store.search(input.query.trim(), MAX_FOUND).map { NoteOut(it.title, excerpt(it.text)) })
+        NotesOutput(store.search(searchable(input.query), MAX_FOUND).map { NoteOut(it.title, excerpt(it.text)) })
+}
+
+/** Words that name a note rather than say what's in it: "my Anu test note" finds the note titled "Anu test" (ADR-131). */
+private val FILLER = setOf("my", "the", "a", "an", "note", "notes", "called", "named", "titled", "list", "on", "in", "of")
+
+/** [query] without [FILLER], or as it is when nothing else is left. */
+internal fun searchable(query: String): String {
+    val words = query.trim().split(Regex("\\s+")).filter(String::isNotBlank)
+    return words.filterNot { it.lowercase().trim('"', '\'', '?', '.', ',') in FILLER }.ifEmpty { words }.joinToString(" ")
 }
 
 /**
@@ -148,7 +157,7 @@ class AppendNoteTool(store: NoteStore, now: () -> Long = System::currentTimeMill
     override fun describe(input: AppendNoteInput) = "Add to your note \"${input.title.trim()}\""
 
     override suspend fun invoke(input: AppendNoteInput, context: ToolContext): NoteSaved {
-        val asked = input.title.trim()
+        val asked = searchable(input.title)
         val found = store.search(asked, MAX_FOUND).filter { it.title.contains(asked, ignoreCase = true) }
         val note = found.singleOrNull { it.title.equals(asked, ignoreCase = true) } ?: found.singleOrNull()
             ?: error(

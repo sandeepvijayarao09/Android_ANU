@@ -35,6 +35,13 @@ class NoteToolsTest {
     private val append = AppendNoteTool(store) { clock++ }
 
     @Test
+    fun `a search drops the words that only name a note`() {
+        assertEquals("Anu test", searchable("Anu test note"))
+        assertEquals("groceries", searchable("my groceries list"))
+        assertEquals("notes", searchable("notes"))
+    }
+
+    @Test
     fun `a note without a title takes its first words`() = runTest {
         val saved = create.invoke(CreateNoteInput("Call the plumber about the kitchen sink before the weekend"), ctx)
         assertEquals("Call the plumber about the kitchen sink…", saved.title)

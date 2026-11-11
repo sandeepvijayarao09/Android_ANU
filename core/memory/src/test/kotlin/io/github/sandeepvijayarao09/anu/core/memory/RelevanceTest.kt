@@ -73,6 +73,7 @@ class RelevanceTest {
         val peaked = all.associate { it.id to 0.30f } + (diet.id to 0.42f)
         assertEquals(listOf(diet.text), Relevance.pick("Plan tonight's meal", all, peaked).map { it.text })
         assertTrue("small talk is never searched", !Relevance.hasContent("Thanks!") && Relevance.hasContent("Plan tonight's meal"))
+        assertTrue(!Relevance.hasContent("Hi, how are you today?") && !Relevance.hasContent("What's up?") && Relevance.hasContent("How are you planning my trip?"))
     }
 
     @Test
