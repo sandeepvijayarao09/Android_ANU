@@ -415,7 +415,7 @@ class AppGraph(private val context: Context) {
             File(context.noBackupFilesDir, "models"),
             File(context.noBackupFilesDir, "litertlm-cache"),
             tensorG5 = "tensorg5" in Build.SOC_MODEL.lowercase().replace(" ", ""),
-            nativeLibraryDir = context.applicationInfo.nativeLibraryDir,
+            nativeLibraryDir = models.tensorLibraryDir,
             socModel = Build.SOC_MODEL,
             emulator = Build.HARDWARE == "ranchu" || Build.HARDWARE == "goldfish",
         )?.also { liveModel = it }

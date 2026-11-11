@@ -203,9 +203,15 @@ class ModelManager(
     private fun backendFor(variant: ModelVariant): Backend = when (variant) {
         ModelVariant.CPU -> Backend.CPU()
         ModelVariant.GPU -> Backend.GPU()
-        // The Pixel's TPU runs through the NPU backend, with Google's Tensor dispatch library in the app (ADR-102).
-        ModelVariant.NPU_TENSOR_G5, ModelVariant.NPU_TENSOR_G6, ModelVariant.NPU_SNAPDRAGON_SM8750 ->
-            Backend.NPU(context.applicationInfo.nativeLibraryDir)
+        // The Pixel's TPU runs through the NPU backend, with Google's Tensor dispatch library alone in its folder
+        // (ADR-102, ADR-128).
+        ModelVariant.NPU_TENSOR_G5, ModelVariant.NPU_TENSOR_G6 -> Backend.NPU(tensorLibraryDir)
+        ModelVariant.NPU_SNAPDRAGON_SM8750 -> Backend.NPU(context.applicationInfo.nativeLibraryDir)
+    }
+
+    /** The folder the TPU's engines load their dispatch library from, made once a run (ADR-128). */
+    val tensorLibraryDir: String by lazy {
+        TensorLibraries.folder(context.applicationInfo.nativeLibraryDir, File(context.noBackupFilesDir, "tensor-npu"))
     }
 
     internal companion object {
