@@ -34,6 +34,17 @@ import kotlinx.serialization.json.contentOrNull
 /** How an escalation past a tier with no model installed is worded. That tier never tried. */
 internal const val NO_BRAIN = "no brain is wired"
 
+/**
+ * A skill's name called as if it were a tool, such as "query-wikipedia", becomes the load_skill call it meant, when the
+ * turn offers load_skill (ADR-131). Told so in a hint, E2B gave up instead. The transcript, the result and the taint
+ * then all name load_skill.
+ */
+private fun ToolBroker.asSkillLoad(call: ToolCall, specs: List<io.github.sandeepvijayarao09.anu.core.model.ToolSpec>): ToolCall {
+    if (has(call.name) || specs.none { it.name == LoadSkillTool.NAME }) return call
+    val skill = skillNamed(call.name) ?: return call
+    return ToolCall(LoadSkillTool.NAME, kotlinx.serialization.json.buildJsonObject { put("skill_name", JsonPrimitive(skill)) }, call.signature)
+}
+
 /** Why a turn went to Pro on Base's own opinion (ADR-106). */
 internal const val BEYOND_BASE = "Base judged it needs Pro"
 
@@ -339,7 +350,7 @@ class Agent(
                             text.append(event.text)
                             emit(AgentEvent.TextDelta(decision.tier, event.text))
                         }
-                        is BrainEvent.ToolCallRequested -> calls += event.call
+                        is BrainEvent.ToolCallRequested -> calls += broker.asSkillLoad(event.call, specs)
                         is BrainEvent.Usage -> usage = event
                         is BrainEvent.Finished -> Unit
                     }

@@ -71,6 +71,18 @@ class AgentTest {
     }
 
     @Test
+    fun `a skill's name called as a tool loads the skill`() = runTest {
+        val wiki = AgentSkill("query-wikipedia", "Query Wikipedia.", "---\nname: query-wikipedia\n---\nCall run_js.", "skills/query-wikipedia", AgentSkill.Origin.BUILT_IN)
+        val skills = ToolBroker(listOf(LoadSkillTool(InMemorySkillCatalog(listOf(wiki)))), gate)
+        val withSkills = Agent(Router(), BrainProvider { mapOf(Tier.BASE to base, Tier.PRO to pro)[it] }, skills)
+        base.enqueue(Step.Reply(listOf(""), toolCalls = listOf(ToolCall("query-wikipedia", buildJsonObject { put("topic", "Jane Austen") }))), Step.Reply("Jane Austen."))
+        val events = withSkills.run(route, device, system = "You are Anu.", history = history, tools = listOf(LoadSkillTool.NAME), turnKey = "t1").toList()
+        val finished = events.filterIsInstance<AgentEvent.ToolFinished>().single()
+        assertEquals(LoadSkillTool.NAME, finished.call.name)
+        assertTrue(finished.outcome is ToolOutcome.Ok)
+    }
+
+    @Test
     fun `a completed turn reports its estimate against the runtime's count`() = runTest {
         base.enqueue(Step.Reply(listOf(""), toolCalls = listOf(createDentist)), Step.Reply("Added."))
         val completed = run().last() as AgentEvent.Completed

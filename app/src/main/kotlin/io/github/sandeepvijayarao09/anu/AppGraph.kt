@@ -291,6 +291,9 @@ class AppGraph(private val context: Context) {
     /** Live talk behind other apps, with its microphone service and pill (ADR-108). */
     val liveTalk by lazy { LiveTalk(context) }
 
+    /** Messages adb sends to Talk in debug builds (`DebugChat`), for batch tests on a phone. Release builds never fill it. */
+    val debugMessages = kotlinx.coroutines.flow.MutableSharedFlow<String>(extraBufferCapacity = 4)
+
     /** The services and stores the user connected in Settings (ADR-046, ADR-047). */
     private val connectorSettings by lazy { RoomConnectorSettings(db.connectors()) }
 

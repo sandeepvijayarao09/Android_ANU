@@ -85,4 +85,25 @@ class AgentSkillsTest {
         val other = broker.execute(io.github.sandeepvijayarao09.anu.core.model.ToolCall("weather", kotlinx.serialization.json.JsonObject(emptyMap())), run)
         assertTrue((other as ToolOutcome.Invalid).reason.startsWith("There is no tool named weather. Available: load_skill"))
     }
+
+    @Test
+    fun `only skills that share a word with the message are offered`() {
+        fun made(name: String, description: String) = AgentSkill(name, description, "---\nname: $name\n---", "skills/$name", AgentSkill.Origin.BUILT_IN)
+        val all = listOf(
+            made("calculate-hash", "Calculate the hash of a given text."),
+            made("mood-tracker", "A simple mood tracking skill that stores your daily mood. Use this when the user wants to log their mood, track how they feel."),
+            made("query-wikipedia", "Query summary from Wikipedia for a given topic."),
+            made("qr-code", "Generates a QR code for the given url."),
+            made("interactive-map", "Show an interactive map view for the given location."),
+        )
+        fun names(message: String) = SkillMatch.matching(message, all).map { it.name }
+        assertEquals(emptyList<String>(), names("Hi, how are you today?"))
+        assertEquals(emptyList<String>(), names("Translate \"good morning\" into Spanish"))
+        assertEquals(emptyList<String>(), names("Who wrote Pride and Prejudice?"))
+        assertEquals(listOf("calculate-hash"), names("What is the SHA-256 hash of the word hello?"))
+        assertEquals(listOf("query-wikipedia"), names("Search Wikipedia for Jane Austen"))
+        assertEquals(listOf("qr-code"), names("Make a QR code for example.com"))
+        assertEquals(listOf("interactive-map"), names("Show Boston on a map"))
+        assertEquals(listOf("mood-tracker"), names("Log my mood: happy"))
+    }
 }

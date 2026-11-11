@@ -137,6 +137,8 @@ private fun AnuHome(graph: AppGraph, shared: MutableStateFlow<Shared?>) {
     val memory = viewModel { MemoryViewModel(graph.memory) }
     // The prompt lab runs only the models on this phone, with nothing from the chat (G7, ADR-080).
     val lab = viewModel { LabViewModel(graph.onDevice, graph.onDevice.status) }
+    // Debug builds: a message from adb is sent as if typed (DebugChat).
+    LaunchedEffect(Unit) { graph.debugMessages.collect { chat.send(it) } }
     // A shared photo or recording lands in Talk's composer, ready for a question about it (G2, G3). One collector
     // takes each share in turn: clearing the share inside an effect keyed on it would cancel the effect mid-read.
     LaunchedEffect(Unit) {

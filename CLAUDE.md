@@ -99,6 +99,7 @@ export JAVA_HOME=/opt/homebrew/opt/openjdk@21
   - a made-up contact "Maya Chen", `maya.chen@example.com`.
   Only use made-up `example.com` people.
 - **Typing into the app from adb:** use `scripts/emu-type.sh <serial> "<text>"`, because fast `input text` loses characters on Gboard. It escapes shell characters such as apostrophes.
+- **Batch checks on a phone (debug builds):** `scripts/phone-checks.sh <serial> scripts/phone-checks.txt` sends each message through the `DebugChat` receiver (no typing), waits for the turn, reads the answer off the screen and prints PASS or FAIL. Each line of the checks file is `message | must match | must not match`. One message alone: `adb shell am broadcast -n <package>/io.github.sandeepvijayarao09.anu.DebugChat --es send "'What is 12 times 9?'"`. A turn that waits on an approval sheet times out, so keep writes that ask out of the file.
 - **Messaging on the emulator** (made-up numbers only):
   - Grant notification access to the debug app: `adb shell cmd notification allow_listener io.github.sandeepvijayarao09.anu.personal/io.github.sandeepvijayarao09.anu.connector.messages.AnuNotificationListener`.
   - Receive a text: `adb emu sms send 5551234567 "…"`. Google Messages is the SMS app and posts the notification.

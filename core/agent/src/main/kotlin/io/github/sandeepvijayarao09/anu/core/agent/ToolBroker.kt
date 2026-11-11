@@ -177,6 +177,9 @@ class ToolBroker(
         requireNotNull(find(name)) { "No tool named $name" }.spec()
     }
 
+    /** The skill [name] means, if a skill has that name, when load_skill is registered (ADR-131). */
+    fun skillNamed(name: String): String? = (find(LoadSkillTool.NAME) as? LoadSkillTool)?.catalog?.find(name)?.name
+
     /** Whether a tool named [name] is registered, offered to this turn or not. */
     fun has(name: String): Boolean = find(name) != null
 

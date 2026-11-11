@@ -203,10 +203,13 @@ class ChatSession(
             val users = transcript.filterIsInstance<ChatMessage.User>() + asking
             val turns = users.map { it.allWords }
             val skill = SkillDetector.replay(users.map(::skillTurn))
-            val tools = (toolsFor(skill, SkillDetector.phoneAreas(users.map(::skillTurn))) + currentExtraTools(turns)).distinct()
+            val offered = (toolsFor(skill, SkillDetector.phoneAreas(users.map(::skillTurn))) + currentExtraTools(turns)).distinct()
                 // A question keeps memory's tools as a follow-up, but can't save: given memory_remember for "What is my favorite
                 // color?", E2B kept "favorite color's favorite color is teal" (ADR-130).
                 .filterNot { it == ActionClaims.REMEMBER_TOOL && SkillDetector.asksOnly(asking.allWords) }
+            // Only the skills the message, or the one before it, could mean; with none, no skill tools (ADR-131).
+            val skillsHere = SkillMatch.matching(listOfNotNull(turns.getOrNull(turns.size - 2), asking.allWords).joinToString("\n"), skills())
+            val tools = if (skillsHere.isEmpty()) offered.filterNot { it in SKILL_TOOL_NAMES } else offered
             val now = clock()
             val memoryBlock = currentMemory()
             val relevantFacts = currentRelevant(asking.allWords, turns.getOrNull(turns.size - 2))
@@ -226,7 +229,7 @@ class ChatSession(
             val message = ChatMessage.User(text, attached.map { Photo(it.id, found = it.found) }, note, screen?.let { Screen(it.app, it.atMillis) }, doc)
             // What every turn carries besides the history. The note about left-out messages is counted
             // either way, so adding it can't push a turn over the budget.
-            val fixed = Tokens.of(systemPrompt(tools, trimmed = true)) + Tokens.of(memoryBlock) + Tokens.of(relevantBlock) +
+            val fixed = Tokens.of(systemPrompt(tools, skillsHere, trimmed = true)) + Tokens.of(memoryBlock) + Tokens.of(relevantBlock) +
                 Tokens.of(dates) + Tokens.ofTools(agent.toolSpecs(tools)) + Tokens.of(message)
             val scale = tokens.scale
             windowStart = window.start(transcript, windowStart, fixed, scale)
@@ -234,7 +237,7 @@ class ChatSession(
             windowStart = window.fitPictures(transcript, windowStart, adding = attached.size + if (screen?.image != null) 1 else 0)
             letGoOfPhotosBefore(transcript, windowStart)
             val shown = transcript.subList(windowStart, transcript.size).toList()
-            val system = systemPrompt(tools, trimmed = windowStart > 0)
+            val system = systemPrompt(tools, skillsHere, trimmed = windowStart > 0)
             // The model sees the photos in its view; the saved chat keeps only their ids.
             val turn = withPhotoBytes(shown + ChatMessage.User(text, attached, note, screen, doc))
             val promptTokens = ceil((fixed + Tokens.of(shown)) * scale).toInt()
@@ -501,7 +504,7 @@ class ChatSession(
      * Each hint is given only with its tool, so small models aren't told about tools they don't have
      * (§7.3). [trimmed] says the oldest messages are left out, so the model asks rather than guesses.
      */
-    private fun systemPrompt(tools: List<String>, trimmed: Boolean): String = buildString {
+    private fun systemPrompt(tools: List<String>, listed: List<AgentSkill>, trimmed: Boolean): String = buildString {
         append(basePrompt)
         // No date or time: a prompt that changed every minute would make the on-device model re-read the whole
         // conversation on every turn (ADR-018), and one with the date, on the first turn of each day (ADR-114). Both go
@@ -549,10 +552,7 @@ class ChatSession(
             if ("contacts_add" in tools) {
                 append(" To save a person or their number or email, call contacts_add with the name and details exactly as the user gave them.")
             }
-            if (LoadSkillTool.NAME in tools) {
-                val listed = skills()
-                if (listed.isNotEmpty()) append(SkillPrompt.section(listed))
-            }
+            if (LoadSkillTool.NAME in tools && listed.isNotEmpty()) append(SkillPrompt.section(listed))
             if (tools.any { it.startsWith("mcp_") }) {
                 append(" Tools named mcp_ belong to services the user added. Use them for what the user asks of that service.")
             }
@@ -677,6 +677,9 @@ class ChatSession(
          * skill tools every turn gets (ADR-131), else every turn had the dates and E2B answered "Hi" with them. A day the
          * message names still comes with its date (ADR-085).
          */
+        /** The tools that load and run skills, offered only when a skill could be meant (ADR-131). */
+        private val SKILL_TOOL_NAMES = setOf(LoadSkillTool.NAME, "run_js", "run_intent")
+
         private val DATELESS_PREFIXES = listOf("memory_", "notes_", "mcp_notes_", "contacts_", "shop_")
         private val DATELESS = setOf(
             "phone_brightness", "phone_flashlight", "phone_volume", "phone_do_not_disturb", "phone_open_app", "phone_open_settings",

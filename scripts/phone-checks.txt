@@ -1,0 +1,14 @@
+# Checks for scripts/phone-checks.sh: message | the answer must match | the answer must not match.
+# Made-up data only. The memory and notes checks need "Remember that my favorite color is teal." and a note
+# "Anu test" holding "oat milk, eggs and spinach" first.
+What is 12 times 9? | 108 |
+What's 15% of 80? | \b12\b |
+Who wrote Pride and Prejudice? | Austen|asked: | unable
+Translate "good morning" into Spanish | buenos d[ií]as |
+Hi, how are you today? | | teal|favou?rite color|coming week|November
+What day of the week is tomorrow? | Thursday |
+What is my favorite color? | teal |
+What is on my Anu test note? | oat milk |
+What is the SHA-256 hash of the word hello? | 2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824 |
+Turn on the flashlight | flashlight on |
+Turn off the flashlight | flashlight off |

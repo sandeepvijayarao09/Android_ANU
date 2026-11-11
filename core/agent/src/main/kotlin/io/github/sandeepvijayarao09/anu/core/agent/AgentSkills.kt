@@ -76,6 +76,42 @@ class InMemorySkillCatalog(private val all: List<AgentSkill>) : AgentSkillCatalo
     override fun skills() = all
 }
 
+/**
+ * The skills a message could mean (ADR-131): those sharing a word with it, by the skill's name (any part, "qr", "map"),
+ * description or examples. Listing all twelve on every turn, E2B loaded mood-tracker for "Hi, how are you today?" and
+ * query-wikipedia, which asks to go to the web, to translate "good morning". A message that matches none gets no skills.
+ */
+object SkillMatch {
+    fun matching(message: String, skills: List<AgentSkill>): List<AgentSkill> {
+        val asked = words(message)
+        if (asked.isEmpty()) return emptyList()
+        return skills.filter { skill ->
+            val named = skill.name.split('-').filter { it.length >= 2 }.toSet()
+            val told = words(skill.description + " " + examples(skill.content))
+            asked.any { it in named || stem(it) in told.map(::stem) }
+        }
+    }
+
+    private fun examples(content: String): String =
+        content.substringAfter("## Examples", "").substringBefore("\n## ")
+
+    private fun words(text: String): Set<String> = Regex("[a-z0-9]+").findAll(text.lowercase()).map { it.value }
+        .filter { it.length >= 4 && it !in GENERIC || it.length in 2..3 && it in SHORT }.toSet()
+
+    /** A crude stem, so "notifications" meets "notification" and "tracking" meets "track". */
+    private fun stem(word: String) = word.removeSuffix("s").removeSuffix("ing").removeSuffix("ed").take(6)
+
+    /** Short words that name what a skill does. */
+    private val SHORT = setOf("qr", "map", "url", "sha", "md5")
+
+    private val GENERIC = setOf(
+        "given", "text", "user", "users", "when", "this", "that", "with", "your", "from", "what", "will", "wants", "want",
+        "simple", "specific", "date", "into", "about", "some", "something", "them", "they", "their", "there", "here", "have",
+        "show", "find", "make", "tell", "please", "could", "would", "should", "like", "just", "also", "each", "every", "where",
+        "which", "while", "after", "before", "trigger", "says", "skill", "skills", "today", "tomorrow", "everyone", "world",
+    )
+}
+
 /** What the system prompt says about skills (ADR-120): Gallery's routing steps, with each skill's name and description only. */
 object SkillPrompt {
     fun section(skills: List<AgentSkill>): String = buildString {
