@@ -19,7 +19,9 @@
 const ALGORITHMS = ['SHA-1', 'SHA-256', 'SHA-384', 'SHA-512'];
 
 async function digestMessage(message, asked) {
-  const algorithm = String(asked || 'SHA-1').toUpperCase().replace(/^SHA(\d)/, 'SHA-$1');
+  // "SHA-2" is the family SHA-256 belongs to, and the model wrote it for SHA-256; "256" or "SHA256" mean it too.
+  const digits = String(asked || 'SHA-1').toUpperCase().replace(/[^0-9]/g, '');
+  const algorithm = {'1': 'SHA-1', '2': 'SHA-256', '256': 'SHA-256', '384': 'SHA-384', '512': 'SHA-512'}[digits] || String(asked);
   if (!ALGORITHMS.includes(algorithm)) {
     return {error: `Unsupported algorithm ${asked}. Use one of ${ALGORITHMS.join(', ')}.`};
   }

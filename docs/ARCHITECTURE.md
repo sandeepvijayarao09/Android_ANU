@@ -1,6 +1,6 @@
 # Anu for Android: Architecture
 
-Version 1.88.0 · Draft · 2026-11-11
+Version 1.88.1 · Draft · 2026-11-11
 Status: proposed. OD-1 to OD-4 were resolved on 2026-09-25 (§16).
 Product intent lives in [VISION.md](VISION.md).
 
@@ -1864,6 +1864,7 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 
 ### Changelog
 
+- **1.88.1** (2026-11-11): calculate-hash reads "SHA-2", "SHA256" and "256" as SHA-256: after the merge, E2B asked for "SHA-2" (ADR-131). The batch passes 12 of 12 on the Pixel 10 Pro.
 - **1.88.0** (2026-11-11): merges the Hey Anu voice session (ADR-129, 1.83.0 and 1.83.1) onto ADR-130 to ADR-132.
 - **1.87.1** (2026-11-11): a launcher icon, and arm64-only APKs (component status).
 - **1.87.0** (2026-11-11): memory keeps no sensitive fact, location or street address from notifications (ADR-132).
