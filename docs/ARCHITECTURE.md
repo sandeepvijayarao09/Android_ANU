@@ -1,6 +1,6 @@
 # Anu for Android: Architecture
 
-Version 1.88.1 · Draft · 2026-11-11
+Version 1.88.2 · Draft · 2026-11-11
 Status: proposed. OD-1 to OD-4 were resolved on 2026-09-25 (§16).
 Product intent lives in [VISION.md](VISION.md).
 
@@ -1845,7 +1845,7 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 | The keyboard's Ask Anu field, Expand and Emoji (ADR-122) | 3 | In progress. 7 more JVM tests (30 in `feature:keyboard`): Expand's prompt and preview; Emoji's choices, only a tapped one going in, and an answer with none; Ask changing text, writing into an empty field, and a blank instruction; reading emoji whole; the Ask field's edits; where an emoji and an empty field's text go. On the S26 Ultra (a separate test install with E4B on its GPU) the strip showed Ask Anu, Fix grammar, Expand and Emoji in dark mode, and Emoji on "happy bday maya see u at the party" came back on Pro in 11.5 s, but as one run with no spaces ("🎂🎉🥳…"), shown as one jumbled button; runs are now split into single emoji (`KeyboardText.singles`), with a test. Ask and Expand on a device, and Emoji after the fix, are still to see: the phone was then in use |
 | Live camera (`brain:vision`, `feature:camera`, `LiveCameraActivity`, `Gemma2Embedder`): YOLOX-Nano boxes on CameraX, questions by meaning with EmbeddingGemma 2, "Ask Anu about this" (ADR-111) | 5 | Implemented. 6 JVM tests in `brain:vision` (letterbox, decoding, NMS, labels, the model's hash and licence), 9 in `feature:camera` (tracking, crops, upright frames, words, meaning, the finder, the panel's line, what Gemma reads), 2 in `brain:embedding`, and one each in `core:model` (the frame's note), `core:agent` (the note reaches the model in later turns) and `core:data` (it round-trips). S14's two device tests pass on anu_api36 (§16). Checked on anu_api36 with the emulator's camera and with photos (debug builds' stills), and on the Galaxy S26 Ultra's real camera at 30–32 fps with YOLOX on its GPU (§16, S14), then on its NPU at 31–35 fps and 3–7 ms a frame in the `personal` build (ADR-115, S15; power not measured); the Pixel 10 Pro's GPU and TPU wait for the owner's go |
 | Writing, later: share target, style per recipient from drafts against sent text, a writing eval | 3 | Planned |
-| Voice turn-taking (ADR-129): `Endpointer`, barge-in (`BargeInDetector`, `AndroidBargeIn`), the first clause spoken early, `VoicePick`, audio focus | 5 | Implemented. 14 JVM tests in `core:voice` (with `EndpointEvalTest` on the router eval's requests: 96 of 100 end in 752 ms on average) and 2 view-model tests. Not yet tried with a real voice (S17) |
+| Voice turn-taking (ADR-129): `Endpointer`, barge-in (`BargeInDetector`, `AndroidBargeIn`), the first clause spoken early, `VoicePick`, audio focus | 5 | Implemented. 14 JVM tests in `core:voice` (with `EndpointEvalTest` on the router eval's requests: 96 of 100 end in 752 ms on average) and 2 view-model tests. On the Pixel 10 Pro (2026-11-11), live talk heard a Mac's voice (`say`) ask "What is twelve times nine?": the listen ended 356 ms after the words, Base on the TPU answered "12 * 9 is 108", and speech began 5.1 s after the words were final. Barge-in, other languages and a person's voice are still to try (S17) |
 | Voice (`core:voice`): on-device recognition only, sentence-by-sentence speech, wake-phrase matching, the `WakeListener` loop (ADR-043, ADR-045) | 4 | Implemented. 10 JVM tests. The emulator's recognizer lacks the English pack, so real speech is untested until the reference phone (S9) |
 | Talk page (`feature:home`): the sphere, voice and typing on one surface, receipts, Mute, Stop, link buttons from tools | 4 | Implemented. Checked by hand on the Anu emulator in light and dark; 6 JVM tests for voice in the chat view model |
 | About this answer (ADR-071): answers' details saved with each exchange, the caption as a button, the sheet, and restored answers with their model and receipts | 5 | Implemented. On the Anu emulator with E4B: a new answer's caption opened the sheet ("Nothing left your phone", "Gemma 4 E4B · CPU, on this phone", the memory summary, first word 1 min 58 s), and the summary row opened Memory. 3 chat-session tests, 3 view-model tests, 3 JVM tests of its wording, 4 Compose UI tests on Robolectric, and a store test. Estimates in release builds wait on S1's check against the counters |
@@ -1864,6 +1864,7 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 
 ### Changelog
 
+- **1.88.2** (2026-11-11): ADR-129 seen on the Pixel 10 Pro (status).
 - **1.88.1** (2026-11-11): calculate-hash reads "SHA-2", "SHA256" and "256" as SHA-256: after the merge, E2B asked for "SHA-2" (ADR-131). The batch passes 12 of 12 on the Pixel 10 Pro.
 - **1.88.0** (2026-11-11): merges the Hey Anu voice session (ADR-129, 1.83.0 and 1.83.1) onto ADR-130 to ADR-132.
 - **1.87.1** (2026-11-11): a launcher icon, and arm64-only APKs (component status).
