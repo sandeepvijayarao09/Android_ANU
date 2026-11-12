@@ -424,10 +424,12 @@ class Agent(
                         ),
                     )
                 }
-                added += ChatMessage.Model(text.toString())
+                // A long code a tool returned goes back exactly as the tool gave it (ADR-136).
+                val answer = ExactCopies.fix(text.toString(), added.filterIsInstance<ChatMessage.Tool>().flatMap { m -> m.results.map { it.result.toString() } })
+                added += ChatMessage.Model(answer)
                 return@flow emit(
                     AgentEvent.Completed(
-                        decision.tier, text.toString(), added.toList(), actions.toList(), tokens = sample(request, brain, text, usage), usage = usage, decision = decision,
+                        decision.tier, answer, added.toList(), actions.toList(), tokens = sample(request, brain, text, usage), usage = usage, decision = decision,
                     ),
                 )
             }
