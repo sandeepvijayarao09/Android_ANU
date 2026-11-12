@@ -18,5 +18,8 @@ kotlin {
 dependencies {
     implementation(project(":core:router"))
     implementation(project(":core:security"))
+    // The memory eval (ADR-143) runs the real pipeline on an in-memory store.
+    api(project(":core:memory"))
+    implementation(libs.kotlinx.coroutines.core)
     testImplementation(libs.junit)
 }
