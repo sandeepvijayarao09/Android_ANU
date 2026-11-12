@@ -5,7 +5,8 @@
 #   scripts/phone-checks.sh <serial> scripts/phone-checks.txt
 #
 # Each line of the checks file is: message | pattern the answer must match | pattern it must not (both extended
-# regular expressions, case-insensitive, either may be empty). Lines starting with # are skipped.
+# regular expressions, case-insensitive, either may be empty; a pattern can't hold "|", which splits the line).
+# Lines starting with # are skipped. Approval sheets are declined; keep writes that ask out of the file.
 # It prints one line per check and a summary. Use made-up data only: the answers are printed.
 set -uo pipefail
 serial="$1"; checks="$2"
@@ -76,6 +77,8 @@ while IFS= read -r -u 3 line || [ -n "$line" ]; do
     sleep 2
   done
   took=$(( $(date +%s) - started ))
+  # A turn that opened another app (Clock, a settings page) left Anu: bring it back to read the answer.
+  "$adb" -s "$serial" shell am start -n "$package/io.github.sandeepvijayarao09.anu.MainActivity" >/dev/null 2>&1; sleep 1
   # The chat may not have scrolled to the newest turn: swipe to the bottom first.
   for k in 1 2 3; do "$adb" -s "$serial" shell input swipe 540 1500 540 600 150; done; sleep 1
   said="$(answer "$message")"; [ -n "$sheets" ] && said="($sheets, declined) $said"

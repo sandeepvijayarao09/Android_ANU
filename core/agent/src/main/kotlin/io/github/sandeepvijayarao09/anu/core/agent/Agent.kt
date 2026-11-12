@@ -276,6 +276,8 @@ class Agent(
         val added = mutableListOf<ChatMessage>()
         var steps = 0
         var toolCalls = 0
+        // Writes that already ran this turn, by tool and exact arguments: a model that repeats one never runs it twice (ADR-142).
+        val written = mutableSetOf<String>()
         var invalidStreak = 0
         var repaired = false
         var announced: Tier? = null
@@ -451,14 +453,19 @@ class Agent(
                 // Only the tools this turn offered run: given no memory_remember for "What is my favorite color?", E4B
                 // called it anyway, and the broker would have kept a made-up fact (ADR-130). A name no tool has goes to the
                 // broker, which runs nothing and points a skill's name to load_skill (ADR-131).
+                val key = call.name + call.arguments.toString()
                 val outcome = if (specs.none { it.name == call.name } && broker.has(call.name)) {
                     ToolOutcome.Invalid("${call.name} isn't available for this request. Use only the tools you were given.")
+                } else if (key in written) {
+                    // On the Pixel, E2B called phone_set_reminder ten times for one "Remind me…", and each ran. The repeat
+                    // isn't run, gets no second receipt, and isn't an invalid call that would hand the turn to Pro.
+                    ToolOutcome.Ok(JsonPrimitive("Already done in this turn. Don't call ${call.name} again: tell the user it's done."))
                 } else {
-                    broker.execute(call, state)
+                    broker.execute(call, state).also { if (it is ToolOutcome.Ok && it.wrote) written += key }
                 }
                 emit(AgentEvent.ToolFinished(call, outcome))
                 when (outcome) {
-                    is ToolOutcome.Ok -> actions += ActionRecord(call.name, outcome.summary, ActionRecord.Status.DONE, outcome.wrote, destination = outcome.destination)
+                    is ToolOutcome.Ok -> if (key !in written || outcome.wrote) actions += ActionRecord(call.name, outcome.summary, ActionRecord.Status.DONE, outcome.wrote, destination = outcome.destination)
                     is ToolOutcome.Rejected ->
                         actions += ActionRecord(call.name, outcome.summary, ActionRecord.Status.NOT_DONE, false, outcome.reason, outcome.destination)
                     is ToolOutcome.Failed ->

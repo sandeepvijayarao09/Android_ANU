@@ -61,6 +61,19 @@ class AgentTest {
     }
 
     @Test
+    fun `a write the model repeats with the same arguments runs once (ADR-142)`() = runTest {
+        base.enqueue(
+            Step.Reply(listOf(""), toolCalls = listOf(createDentist)),
+            Step.Reply(listOf(""), toolCalls = listOf(createDentist)),
+            Step.Reply(listOf(""), toolCalls = listOf(createDentist)),
+            Step.Reply("Added."),
+        )
+        val completed = run().last() as AgentEvent.Completed
+        assertEquals(listOf(EventInput("Dentist")), create.created)
+        assertEquals("one receipt", 1, completed.actions.size)
+    }
+
+    @Test
     fun `a call to a tool the turn didn't offer never runs`() = runTest {
         base.enqueue(Step.Reply(listOf(""), toolCalls = listOf(createDentist)), Step.Reply("I can't add events here."))
         val events = agent.run(route, device, system = "You are Anu.", history = history, tools = listOf(inbox.name), turnKey = "t1").toList()
