@@ -155,4 +155,16 @@ class NotificationMemoryTest {
         assertEquals(2, store.pending(100).size)
         assertTrue(store.pending(100).all { it.source == EventSource.NOTIFICATION })
     }
+
+    @Test
+    fun `a notification never says where the user is, nor anything sensitive`() {
+        fun fact(predicate: String, value: String, subject: String = USER, sensitive: Boolean = false) =
+            ExtractedFact(subject, predicate, value, ProfileSection.PLACES, "q", sensitive)
+        assertFalse(MemoryPipeline.noticeable(fact("location", "Notion HQ")))
+        assertFalse(MemoryPipeline.noticeable(fact("lives_in", "Oakland")))
+        assertFalse(MemoryPipeline.noticeable(fact("attends_event", "Notion HQ, 685 Market St, San Francisco")))
+        assertFalse(MemoryPipeline.noticeable(fact("doctor", "Dr. Patel", sensitive = true)))
+        assertTrue(MemoryPipeline.noticeable(fact("works_at", "Acme")))
+        assertTrue(MemoryPipeline.noticeable(fact("lives_in", "Lisbon", subject = "Maya Chen")))
+    }
 }

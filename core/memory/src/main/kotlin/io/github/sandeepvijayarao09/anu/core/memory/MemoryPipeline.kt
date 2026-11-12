@@ -195,7 +195,7 @@ class MemoryPipeline(
                         }
                         is FactExtractor.Result.Facts -> {
                             val learned = store.atomically {
-                                reconcile(event, extracted.facts, if (noticed) FactOrigin.NOTICED else FactOrigin.INFERRED).also { store.setStatus(event.id, EventStatus.DONE, attempts) }
+                                reconcile(event, if (noticed) extracted.facts.filter(::noticeable) else extracted.facts, if (noticed) FactOrigin.NOTICED else FactOrigin.INFERRED).also { store.setStatus(event.id, EventStatus.DONE, attempts) }
                             }
                             result = result.copy(processed = result.processed + 1, learned = result.learned + learned)
                         }
@@ -499,6 +499,20 @@ class MemoryPipeline(
 
         /** A fact noticed in notifications starts lower: someone else wrote it (ADR-127). */
         private const val NOTICED_CONFIDENCE = 0.4
+
+        /** Where the user is or lives, which a notification never says: its address is where an event is. */
+        private val PLACES_THE_USER = Regex("(^|_)(location|located|lives|living|home|address|staying|current_city|city)($|_)")
+
+        /** A street address, such as "685 Market St". */
+        private val STREET = Regex("\\b\\d{1,6}\\s+\\w+(\\s+\\w+)?\\s+(st|street|ave|avenue|rd|road|blvd|boulevard|dr|drive|ln|lane|way|pl|place|ct|court)\\b", RegexOption.IGNORE_CASE)
+
+        /**
+         * Whether a fact from notifications may be kept (ADR-132). Not a sensitive one, nor one that places the user, nor a
+         * street address: on the Pixel, a Partiful invitation's venue became "Your location: Notion HQ, 685 Market St".
+         */
+        fun noticeable(fact: ExtractedFact): Boolean = !fact.sensitive &&
+            !(Normalize.subject(fact.subject) == USER && PLACES_THE_USER.containsMatchIn(Normalize.predicate(fact.predicate))) &&
+            !STREET.containsMatchIn(fact.value)
 
         /** Days of notifications read in one learning run (ADR-127). E4B on a phone's CPU writes 6 to 7 tokens a second. */
         const val MAX_NOTIFICATIONS_PER_RUN = 40
