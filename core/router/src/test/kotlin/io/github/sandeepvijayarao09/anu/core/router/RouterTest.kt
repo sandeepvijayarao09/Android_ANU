@@ -449,6 +449,20 @@ class RouterTest {
     }
 
     @Test
+    fun `a short new question that stands on its own is not a follow-up`() {
+        val notes = "Add eggs to my grocery list"
+        assertEquals(Skill.CHAT, SkillDetector.detect(listOf(notes, "Who wrote Pride and Prejudice?")))
+        assertEquals(Skill.CHAT, SkillDetector.detect(listOf(notes, "What is the capital of Peru?")))
+        // Questions that lean on the turn before still keep its skill.
+        assertEquals(Skill.PHONE, SkillDetector.detect(listOf(notes, "What's on it now?")))
+        assertEquals(Skill.PHONE, SkillDetector.detect(listOf(notes, "and butter")))
+        val meeting = "Book a meeting with Raj on Monday"
+        assertEquals(Skill.SCHEDULING, SkillDetector.detect(listOf(meeting, "How about Friday?")))
+        assertEquals(Skill.SCHEDULING, SkillDetector.detect(listOf(meeting, "What time works for him?")))
+        assertEquals(Skill.SCHEDULING, SkillDetector.detect(listOf(meeting, "Why?")))
+    }
+
+    @Test
     fun `replaying the conversation settles replies and ends a run of follow-ups`() {
         val chat = listOf("Any new texts from Maya?", "Reply that 1 works", "Actually make it 1:30", "Thanks", "Great", "One more thing")
         assertEquals(

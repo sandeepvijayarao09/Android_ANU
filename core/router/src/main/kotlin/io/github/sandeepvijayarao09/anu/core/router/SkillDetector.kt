@@ -253,7 +253,27 @@ object SkillDetector {
         else -> null
     }
 
-    private fun isFollowUp(text: String) = text.trim().length <= FOLLOW_UP_CHARS
+    /**
+     * A short message that leans on the one before: "and butter", "Yes, send it", "When is it?", "How about Friday?".
+     * A new question that stands on its own is not one, however short (ADR-140): after a notes turn, "Who wrote Pride
+     * and Prejudice?" had kept the notes tools and been answered from the notes.
+     */
+    private fun isFollowUp(text: String) = text.trim().length <= FOLLOW_UP_CHARS && !standsAlone(text)
+
+    /** A question that opens as one, has three words or more, and names nothing it would need the chat for. */
+    private fun standsAlone(text: String): Boolean {
+        val words = Regex("[\\p{L}\\p{N}']+").findAll(text.lowercase()).map { it.value }.toList()
+        return words.size >= 3 && words.first() in QUESTION_OPENERS && words.none { it in POINTS_BACK }
+    }
+
+    private val QUESTION_OPENERS = setOf("who", "what", "what's", "when", "where", "which", "why", "how", "how's", "whose", "whom")
+
+    /** Words that refer to something said before, so a question holding one is a follow-up. */
+    private val POINTS_BACK = setOf(
+        "it", "it's", "its", "that", "this", "these", "those", "them", "they", "their", "he", "she", "him", "her", "his",
+        "one", "ones", "there", "then", "about", "instead", "too", "also", "else", "again", "more", "another", "same",
+        "else's", "yours", "mine",
+    )
 
     /**
      * Skills a follow-up never keeps (ADR-104, kept by ADR-120): a brief and a request across areas each bring many tools
