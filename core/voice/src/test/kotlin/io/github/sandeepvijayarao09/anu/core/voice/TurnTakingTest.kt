@@ -119,4 +119,31 @@ class TurnTakingTest {
         assertEquals(listOf("1. Milk", "2. Eggs"), Sentences.next("1. Milk\n2. Eggs\n", 0, final = false).first)
         assertEquals(listOf("The answer is no.", "Okay?"), Sentences.next("The answer is no. Okay?", 0, final = false).first)
     }
+
+    @Test
+    fun `in a language the rules don't know, every turn waits the long pause`() {
+        assertEquals(Endpointer.SLOW_MS, Endpointer.waitFor("¿Qué tengo hoy en el calendario?", language = "es"))
+        assertEquals(Endpointer.SLOW_MS, Endpointer.waitFor("आज मेरे कैलेंडर में क्या है", language = "hi"))
+        assertEquals(Endpointer.QUICK_MS, Endpointer.waitFor("What's on my calendar today", language = "eng"))
+        val end = Endpointer(language = "de")
+        end.partial("Was steht heute in meinem Kalender", 0)
+        assertFalse(end.done(Endpointer.QUICK_MS))
+        assertTrue(end.done(Endpointer.SLOW_MS))
+    }
+
+    @Test
+    fun `curly apostrophes and accents are words too`() {
+        assertEquals(Endpointer.Sounds.UNFINISHED, Endpointer.sounds("so what’s"))
+        assertEquals(Endpointer.Sounds.FINISHED, Endpointer.sounds("call Zoë back now"))
+    }
+
+    @Test
+    fun `answers in Chinese, Japanese, Hindi and Arabic are spoken sentence by sentence`() {
+        assertEquals(listOf("今日は晴れです。", "明日は雨です。"), Sentences.next("今日は晴れです。明日は雨です。午後", 0, final = false).first)
+        assertEquals(listOf("आज धूप है।", "कल बारिश होगी।"), Sentences.next("आज धूप है। कल बारिश होगी। फिर", 0, final = false).first)
+        assertEquals(listOf("هل تريد ذلك؟"), Sentences.next("هل تريد ذلك؟ ثم", 0, final = false).first)
+        // A long first clause goes early; a short one waits.
+        assertEquals(listOf("你明天上午十点和玛雅开会，"), Sentences.next("你明天上午十点和玛雅开会，然后", 0, final = false, first = true).first)
+        assertEquals(emptyList<String>(), Sentences.next("好的，然后", 0, final = false, first = true).first)
+    }
 }

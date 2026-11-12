@@ -49,7 +49,7 @@ class AndroidSpeechInput(
         }
         val recognizer = SpeechRecognizer.createOnDeviceSpeechRecognizer(context)
         // Ends the listen once what was heard sounds finished, instead of always waiting the recognizer's 2 s (ADR-129).
-        val endpointer = Endpointer()
+        val endpointer = Endpointer(language = Locale.getDefault().language)
         var stopAsked = -1L
         val started = SystemClock.elapsedRealtime()
         recognizer.setRecognitionListener(object : RecognitionListener {
@@ -285,17 +285,28 @@ class AndroidSpeechOutput(
         val candidates = voices.map { voice ->
             TtsVoice(
                 name = voice.name,
-                language = voice.locale.language,
-                country = voice.locale.country,
+                // Engines name locales differently ("en_US", "eng_USA"), so both sides are compared as ISO 639-2 and 3166 alpha-3.
+                language = iso3Language(voice.locale),
+                country = iso3Country(voice.locale),
                 quality = voice.quality,
                 latency = voice.latency,
                 needsNetwork = voice.isNetworkConnectionRequired,
                 installed = TextToSpeech.Engine.KEY_FEATURE_NOT_INSTALLED !in voice.features.orEmpty(),
             )
         }
-        val best = VoicePick.best(candidates, locale.language, locale.country) ?: return
-        val voice = voices.firstOrNull { it.name == best.name } ?: return
+        val best = VoicePick.best(candidates, iso3Language(locale), iso3Country(locale))
+        val voice = best?.let { voices.firstOrNull { v -> v.name == it.name } }
+        if (best == null || voice == null) {
+            // No offline voice for the language: the engine's own for it, if it has one, else its default.
+            val result = tts.setLanguage(locale)
+            log("Speech: no offline voice for ${locale.toLanguageTag()} among ${voices.size}; engine language result $result")
+            return
+        }
         tts.voice = voice
         log("Speech: voice ${best.name}, quality ${best.quality}, latency ${best.latency}, of ${voices.size}")
     }
+
+    private fun iso3Language(locale: Locale): String = runCatching { locale.isO3Language }.getOrNull()?.takeIf { it.isNotEmpty() } ?: locale.language
+
+    private fun iso3Country(locale: Locale): String = runCatching { locale.isO3Country }.getOrNull()?.takeIf { it.isNotEmpty() } ?: locale.country
 }

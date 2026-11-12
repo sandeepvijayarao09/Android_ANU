@@ -10,6 +10,8 @@ import kotlinx.coroutines.flow.Flow
  *   or are a whole one-word answer ("yes").
  * - After [MID_MS], when two words end like one ("call Maya"), since a thought often goes on after two.
  * - After [slowMs], when they end mid-thought ("…remind me to", "um") or are one word that isn't a whole answer.
+ * The word rules are English's. In another [language] nothing can be told from the words, so every turn waits [slowMs],
+ * still sooner than the recognizer's 2 s.
  * Quiet is measured from the later of the last loud level and the last change in the words, so a recognizer that
  * reports no levels still ends on its words. Nothing ends before a word is heard; the recognizer's own timeout covers
  * a silent listen.
@@ -17,6 +19,8 @@ import kotlinx.coroutines.flow.Flow
 class Endpointer(
     private val quickMs: Long = QUICK_MS,
     private val slowMs: Long = SLOW_MS,
+    /** The recognizer's language, as an ISO 639 code ("en", "eng", "hi"). */
+    private val language: String = "en",
 ) {
     private var floor = 1f
     private var lastActive = -1L
@@ -42,7 +46,7 @@ class Endpointer(
     fun done(now: Long): Boolean = lastActive >= 0 && now - lastActive >= wait()
 
     /** How long a pause ends this turn, for what has been heard so far. */
-    fun wait(): Long = waitFor(words, quickMs, slowMs)
+    fun wait(): Long = waitFor(words, quickMs, slowMs, language)
 
     enum class Sounds { FINISHED, UNFINISHED }
 
@@ -51,14 +55,20 @@ class Endpointer(
         const val MID_MS = 1_100L
         const val SLOW_MS = 1_800L
 
-        /** The pause that ends a turn after [heard]. */
-        fun waitFor(heard: String, quickMs: Long = QUICK_MS, slowMs: Long = SLOW_MS): Long = when {
+        /** Whether the word rules know [language]: English only, for now. */
+        fun knows(language: String): Boolean = language.lowercase() in ENGLISH
+
+        private val ENGLISH = setOf("en", "eng")
+
+        /** The pause that ends a turn after [heard], in [language]. */
+        fun waitFor(heard: String, quickMs: Long = QUICK_MS, slowMs: Long = SLOW_MS, language: String = "en"): Long = when {
+            !knows(language) -> slowMs
             sounds(heard) == Sounds.UNFINISHED -> slowMs
             words(heard).size == 2 -> maxOf(quickMs, MID_MS)
             else -> quickMs
         }
 
-        private fun words(heard: String) = heard.lowercase().replace(Regex("[^a-z0-9' ]"), " ").trim().split(Regex("\\s+")).filter(String::isNotEmpty)
+        private fun words(heard: String) = heard.lowercase().replace('’', '\'').replace(Regex("[^\\p{L}\\p{N}' ]"), " ").trim().split(Regex("\\s+")).filter(String::isNotEmpty)
 
         /** 0.15 is about 9 dB above the quietest level so far on the recognizer's scale. */
         private const val LOUD_ABOVE_FLOOR = 0.15f

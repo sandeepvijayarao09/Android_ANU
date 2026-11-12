@@ -93,17 +93,21 @@ object WakePhrase {
  * they are noise.
  */
 object Sentences {
-    private val END = Regex("[.!?…](?=\\s|$)|\\n")
+    /**
+     * A sentence's end: a full stop, question or exclamation mark before a space, as in English, Hindi's danda and
+     * Arabic's question mark too, or the full-width marks of Chinese and Japanese, which need no space after them.
+     */
+    private val END = Regex("[.!?…।؟](?=\\s|$)|[。！？]|\\n")
     private val MARKUP = Regex("[*_`#>]+")
     private val LINK = Regex("\\[([^\\]]+)]\\([^)]+\\)")
 
     /** A clause's end, where the first piece of an answer may be spoken before its sentence ends (ADR-129). */
-    private val CLAUSE = Regex("[,;:—–](?=\\s)")
+    private val CLAUSE = Regex("[,;:—–،](?=\\s)|[、，；：]")
 
     /** Words a full stop follows without ending a sentence. */
     private val ABBREVIATIONS = setOf("mr", "mrs", "ms", "dr", "st", "vs", "e.g", "i.e", "jr", "sr", "prof", "approx")
 
-    /** A clause must have this many words before it's spoken on its own. */
+    /** A clause must have this many words before it's spoken on its own; in Chinese or Japanese, twice as many characters. */
     const val FIRST_CLAUSE_WORDS = 5
 
     /**
@@ -150,7 +154,14 @@ object Sentences {
         return !(lineStart && word.length in 1..2 && word.all(Char::isDigit))
     }
 
-    private fun words(text: String): Int = speakable(text).split(' ').count(String::isNotBlank)
+    private fun words(text: String): Int {
+        val spoken = speakable(text)
+        val wide = spoken.count(::wide)
+        return spoken.filterNot(::wide).split(' ').count(String::isNotBlank) + wide / 2
+    }
+
+    /** Chinese characters and Japanese kana, which are written without spaces. */
+    private fun wide(c: Char): Boolean = c in '\u3040'..'\u30ff' || c in '\u3400'..'\u9fff' || c in '\uf900'..'\ufaff'
 
     fun speakable(text: String): String = MARKUP.replace(LINK.replace(text, "$1"), "").replace(Regex("\\s+"), " ").trim()
 }
