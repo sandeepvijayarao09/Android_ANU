@@ -52,6 +52,9 @@ import io.github.sandeepvijayarao09.anu.feature.home.TalkScreen
 import io.github.sandeepvijayarao09.anu.feature.home.ChatViewModel
 import io.github.sandeepvijayarao09.anu.feature.memory.MemoryScreen
 import io.github.sandeepvijayarao09.anu.feature.memory.MemoryViewModel
+import io.github.sandeepvijayarao09.anu.feature.memory.NoteShelf
+import io.github.sandeepvijayarao09.anu.feature.memory.ShelfNote
+import kotlinx.coroutines.flow.map
 import io.github.sandeepvijayarao09.anu.feature.settings.SettingsScreen
 import io.github.sandeepvijayarao09.anu.feature.settings.SettingsViewModel
 import android.net.Uri
@@ -134,7 +137,12 @@ private fun AnuHome(graph: AppGraph, shared: MutableStateFlow<Shared?>) {
             behind = graph.liveTalk, bargeIn = graph.bargeIn,
         ).also(graph.liveTalk::attach)
     }
-    val memory = viewModel { MemoryViewModel(graph.memory) }
+    val memory = viewModel {
+        MemoryViewModel(graph.memory, noteShelf = object : NoteShelf {
+            override val notes = graph.notes.observe().map { list -> list.map { ShelfNote(it.id, it.title, it.text, it.updatedAtMillis) } }
+            override suspend fun delete(id: Long) = graph.notes.delete(id)
+        })
+    }
     // The prompt lab runs only the models on this phone, with nothing from the chat (G7, ADR-080).
     val lab = viewModel { LabViewModel(graph.onDevice, graph.onDevice.status) }
     // Debug builds: a message from adb is sent as if typed (DebugChat).

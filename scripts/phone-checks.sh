@@ -38,7 +38,7 @@ answer() {
 # Taps the lowest node whose text is exactly [1].
 tap() {
   "$adb" -s "$serial" shell uiautomator dump /sdcard/anu-checks.xml >/dev/null 2>&1
-  local b; b=$("$adb" -s "$serial" shell cat /sdcard/anu-checks.xml | tr '>' '\n' | grep -F "text=\"$1\"" | tail -1 | grep -oE 'bounds="[^"]+"' | grep -oE '[0-9]+' | tr '\n' ' ')
+  local b; b=$("$adb" -s "$serial" shell cat /sdcard/anu-checks.xml | tr '>' '\n' | sed "s/&apos;/'/g" | grep -F "text=\"$1\"" | tail -1 | grep -oE 'bounds="[^"]+"' | grep -oE '[0-9]+' | tr '\n' ' ')
   set -- $b; [ -n "${4:-}" ] && "$adb" -s "$serial" shell input tap $(( ($1 + $3) / 2 )) $(( ($2 + $4) / 2 ))
 }
 

@@ -1,6 +1,7 @@
 package io.github.sandeepvijayarao09.anu.feature.memory
 
 import android.text.format.DateFormat
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -87,6 +88,14 @@ fun MemoryScreen(viewModel: MemoryViewModel, sentToday: Int, onOpenPrivacy: () -
         }
     }
 
+    val notes by viewModel.notes.collectAsStateWithLifecycle()
+    var showNotes by rememberSaveable { mutableStateOf(false) }
+    if (showNotes) {
+        BackHandler { showNotes = false }
+        NotesPage(notes, sentToday, onOpenPrivacy, onDelete = viewModel::deleteNote, onBack = { showNotes = false })
+        return
+    }
+
     AnuPage(
         title = "Memory",
         subtitle = "What Anu knows about you, kept on this phone.",
@@ -99,6 +108,14 @@ fun MemoryScreen(viewModel: MemoryViewModel, sentToday: Int, onOpenPrivacy: () -
             item(key = "search") { AnuSearchField(query, { query = it }, Modifier.padding(horizontal = AnuSpacing.xl, vertical = 4.dp)) }
         }
         item(key = "status") { Status(state, adding, onLearnNow = viewModel::learnNow) }
+        // The notes Anu keeps (ADR-133): the user's own words, beside what Anu learned.
+        if (viewModel.notesAvailable) {
+            item(key = "notesRow") {
+                Group(Modifier.padding(top = 4.dp)) {
+                    GroupRow("Notes", value = if (notes.isEmpty()) "None" else notes.size.toString(), chevron = true, onClick = { showNotes = true })
+                }
+            }
+        }
         message?.let { text -> item(key = "message") { Notice(text, viewModel::dismissMessage) } }
         when {
             state.facts.isEmpty() -> item(key = "empty") { Empty() }
@@ -351,6 +368,10 @@ private fun pattern(skeleton: String): DateTimeFormatter {
     return DateTimeFormatter.ofPattern(DateFormat.getBestDateTimePattern(locale, skeleton), locale).withZone(ZoneId.systemDefault())
 }
 
-private fun shortDate(at: Instant): String = SHORT_DATE.format(at)
+internal fun shortDate(at: Instant): String = SHORT_DATE.format(at)
 
-private fun longDate(at: Instant): String = LONG_DATE.format(at)
+internal fun longDate(at: Instant): String = LONG_DATE.format(at)
+
+private val SHORT_TIME: DateTimeFormatter by lazy { pattern("jmm") }
+
+internal fun shortTime(at: Instant): String = SHORT_TIME.format(at)

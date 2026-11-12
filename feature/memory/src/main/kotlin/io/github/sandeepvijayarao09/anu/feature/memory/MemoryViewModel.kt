@@ -9,11 +9,25 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 /** The Memory tab (§8.4): everything Anu has learned, where it came from, and the user's controls over it. */
-class MemoryViewModel(private val memory: MemoryInspector) : ViewModel() {
+class MemoryViewModel(
+    private val memory: MemoryInspector,
+    /** The user's notes, for the Notes page (ADR-133). Null where the app has none. */
+    private val noteShelf: NoteShelf? = null,
+) : ViewModel() {
+
+    val notesAvailable: Boolean get() = noteShelf != null
+
+    val notes: StateFlow<List<ShelfNote>> =
+        (noteShelf?.notes ?: flowOf(emptyList())).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    fun deleteNote(id: Long) {
+        noteShelf?.let { shelf -> viewModelScope.launch { shelf.delete(id) } }
+    }
 
     val state: StateFlow<MemoryState> = memory.state.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), MemoryState())
 
