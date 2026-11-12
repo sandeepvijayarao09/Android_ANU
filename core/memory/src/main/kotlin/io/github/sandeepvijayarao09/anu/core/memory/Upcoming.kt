@@ -21,14 +21,25 @@ internal object Upcoming {
     /** How far off a fact told in the future tense, with no day, is taken to start. */
     const val UNDATED_DAYS = 30L
 
-    fun start(starts: String?, quote: String, today: LocalDate): LocalDate? {
-        val words = quote.lowercase()
+    /**
+     * [message] is what the fact came from: the model's quote is often shorter than the sentence ("moving to Tallinn"
+     * for "I'm moving to Tallinn next month", seen on the Pixel), so the sentence the quote is in is read too.
+     */
+    fun start(starts: String?, quote: String, today: LocalDate, message: String = quote): LocalDate? {
+        val words = (quote + " " + sentenceOf(quote, message)).lowercase()
         // A day in a fact is usually what the fact is ("Maya's birthday is in June"); only a change starts on one.
         if (!CHANGE.containsMatchIn(words)) return null
         val day = fromWords(words, today)
             ?: starts?.trim()?.let { fromModel(it, today) ?: fromWords(it.lowercase(), today) }
             ?: if (FUTURE.containsMatchIn(words) && !PAST.containsMatchIn(words)) today.plusDays(UNDATED_DAYS) else null
         return day?.takeIf { it.isAfter(today) }
+    }
+
+    /** The sentence of [message] that holds every word of [quote], or nothing. */
+    private fun sentenceOf(quote: String, message: String): String {
+        val wanted = Normalize.words(quote).toSet()
+        if (wanted.isEmpty()) return ""
+        return message.split(Regex("(?<=[.!?;])\\s+|\\n")).firstOrNull { Normalize.words(it).containsAll(wanted) }.orEmpty()
     }
 
     private fun fromWords(text: String, today: LocalDate): LocalDate? {

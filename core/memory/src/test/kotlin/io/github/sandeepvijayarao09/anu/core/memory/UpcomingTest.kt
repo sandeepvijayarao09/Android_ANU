@@ -31,6 +31,15 @@ class UpcomingTest {
     }
 
     @Test
+    fun `a short quote is read with its sentence, and only its own sentence`() {
+        assertEquals(LocalDate.of(2026, 12, 1), Upcoming.start("2026-12-11", "moving to Tallinn", today, "I'm moving to Tallinn next month"))
+        assertEquals(
+            LocalDate.of(2027, 3, 1),
+            Upcoming.start(null, "joining Tailspin", today, "My sister's birthday is next week. I'm joining Tailspin in March."),
+        )
+    }
+
+    @Test
     fun `the future tense with no day counts from a month on`() {
         assertEquals(today.plusDays(Upcoming.UNDATED_DAYS), start("I'm moving to Denver"))
         assertEquals(today.plusDays(Upcoming.UNDATED_DAYS), start("I'm going to move to Austin with my partner"))

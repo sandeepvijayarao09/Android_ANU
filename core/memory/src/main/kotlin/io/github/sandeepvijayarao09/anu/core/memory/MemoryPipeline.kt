@@ -526,7 +526,7 @@ class MemoryPipeline(
                 store.forgive(fingerprint)
             }
             // A fact that comes true later is kept as upcoming, and replaces nothing until its day (ADR-147).
-            val startsOn = Upcoming.start(candidate.starts, candidate.quote, LocalDate.ofInstant(now, zone()))
+            val startsOn = Upcoming.start(candidate.starts, candidate.quote, LocalDate.ofInstant(now, zone()), event.content)
             if (startsOn != null) {
                 upcoming(event, candidate, origin, subject, predicate, value, startsOn)
                 changed++
