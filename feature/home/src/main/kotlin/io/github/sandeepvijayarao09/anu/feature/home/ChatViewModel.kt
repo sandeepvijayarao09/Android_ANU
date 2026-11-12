@@ -188,6 +188,10 @@ data class ChatUiState(
     val muted: Boolean = false,
     /** Live talk with the camera on (ADR-137): each spoken question goes with what the camera sees. */
     val liveCamera: Boolean = false,
+    /** Live talk shares the screen (ADR-139): each spoken question in another app goes with that app's screen, masked. */
+    val sharingScreen: Boolean = false,
+    /** Whether this build can share the screen in live talk: the personal build, through app control. */
+    val canShareScreen: Boolean = false,
     /**
      * Live talk (ADR-101): after each spoken answer Anu listens again by itself, until the user ends it, leaves Anu
      * where it can't go on behind other apps (ADR-108), or [LIVE_MISSES] listens in a row hear nothing.
@@ -248,12 +252,17 @@ class ChatViewModel(
     private val behind: LiveBehind? = null,
     /** Hears the user talk over Anu in live talk, so the speech stops and Anu listens (ADR-129). */
     private val bargeIn: BargeIn? = null,
+    /**
+     * The screen of the app the user is in, read and masked as the tile's (ADR-083, ADR-108), for live talk's screen
+     * sharing (ADR-139); null while Anu itself is in front. Null where this build can't read other apps' screens.
+     */
+    private val liveScreen: (suspend () -> ScreenLook?)? = null,
 ) : ViewModel() {
 
     private val mutable = MutableStateFlow(
         ChatUiState(
             voiceAvailable = speechIn?.available == true, cloudAllowed = device().cloudAllowed, screenOffered = screens?.offered() == true,
-            screenNote = screens?.note(),
+            screenNote = screens?.note(), canShareScreen = liveScreen != null,
         ),
     )
     val state: StateFlow<ChatUiState> = mutable.asStateFlow()
@@ -480,7 +489,10 @@ class ChatViewModel(
     }
 
     /** The camera in live talk (ADR-137), on or off. */
-    fun toggleLiveCamera() = mutable.update { it.copy(liveCamera = !it.liveCamera) }
+    fun toggleLiveCamera() = mutable.update { it.copy(liveCamera = !it.liveCamera, sharingScreen = false) }
+
+    /** Screen sharing in live talk (ADR-139), on or off. The camera goes off: a question goes with one picture or the other. */
+    fun toggleShareScreen() = mutable.update { it.copy(sharingScreen = !it.sharingScreen, liveCamera = false) }
 
     /** The camera's newest frame as a JPEG, while live talk's camera is open; null once it closes. */
     @Volatile
@@ -492,7 +504,7 @@ class ChatViewModel(
 
     /** Ends live talk: stops listening and speaking, and doesn't listen again. The camera closes with it. */
     fun endLive() {
-        mutable.update { it.copy(live = false, liveCamera = false) }
+        mutable.update { it.copy(live = false, liveCamera = false, sharingScreen = false) }
         listening?.cancel()
         speechOut?.stop()
     }
@@ -569,7 +581,7 @@ class ChatViewModel(
         mutable.update { it.copy(attachments = emptyList(), recording = null, pdf = null, attachmentNote = null, useScreen = false) }
         run(
             trimmed, photos = photos, recording = voice, pdf = pdf, asked = asked, aboutScreen = aboutScreen, replying = aboutScreen && ReplyWords.asks(trimmed),
-            live = spoken && state.live,
+            live = spoken && state.live, shareScreen = spoken && state.live && state.sharingScreen,
         )
     }
 
@@ -820,6 +832,8 @@ class ChatViewModel(
         sending: ReplySend? = null,
         /** A spoken question in live talk, answered at once (ADR-138). */
         live: Boolean = false,
+        /** Live talk shares the screen: the app in front is read now, masked, and goes with the question (ADR-139). */
+        shareScreen: Boolean = false,
     ) {
         val id = nextId++
         add(Bubble(id, fromUser = false, text = "", streaming = true))
@@ -838,6 +852,9 @@ class ChatViewModel(
                         }
                         null -> null
                     }
+                } else if (shareScreen) {
+                    // A screen that can't be read (a private one, or Anu itself in front) leaves the question without one.
+                    (liveScreen?.invoke() as? ScreenLook.Ready)?.screen
                 } else {
                     null
                 }

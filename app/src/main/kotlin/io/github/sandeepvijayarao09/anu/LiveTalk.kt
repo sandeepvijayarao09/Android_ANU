@@ -39,7 +39,7 @@ import kotlinx.coroutines.launch
 /** What live talk is doing, for its notification and its control over other apps (ADR-108). */
 internal enum class LivePhase { LISTENING, THINKING, SPEAKING, WAITING }
 
-internal data class LiveStatus(val phase: LivePhase, val heard: String = "", val answer: String = "", val muted: Boolean = false)
+internal data class LiveStatus(val phase: LivePhase, val heard: String = "", val answer: String = "", val muted: Boolean = false, val sharing: Boolean = false)
 
 /** Live talk's status from the Talk page's state, or null when live talk is off. */
 internal fun liveStatus(state: ChatUiState): LiveStatus? {
@@ -53,7 +53,7 @@ internal fun liveStatus(state: ChatUiState): LiveStatus? {
         // Between an answer and the next listen.
         else -> LivePhase.LISTENING
     }
-    return LiveStatus(phase, state.heard.trim(), answer.trim(), state.muted)
+    return LiveStatus(phase, state.heard.trim(), answer.trim(), state.muted, sharing = state.sharingScreen)
 }
 
 /** The words of live talk's notification and pill: a heading, one line, and what TalkBack reads. */
@@ -66,7 +66,9 @@ internal fun liveWords(status: LiveStatus): LiveWords {
         LivePhase.SPEAKING -> (if (status.muted) "Answering" else "Speaking") to status.answer.lineSequence().firstOrNull { it.isNotBlank() }.orEmpty().ifEmpty { "Answering you" }
         LivePhase.WAITING -> "Waiting for you" to "Open Anu to approve or decline"
     }
-    return LiveWords("Anu · $phase", line, "Live talk with Anu: ${phase.lowercase()}. $line")
+    // While the screen is shared, the heading says so, as the system's own sharing indicator would (ADR-139).
+    val sharing = if (status.sharing) " · sharing screen" else ""
+    return LiveWords("Anu · $phase$sharing", line, "Live talk with Anu: ${phase.lowercase()}$sharing. $line")
 }
 
 /**

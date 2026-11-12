@@ -137,6 +137,10 @@ fun TalkScreen(
      * source of its newest frame while it's open. Null hides the live Camera button.
      */
     liveCamera: (@Composable (Modifier, ((() -> ByteArray?)?) -> Unit) -> Unit)? = null,
+    /** Whether live talk can read other apps' screens now: Anu app control is on (ADR-139). */
+    shareScreenReady: () -> Boolean = { true },
+    /** Opens Android's page where the user turns on Anu app control, which screen sharing needs. */
+    onSetUpShareScreen: () -> Unit = {},
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val colors = AnuTheme.colors
@@ -212,6 +216,21 @@ fun TalkScreen(
             }
         }
         if (inLive) {
+            // What a question goes with, as on Gemini Live: the camera (ADR-137), or the screen of the app you're in (ADR-139).
+            if (liveCamera != null || state.canShareScreen) {
+                Row(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+                    if (liveCamera != null) {
+                        AnuTextButton(if (state.liveCamera) "Camera off" else "Camera", onClick = toggleCamera, color = if (state.liveCamera) colors.accent else colors.textMuted)
+                    }
+                    if (state.canShareScreen) {
+                        AnuTextButton(
+                            if (state.sharingScreen) "Stop sharing" else "Share screen",
+                            onClick = { if (state.sharingScreen || shareScreenReady()) viewModel.toggleShareScreen() else onSetUpShareScreen() },
+                            color = if (state.sharingScreen) colors.accent else colors.textMuted,
+                        )
+                    }
+                }
+            }
             Row(
                 Modifier.fillMaxWidth().padding(bottom = 20.dp, top = 8.dp),
                 horizontalArrangement = Arrangement.SpaceEvenly,
@@ -224,8 +243,6 @@ fun TalkScreen(
                     contentAlignment = Alignment.Center,
                 ) { Icon(AnuIcons.Stop, contentDescription = "End live talk", Modifier.size(22.dp), tint = colors.text) }
                 AnuTextButton(if (state.muted) "Unmute" else "Mute", onClick = viewModel::toggleMute, color = colors.textMuted)
-                // Gemini Live's camera (ADR-137): talk about what the back camera sees.
-                if (liveCamera != null) AnuTextButton(if (state.liveCamera) "Camera off" else "Camera", onClick = toggleCamera, color = if (state.liveCamera) colors.accent else colors.textMuted)
             }
         } else {
             VoiceProblem(state, onGetSpeech = viewModel::downloadLanguagePack)
@@ -326,7 +343,9 @@ private fun Live(state: ChatUiState) {
     val asked = state.bubbles.lastOrNull { it.fromUser }?.text.orEmpty()
     val answer = state.bubbles.lastOrNull()?.takeIf { !it.fromUser }?.text.orEmpty().replace("**", "").replace("*", "")
     val (caption, faint) = when (state.voice) {
-        VoicePhase.LISTENING -> state.heard.ifEmpty { "Say something…" } to state.heard.isEmpty()
+        VoicePhase.LISTENING -> state.heard.ifEmpty {
+            if (state.sharingScreen) "Sharing your screen. Go to any app and ask about it." else "Say something…"
+        } to state.heard.isEmpty()
         VoicePhase.THINKING -> asked to true
         else -> answer.ifEmpty { asked } to answer.isEmpty()
     }

@@ -147,6 +147,29 @@ class VoiceChatViewModelTest {
     }
 
     @Test
+    fun `sharing the screen, a spoken live question goes with the app's masked screen, and the camera goes off (ADR-139)`() {
+        var reads = 0
+        val session = ChatSession(Agent(Router(), BrainProvider { if (it == Tier.BASE) base else null }, ToolBroker(emptyList(), ApprovalCenter())))
+        val sharing = ChatViewModel(
+            session, device = { device }, speechIn = ears, speechOut = mouth,
+            liveScreen = { reads++; ScreenLook.Ready(io.github.sandeepvijayarao09.anu.core.model.Screen("Maps", 0L)) },
+        )
+        assertTrue(sharing.state.value.canShareScreen)
+        sharing.toggleLiveCamera()
+        sharing.toggleShareScreen()
+        assertFalse("one picture or the other", sharing.state.value.liveCamera)
+        ears.events = listOf(SpeechEvent.Final("How far is the next exit?"))
+        base.enqueue(Step.Reply("About two miles."), Step.Reply("Hi."))
+        sharing.toggleListening()
+        assertEquals(1, reads)
+        assertEquals("Maps", sharing.state.value.bubbles.first { it.fromUser }.screenApp)
+        sharing.endLive()
+        assertFalse(sharing.state.value.sharingScreen)
+        sharing.send("Hello")
+        assertEquals("a typed question never reads the screen", 1, reads)
+    }
+
+    @Test
     fun `with the camera on, a spoken live question goes with the camera's frame, and a typed one doesn't (ADR-137)`() {
         val frame = byteArrayOf(1, 2, 3)
         chat.liveFrames { frame }

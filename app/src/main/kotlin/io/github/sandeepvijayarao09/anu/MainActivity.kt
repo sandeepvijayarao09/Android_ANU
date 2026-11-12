@@ -138,6 +138,10 @@ private fun AnuHome(graph: AppGraph, shared: MutableStateFlow<Shared?>) {
             graph.chat, graph.device::current, graph.approvals, graph.speechIn, graph.speechOut, facts = graph::factTexts,
             brainStatus = graph.onDevice.status, warm = graph::warmStart, recorder = graph.recorder, hears = graph.onDevice::available,
             behind = graph.liveTalk, bargeIn = graph.bargeIn,
+            // Live talk's screen sharing (ADR-139): the app in front, read and masked as the tile's; nothing while Anu is.
+            liveScreen = Flavor.tileReader?.let { reader ->
+                { if ((context.applicationContext as AnuApp).foreground.value || !reader.on) null else reader.read(context.packageName) }
+            },
         ).also(graph.liveTalk::attach)
     }
     // The Vault page (ADR-135): Settings → Privacy → Vault.
@@ -274,6 +278,9 @@ private fun AnuHome(graph: AppGraph, shared: MutableStateFlow<Shared?>) {
                         onLiveCamera = { liveCamera.launch(Intent(context, LiveCameraActivity::class.java)) },
                         // Gemini Live's camera, on the phone (ADR-137).
                         liveCamera = { cameraModifier, onFrames -> LiveTalkCamera(cameraModifier, onFrames) },
+                        // Screen sharing needs app control (ADR-139); without it, Share screen opens the page to turn it on.
+                        shareScreenReady = { Flavor.tileReader?.on == true },
+                        onSetUpShareScreen = { context.startActivity(Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS)) },
                     )
                     1 -> MemoryScreen(memory, sentToday, onOpenPrivacy = openPrivacy)
                     else -> SettingsScreen(
