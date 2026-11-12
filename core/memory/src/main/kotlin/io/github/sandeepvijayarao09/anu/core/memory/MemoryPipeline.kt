@@ -106,7 +106,10 @@ class MemoryPipeline(
 
     /** 1. Capture: keeps a chat message to learn from later, if it is safe to keep and about someone. */
     suspend fun captureChat(text: String, ref: String): Long? {
-        val content = MemoryFilters.forChat(text) ?: return null
+        // A message about the user, or one that names someone memory already knows ("Maya Chen's birthday is…", ADR-145).
+        val content = MemoryFilters.forChat(text)
+            ?: text.trim().takeIf { it.length >= MIN_CAPTURE && People.mentioned(it, People.known(store.activeFacts())) }?.let(MemoryFilters::cleaned)
+            ?: return null
         return store.addEvent(MemoryEvent(0, clock(), EventSource.CHAT, content, ref))
     }
 
@@ -352,8 +355,11 @@ class MemoryPipeline(
      * says who. Otherwise the last topic would ride along with the next, unrelated message.
      */
     suspend fun relevant(message: String, previous: String? = null): List<RelevantFact> {
-        val about = if (previous != null && Relevance.pointsBack(message)) "$previous\n$message" else message
-        return Relevance.pick(about, store.activeFacts(), similarities(about)).map { RelevantFact(it.text, it.sensitive, it.id, noticed = it.origin == FactOrigin.NOTICED) }
+        val said = if (previous != null && Relevance.pointsBack(message)) "$previous\n$message" else message
+        // "My manager's birthday" also asks about whoever the manager is (ADR-145).
+        val facts = store.activeFacts()
+        val about = People.pointedTo(said, facts).let { people -> if (people.isEmpty()) said else said + "\n" + people.joinToString(" ") }
+        return Relevance.pick(about, facts, similarities(about)).map { RelevantFact(it.text, it.sensitive, it.id, noticed = it.origin == FactOrigin.NOTICED) }
     }
 
     /**
@@ -423,14 +429,34 @@ class MemoryPipeline(
         return (listOf(HEADER) + lines).joinToString("\n")
     }
 
+    /**
+     * The known person [name] means, by the fuller of the two names (ADR-145). When [name] is the fuller one ("Maya
+     * Chen" for a known "Maya"), the facts under the shorter name move to it, so one person has one name. A name that
+     * fits no one, or more than one, stands as given. Callers hold [MemoryStore.atomically].
+     */
+    private suspend fun person(name: String): String {
+        val known = People.known(store.activeFacts())
+        val same = People.match(name, known) ?: return name
+        val kept = People.fuller(same, name)
+        if (kept != same) {
+            for (fact in store.activeFacts()) {
+                val named = fact.subject == same
+                val related = fact.subject == USER && Normalize.predicate(fact.predicate) in People.RELATIONS && fact.value.trim() == same
+                if (named) store.updateFact(fact.copy(subject = kept)) else if (related) store.updateFact(fact.copy(value = kept))
+            }
+        }
+        return kept
+    }
+
     /** Step 3. Returns how many facts were added or confirmed. Callers hold [MemoryStore.atomically]. */
     private suspend fun reconcile(event: MemoryEvent, candidates: List<ExtractedFact>, origin: FactOrigin): Int {
         var changed = 0
         val now = clock()
         for (candidate in candidates) {
-            val subject = Normalize.subject(candidate.subject)
             val predicate = Normalize.predicate(candidate.predicate)
-            val value = candidate.value.trim()
+            // One name for each person (ADR-145): a subject, or the person a relation names, is the known person it fits.
+            val subject = Normalize.subject(candidate.subject).let { if (it == USER) it else person(it) }
+            val value = candidate.value.trim().let { if (subject == USER && predicate in People.RELATIONS) person(it) else it }
             val fingerprint = Normalize.fingerprint(subject, predicate, value)
             if (store.isRejected(fingerprint)) {
                 // A deleted or corrected fact is never learned again from chat, but the user's own word brings it back (P5).
@@ -518,6 +544,9 @@ class MemoryPipeline(
 
         /** A fact noticed in notifications starts lower: someone else wrote it (ADR-127). */
         private const val NOTICED_CONFIDENCE = 0.4
+
+        /** The shortest message about someone else worth keeping. */
+        private const val MIN_CAPTURE = 12
 
         /** Where the user is or lives, which a notification never says: its address is where an event is. */
         private val PLACES_THE_USER = Regex("(^|_)(location|located|lives|living|home|address|staying|current_city|city)($|_)")

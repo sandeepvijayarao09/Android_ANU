@@ -73,7 +73,7 @@ object MemoryEvalSet {
             ),
             active = listOf(me("manager", "Maya", "work"), Gold("Maya Chen", "birthday", "13 March")),
             probes = listOf(Probe("When is my manager's birthday?", listOf(Gold("Maya Chen", "birthday", "13 March")))),
-            gap = "entities and aliases",
+            // Closed by ADR-145: one name for each person, and relations lead to them.
         ),
         MemoryScenario(
             "two words for one relation don't leave two employers",

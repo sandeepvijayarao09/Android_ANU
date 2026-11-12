@@ -287,6 +287,28 @@ class MemoryPipelineTest {
         assertEquals(setOf("lives_in: Boston", "works_at: Northwind"), store.activeFacts().map { "${it.predicate}: ${it.value}" }.toSet())
     }
 
+    @Test
+    fun `one person by two names is one person, and a relation leads to them (ADR-145)`() = runTest {
+        learn("My manager Maya is great", fact("user", "manager", "Maya", "work", "My manager Maya", single = true))
+        // No I or my, but it names someone memory knows, so it's kept and learned from.
+        learn("Maya Chen's birthday is 13 March", fact("Maya Chen", "birthday", "13 March", "people", "Maya Chen's birthday is 13 March"))
+        assertEquals(
+            setOf("user.manager=Maya Chen", "Maya Chen.birthday=13 March"),
+            store.activeFacts().map { "${it.subject}.${it.predicate}=${it.value}" }.toSet(),
+        )
+        assertTrue(memory.relevant("When is my manager's birthday?").any { it.text.contains("13 March") })
+        // Her first name alone is still her.
+        learn("Maya loves sushi, I heard", fact("Maya", "likes", "sushi", "preferences", "Maya loves sushi"))
+        assertEquals("Maya Chen", store.activeFacts().single { it.value == "sushi" }.subject)
+    }
+
+    @Test
+    fun `a name that fits two people stays apart from both (ADR-145)`() = runTest {
+        learn("My friend Maya Patel and my manager Maya Chen", fact("user", "friend", "Maya Patel", "people", "My friend Maya Patel"), fact("user", "manager", "Maya Chen", "work", "my manager Maya Chen", single = true))
+        learn("Maya's birthday is in June, I think", fact("Maya", "birthday", "June", "people", "Maya's birthday is in June"))
+        assertEquals("Maya", store.activeFacts().single { it.predicate == "birthday" }.subject)
+    }
+
     /** Every piece of text memory keeps: facts (with superseded ones and their quotes), events and profile versions. */
     private fun everything(): String = (
         store.allFacts().flatMap { listOf(it.value, it.evidence.orEmpty()) } + store.allEvents().map { it.content } +
