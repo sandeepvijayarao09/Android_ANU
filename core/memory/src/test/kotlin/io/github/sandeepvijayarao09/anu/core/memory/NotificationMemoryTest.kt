@@ -143,6 +143,7 @@ class NotificationMemoryTest {
         assertEquals(MemoryPipeline.CLEARED, events.getValue(waiting).content)
         assertEquals("a day long past isn't read", EventStatus.FAILED, events.getValue(waiting).status)
         assertEquals(listOf(old), store.activeFacts().single().sources)
+        assertEquals("the fact's quote goes with the words (ADR-141)", null, store.activeFacts().single().evidence)
     }
 
     @Test

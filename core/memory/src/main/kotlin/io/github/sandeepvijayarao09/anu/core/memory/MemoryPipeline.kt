@@ -156,6 +156,8 @@ class MemoryPipeline(
         for (event in store.eventsBefore(EventSource.NOTIFICATION, before)) {
             if (event.content == CLEARED) continue
             store.setContent(event.id, CLEARED)
+            // A fact's quote holds the notification's words too: they go with them (ADR-141).
+            store.factsFrom(event.id).filter { it.evidence != null }.forEach { store.updateFact(it.copy(evidence = null)) }
             if (event.status == EventStatus.PENDING) store.setStatus(event.id, EventStatus.FAILED, event.attempts)
         }
     }
@@ -311,7 +313,10 @@ class MemoryPipeline(
                     firstSeen = clock(), lastConfirmed = clock(), supersededBy = null, sources = listOf(eventId),
                 ),
             )
-            store.updateFact(fact.copy(status = FactStatus.SUPERSEDED, supersededBy = id))
+            // The wrong value isn't kept as history: only its fingerprint stays (ADR-141). What it had replaced now
+            // waits behind the correction.
+            store.factsSupersededBy(fact.id).forEach { store.updateFact(it.copy(supersededBy = id)) }
+            store.deleteFact(fact.id)
         }
         refreshProfile()
     }
@@ -323,7 +328,8 @@ class MemoryPipeline(
             for (fact in derived) {
                 val remaining = fact.sources - eventId
                 if (remaining.isNotEmpty()) {
-                    store.updateFact(fact.copy(sources = remaining))
+                    // Its quote may be the forgotten message's words (ADR-141).
+                    store.updateFact(fact.copy(sources = remaining, evidence = null))
                     continue
                 }
                 store.deleteFact(fact.id)
@@ -482,6 +488,8 @@ class MemoryPipeline(
             if (previous?.text == text || (previous == null && text.isEmpty())) continue
             store.saveProfile(ProfileVersion(section, (previous?.version ?: 0) + 1, text, inSection.map { it.id }, clock()))
         }
+        // Only each section's newest version stays: older ones held deleted and forgotten facts' words (ADR-141).
+        store.pruneProfiles()
         reload()
         // New and corrected facts get their vectors now. Search by meaning must never break memory.
         try {

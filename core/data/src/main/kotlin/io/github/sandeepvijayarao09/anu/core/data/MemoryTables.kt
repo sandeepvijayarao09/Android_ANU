@@ -156,6 +156,9 @@ interface MemoryDao {
     @Insert
     suspend fun insertProfile(version: ProfileVersionEntity)
 
+    @Query("DELETE FROM profile_versions WHERE version < (SELECT MAX(p.version) FROM profile_versions p WHERE p.section = profile_versions.section)")
+    suspend fun pruneProfiles()
+
     @Query("SELECT v.* FROM fact_vectors v JOIN facts f ON f.id = v.factId WHERE v.model = :model AND f.status = 'ACTIVE'")
     suspend fun vectors(model: String): List<FactVectorEntity>
 
@@ -240,6 +243,8 @@ class RoomMemoryStore(private val db: AnuDatabase, private val clock: () -> Long
     override suspend fun saveProfile(version: ProfileVersion) = dao.insertProfile(
         ProfileVersionEntity(version.section.name, version.version, version.text, version.factIds.joinToString(","), version.at.toEpochMilli()),
     )
+
+    override suspend fun pruneProfiles() = dao.pruneProfiles()
 
     override fun observeFacts(): Flow<List<Fact>> = dao.observeActiveFacts().map { rows -> rows.map(::fact) }
 

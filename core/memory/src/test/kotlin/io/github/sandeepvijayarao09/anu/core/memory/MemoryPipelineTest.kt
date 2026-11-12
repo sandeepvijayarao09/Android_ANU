@@ -9,6 +9,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -276,6 +277,41 @@ class MemoryPipelineTest {
         val kept = memory.remember("user", "diet", "vegetarian", ProfileSection.PREFERENCES, sensitive = false, ref = "main:3")
         assertEquals("diet: vegetarian", kept.text)
         assertEquals(listOf("diet: vegetarian"), store.activeFacts().map { it.text })
+    }
+
+    /** Every piece of text memory keeps: facts (with superseded ones and their quotes), events and profile versions. */
+    private fun everything(): String = (
+        store.allFacts().flatMap { listOf(it.value, it.evidence.orEmpty()) } + store.allEvents().map { it.content } +
+            store.allProfileVersions().map { it.text }
+        ).joinToString("\n")
+
+    @Test
+    fun `a deleted, corrected or forgotten value leaves no words anywhere in memory (ADR-141, I5)`() = runTest {
+        learn("My manager is Maya", fact("user", "manager", "Maya", "people", "My manager is Maya", single = true))
+        learn("I live in Seattle", fact("user", "lives_in", "Seattle", "places", "I live in Seattle", single = true))
+        assertTrue(everything().contains("Maya"))
+
+        // Deleting a fact: its profile version goes too, not only the fact.
+        memory.delete(store.activeFacts().single { it.predicate == "manager" }.id)
+        // Correcting one: the wrong value isn't kept as superseded history.
+        memory.correct(store.activeFacts().single { it.predicate == "lives_in" }.id, "Tacoma")
+        val chat = store.allEvents().filter { it.source == EventSource.CHAT }
+        chat.forEach { memory.forgetSource(it.id) }
+
+        val kept = everything()
+        assertFalse(kept, kept.contains("Maya"))
+        assertFalse(kept, kept.contains("Seattle"))
+        assertEquals(listOf("lives in: Tacoma"), store.activeFacts().map { it.text })
+        assertEquals("one version a section", store.allProfileVersions().size, store.allProfileVersions().map { it.section }.distinct().size)
+    }
+
+    @Test
+    fun `a fact that keeps another source loses the forgotten message's quote (ADR-141)`() = runTest {
+        val first = learn("I work at Acme now", fact("user", "works_at", "Acme", "work", "I work at Acme now", single = true))
+        learn("Acme is where I work", fact("user", "works_at", "Acme", "work", "Acme is where I work", single = true))
+        memory.forgetSource(first)
+        val fact = store.activeFacts().single()
+        assertTrue(fact.evidence == null || !fact.evidence!!.contains("now"))
     }
 
     @Test

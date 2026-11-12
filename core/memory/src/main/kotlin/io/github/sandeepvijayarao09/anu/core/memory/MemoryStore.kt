@@ -64,6 +64,9 @@ interface MemoryStore {
 
     suspend fun saveProfile(version: ProfileVersion)
 
+    /** Deletes every profile version but each section's newest (ADR-141). */
+    suspend fun pruneProfiles()
+
     fun observeFacts(): Flow<List<Fact>>
 
     fun observePendingCount(): Flow<Int>
@@ -148,6 +151,11 @@ class InMemoryMemoryStore : MemoryStore {
         state.value.profile.groupBy { it.section }.values.map { versions -> versions.maxBy { it.version } }
 
     override suspend fun saveProfile(version: ProfileVersion) = update { it.copy(profile = it.profile + version) }
+
+    override suspend fun pruneProfiles() = update { s ->
+        val newest = s.profile.groupBy { it.section }.mapValues { (_, v) -> v.maxOf { it.version } }
+        s.copy(profile = s.profile.filter { it.version == newest[it.section] })
+    }
 
     override fun observeFacts(): Flow<List<Fact>> =
         state.map { s -> s.facts.values.filter { it.status == FactStatus.ACTIVE }.sortedBy { it.id } }
