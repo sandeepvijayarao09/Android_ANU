@@ -567,7 +567,10 @@ class ChatViewModel(
         val shown = photos + pdf?.takeUnless { it.hasText }?.pictures.orEmpty().map { Photo(0, it) }
         add(Bubble(asked, fromUser = true, text = trimmed, photos = shown, voice = clip, document = pdf?.let { DocumentClip(it.name, it.pages) }))
         mutable.update { it.copy(attachments = emptyList(), recording = null, pdf = null, attachmentNote = null, useScreen = false) }
-        run(trimmed, photos = photos, recording = voice, pdf = pdf, asked = asked, aboutScreen = aboutScreen, replying = aboutScreen && ReplyWords.asks(trimmed))
+        run(
+            trimmed, photos = photos, recording = voice, pdf = pdf, asked = asked, aboutScreen = aboutScreen, replying = aboutScreen && ReplyWords.asks(trimmed),
+            live = spoken && state.live,
+        )
     }
 
     /**
@@ -815,6 +818,8 @@ class ChatViewModel(
         replying: Boolean = false,
         /** Sends a drafted reply instead of asking the model (ADR-092). */
         sending: ReplySend? = null,
+        /** A spoken question in live talk, answered at once (ADR-138). */
+        live: Boolean = false,
     ) {
         val id = nextId++
         add(Bubble(id, fromUser = false, text = "", streaming = true))
@@ -842,7 +847,7 @@ class ChatViewModel(
                 }
                 val events = sending?.let { session.sendReply(it.chatKey, it.chatTitle, it.text) } ?: session.send(
                     text, device(), pinned, cloudConsented, sharedFacts, replacingLast = replaces?.saved == true, photos = photos,
-                    recording = recording, voiceNote = voiceNote, screen = screen, pdf = pdf, document = document,
+                    recording = recording, voiceNote = voiceNote, screen = screen, pdf = pdf, document = document, live = live,
                 )
                 events.collect { reduce(id, text, it, replaces, asked) }
                 // The answer to "reply to this" is the reply: a draft to copy, or to send while its chat can be answered.

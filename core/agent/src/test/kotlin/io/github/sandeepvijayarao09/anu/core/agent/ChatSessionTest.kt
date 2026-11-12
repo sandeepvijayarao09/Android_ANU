@@ -976,6 +976,17 @@ class ChatSessionTest {
     }
 
     @Test
+    fun `a live talk turn goes straight to Base and doesn't think, as Gemini Live answers at once (ADR-138)`() = runTest {
+        val chat = ChatSession(agent(mapOf(Tier.BASE to base, Tier.PRO to pro)), thinking = { true })
+        base.enqueue(Step.Reply("Paris is lovely in spring, with mild weather and long evenings."))
+        // A request the rules would give Pro.
+        chat.send("Compare Paris and Rome for a week in spring, with the weather, costs and crowds", device, live = true).toList()
+        assertEquals(1, base.requests.size)
+        assertTrue(pro.requests.isEmpty())
+        assertEquals(false, base.requests.single().thinking)
+    }
+
+    @Test
     fun `thinking is off unless the user turns it on`() = runTest {
         base.enqueue(Step.Reply("Hi!"))
         session.send("Hello there", onPhone).toList()

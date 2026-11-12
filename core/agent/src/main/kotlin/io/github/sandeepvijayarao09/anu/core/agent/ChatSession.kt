@@ -160,6 +160,12 @@ class ChatSession(
         screen: Screen? = null,
         pdf: Pdf? = null,
         document: Document? = null,
+        /**
+         * A live talk turn (ADR-138): answered at once by Base, on the TPU where it runs there, with no opinion from Base
+         * first, no hand-off to Pro, and no thinking, as Gemini Live answers without a pause. A failed answer still moves
+         * up. A whole phone command still needs no model.
+         */
+        live: Boolean = false,
     ): Flow<AgentEvent> = flow {
         val pictures = photos.size + (if (screen?.image != null) 1 else 0) + (pdf?.takeUnless { it.hasText }?.pictures?.size ?: 0)
         require(pictures <= Photo.MAX_IN_VIEW) { "at most ${Photo.MAX_IN_VIEW} pictures a message" }
@@ -167,7 +173,7 @@ class ChatSession(
             val fresh = mutableListOf<Long>()
             var completed = false
             try {
-                runTurn(text, device, pinned, cloudConsented, sharedFacts, replacingLast, photos, recording, voiceNote, screen, pdf, document, fresh) { completed = true }
+                runTurn(text, device, pinned, cloudConsented, sharedFacts, replacingLast, photos, recording, voiceNote, screen, pdf, document, fresh, live) { completed = true }
             } finally {
                 if (!completed && fresh.isNotEmpty()) withContext(NonCancellable) { photoStore.delete(fresh) }
             }
@@ -189,6 +195,7 @@ class ChatSession(
         pdf: Pdf?,
         document: Document?,
         fresh: MutableList<Long>,
+        live: Boolean,
         onCompleted: () -> Unit,
     ) {
         run {
@@ -260,7 +267,7 @@ class ChatSession(
                 skill = skill,
                 dataClasses = dataClassesOf(turn),
                 promptTokens = promptTokens,
-                pinnedTier = pinned,
+                pinnedTier = pinned ?: Tier.BASE.takeIf { live },
                 cloudConsented = cloudConsented,
                 // By the saved ids, not the bytes: a photo no longer kept still had its answer written about it, and that
                 // answer is still in view, so the turn stays on the phone (MEDIA-1, MEDIA-2).
@@ -286,7 +293,7 @@ class ChatSession(
                 relevant = relevantBlock, sharedFacts = if (cloudConsented) sharedFacts else emptyList(), consentFacts = consentFacts,
                 // A fact noticed in a notification is someone else's words, so the turn it goes with is tainted (ADR-127).
                 inView = untrustedIn(shown + message) + listOfNotNull(UntrustedContent.NOTICED.takeIf { noticedInView(transcript.size, relevantFacts) }),
-                thinking = thinking(),
+                thinking = !live && thinking(),
             )
             events.collect { raw ->
                 when (raw) {

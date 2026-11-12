@@ -29,6 +29,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.map
@@ -199,13 +200,14 @@ class LiveTalkService : Service() {
         val manager = getSystemService(NotificationManager::class.java)
         val control = Flavor.floatingControl
         var pillShown = false
-        combine(live.status, app.foreground) { status, open -> status to open }.collectLatest { (status, open) ->
+        // Partial words and streamed answers change often: the latest is shown at most every quarter second (conflate).
+        // Waiting for a quiet quarter second instead (collectLatest) kept "Thinking" up through a whole streamed answer,
+        // though Anu had begun speaking under a second after the user's words (ADR-138).
+        combine(live.status, app.foreground) { status, open -> status to open }.conflate().collect { (status, open) ->
             if (status == null) {
                 stopSelf()
-                return@collectLatest
+                return@collect
             }
-            // Partial words and streamed answers change often; the latest one is shown, a quarter second later.
-            delay(UPDATE_MS)
             val words = liveWords(status)
             manager.notify(NOTIFICATION_ID, notification(words))
             if (!open && control?.available == true) {
@@ -218,6 +220,7 @@ class LiveTalkService : Service() {
                 if (BuildConfig.DEBUG) Log.d("Anu", "Live talk: pill hidden")
             }
             if (BuildConfig.DEBUG) Log.d("Anu", "Live talk: ${status.phase.name.lowercase()}, ${if (open) "in Anu" else "behind another app"}")
+            delay(UPDATE_MS)
         }
     }
 
