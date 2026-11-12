@@ -14,19 +14,23 @@ package="${PACKAGE:-io.github.sandeepvijayarao09.anu.personal}"
 
 screen() {
   "$adb" -s "$serial" shell uiautomator dump /sdcard/anu-checks.xml >/dev/null 2>&1
-  "$adb" -s "$serial" shell cat /sdcard/anu-checks.xml 2>/dev/null | tr '>' '\n' | grep -oE '(text|content-desc)="[^"]+"' |
-    sed -E 's/^(text|content-desc)="//; s/"$//' | sed "s/&apos;/'/g; s/&quot;/\"/g; s/&lt;/</g; s/&gt;/>/g; s/&amp;/\&/g; s/&#10;/ /g"
+  "$adb" -s "$serial" shell cat /sdcard/anu-checks.xml 2>/dev/null | tr '>' '\n' | grep -oE "(text|content-desc)=(\"[^\"]+\"|'[^']+')" |
+    sed -E "s/^(text|content-desc)=[\"']//; s/[\"']\$//" | sed "s/&apos;/'/g; s/&quot;/\"/g; s/&lt;/</g; s/&gt;/>/g; s/&amp;/\&/g; s/&#10;/ /g"
 }
 
-# The newest answer: what's on screen between the last two "On device · …" captions, without the message itself, so
-# a long answer that pushed the message off the top still reads. Action cards come with it.
+# The answer to [1]: what follows the last copy of the message that is the user's bubble (an action card's title can
+# repeat it, and is followed by its "· on device" line), up to the next "On device · …" caption. Action cards come with
+# it. A message that isn't on screen gives nothing, never the turn before.
 answer() {
   screen | awk -v m="$1" '
     { line[NR] = $0 }
     END {
-      for (c = NR; c > 0; c--) if (line[c] ~ /^On device · /) break
-      for (p = c - 1; p > 0; p--) if (line[p] ~ /^On device · / || line[p] == m) break
-      for (j = p + 1; j < c; j++) if (line[j] != m && line[j] !~ /^(Retry with|Stop|Send)/) out = out (out ? " / " : "") line[j]
+      for (i = NR; i > 0; i--) if (line[i] == m && line[i + 1] !~ / · on device$/) break
+      if (i == 0) { print "(message not on screen)"; exit }
+      for (j = i + 1; j <= NR; j++) {
+        if (line[j] ~ /^On device · / || line[j] == "Ask Anu") break
+        if (line[j] != m && line[j] !~ /^(Retry with|Stop|Send)/) out = out (out ? " / " : "") line[j]
+      }
       print out
     }'
 }
@@ -58,6 +62,7 @@ while IFS= read -r -u 3 line || [ -n "$line" ]; do
   message="$(echo "$message" | sed 's/^ *//; s/ *$//')"; expect="$(echo "${expect:-}" | sed 's/^ *//; s/ *$//')"; forbid="$(echo "${forbid:-}" | sed 's/^ *//; s/ *$//')"
   # Anu in front, on Talk, with no keyboard over the bar.
   "$adb" -s "$serial" shell am start -n "$package/io.github.sandeepvijayarao09.anu.MainActivity" >/dev/null 2>&1
+  tap "Talk"; sleep 1
   started=$(date +%s); sheets=""
   quoted="'$(printf '%s' "$message" | sed "s/'/'\\\\''/g")'"
   "$adb" -s "$serial" shell am broadcast -n "$package/io.github.sandeepvijayarao09.anu.DebugChat" --es send "$quoted" >/dev/null
@@ -69,6 +74,8 @@ while IFS= read -r -u 3 line || [ -n "$line" ]; do
     sleep 2
   done
   took=$(( $(date +%s) - started ))
+  # The chat may not have scrolled to the newest turn: swipe to the bottom first.
+  for k in 1 2 3; do "$adb" -s "$serial" shell input swipe 540 1500 540 600 150; done; sleep 1
   said="$(answer "$message")"; [ -n "$sheets" ] && said="($sheets, declined) $said"
   ok=1
   [ -n "$expect" ] && ! echo "$said" | grep -qiE "$expect" && ok=0

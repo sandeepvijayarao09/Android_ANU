@@ -207,8 +207,12 @@ class ChatSession(
                 // A question keeps memory's tools as a follow-up, but can't save: given memory_remember for "What is my favorite
                 // color?", E2B kept "favorite color's favorite color is teal" (ADR-130).
                 .filterNot { it == ActionClaims.REMEMBER_TOOL && SkillDetector.asksOnly(asking.allWords) }
-            // Only the skills the message, or the one before it, could mean; with none, no skill tools (ADR-131).
-            val skillsHere = SkillMatch.matching(listOfNotNull(turns.getOrNull(turns.size - 2), asking.allWords).joinToString("\n"), skills())
+            // Only the skills the message could mean; with none, no skill tools (ADR-131).
+            // The one before counts only for a short follow-up ("Yes, do it"): after "Search Wikipedia for Jane Austen",
+            // "Translate "good morning" into Spanish" had loaded query-wikipedia again.
+            val skillsHere = SkillMatch.matching(asking.allWords, skills()).ifEmpty {
+                if (asking.allWords.split(Regex("\\s+")).size <= 4) SkillMatch.matching(turns.getOrNull(turns.size - 2).orEmpty(), skills()) else emptyList()
+            }
             val tools = if (skillsHere.isEmpty()) offered.filterNot { it in SKILL_TOOL_NAMES } else offered
             val now = clock()
             val memoryBlock = currentMemory()

@@ -3,8 +3,9 @@
 # "Anu test" holding "oat milk, eggs and spinach" first.
 What is 12 times 9? | 108 |
 What's 15% of 80? | \b12\b |
-Who wrote Pride and Prejudice? | Austen|asked: | unable
-Translate "good morning" into Spanish | buenos d[ií]as |
+Who wrote Pride and Prejudice? | Austen | unable|asked:
+Search Wikipedia for Jane Austen | asked: |
+Translate "good morning" into Spanish | buenos d.{1,2}as |
 Hi, how are you today? | | teal|favou?rite color|coming week|November
 What day of the week is tomorrow? | Thursday |
 What is my favorite color? | teal |
