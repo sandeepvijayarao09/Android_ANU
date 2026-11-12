@@ -38,6 +38,9 @@ interface NoteDao {
     @Query("UPDATE notes SET text = :text, updatedAtMillis = :atMillis WHERE id = :id")
     suspend fun setText(id: Long, text: String, atMillis: Long)
 
+    @Query("UPDATE notes SET title = :title, text = :text, updatedAtMillis = :atMillis WHERE id = :id")
+    suspend fun update(id: Long, title: String, text: String, atMillis: Long)
+
     @Query("DELETE FROM notes WHERE id = :id")
     suspend fun delete(id: Long)
 
@@ -75,6 +78,9 @@ class RoomNoteStore(private val dao: NoteDao) : NoteStore {
     fun observe(): Flow<List<Note>> = dao.observe().map { list -> list.map { it.toNote() } }
 
     suspend fun delete(id: Long) = dao.delete(id)
+
+    /** The user's own edit in the Notes app (ADR-134). */
+    suspend fun update(id: Long, title: String, text: String, atMillis: Long) = dao.update(id, title, text, atMillis)
 
     private fun NoteEntity.toNote() = Note(id, title, text, updatedAtMillis)
 }

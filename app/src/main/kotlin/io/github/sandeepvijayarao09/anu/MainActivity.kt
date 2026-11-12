@@ -141,6 +141,8 @@ private fun AnuHome(graph: AppGraph, shared: MutableStateFlow<Shared?>) {
         MemoryViewModel(graph.memory, noteShelf = object : NoteShelf {
             override val notes = graph.notes.observe().map { list -> list.map { ShelfNote(it.id, it.title, it.text, it.updatedAtMillis) } }
             override suspend fun delete(id: Long) = graph.notes.delete(id)
+            override suspend fun create(title: String, text: String) = graph.notes.create(title, text, System.currentTimeMillis()).id
+            override suspend fun update(id: Long, title: String, text: String) = graph.notes.update(id, title, text, System.currentTimeMillis())
         })
     }
     // The prompt lab runs only the models on this phone, with nothing from the chat (G7, ADR-080).

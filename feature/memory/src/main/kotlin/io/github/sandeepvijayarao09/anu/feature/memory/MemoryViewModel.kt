@@ -29,6 +29,21 @@ class MemoryViewModel(
         noteShelf?.let { shelf -> viewModelScope.launch { shelf.delete(id) } }
     }
 
+    /**
+     * Saves the editor's note (ADR-134): a new one is created only once it has words, and gives back its id so later
+     * edits update it. A note emptied of title and text stays until the user deletes it.
+     */
+    suspend fun saveNote(id: Long?, title: String, text: String): Long? {
+        val shelf = noteShelf ?: return id
+        if (id != null) {
+            // Written out: as `id.also { shelf.update(…) }`, the suspended update's Unit came back as the id and crashed.
+            shelf.update(id, title.trim(), text)
+            return id
+        }
+        if (title.isBlank() && text.isBlank()) return null
+        return shelf.create(title.trim(), text)
+    }
+
     val state: StateFlow<MemoryState> = memory.state.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), MemoryState())
 
     private val mutableMessage = MutableStateFlow<String?>(null)

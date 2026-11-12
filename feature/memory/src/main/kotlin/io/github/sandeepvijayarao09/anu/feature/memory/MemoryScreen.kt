@@ -92,7 +92,7 @@ fun MemoryScreen(viewModel: MemoryViewModel, sentToday: Int, onOpenPrivacy: () -
     var showNotes by rememberSaveable { mutableStateOf(false) }
     if (showNotes) {
         BackHandler { showNotes = false }
-        NotesPage(notes, sentToday, onOpenPrivacy, onDelete = viewModel::deleteNote, onBack = { showNotes = false })
+        NotesPage(viewModel, notes, sentToday, onOpenPrivacy, onBack = { showNotes = false })
         return
     }
 
