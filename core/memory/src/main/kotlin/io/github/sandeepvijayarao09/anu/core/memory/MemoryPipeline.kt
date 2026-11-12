@@ -106,9 +106,11 @@ class MemoryPipeline(
 
     /** 1. Capture: keeps a chat message to learn from later, if it is safe to keep and about someone. */
     suspend fun captureChat(text: String, ref: String): Long? {
-        // A message about the user, or one that names someone memory already knows ("Maya Chen's birthday is…", ADR-145).
+        // A message about the user, one that names someone memory already knows ("Maya Chen's birthday is…", ADR-145),
+        // or one that says a fact about a named person memory doesn't know yet ("Priya moved to Pune", ADR-146).
         val content = MemoryFilters.forChat(text)
-            ?: text.trim().takeIf { it.length >= MIN_CAPTURE && People.mentioned(it, People.known(store.activeFacts())) }?.let(MemoryFilters::cleaned)
+            ?: text.trim().takeIf { it.length >= MIN_CAPTURE && (People.mentioned(it, People.known(store.activeFacts())) || People.statedAbout(it)) }
+                ?.let(MemoryFilters::cleaned)
             ?: return null
         return store.addEvent(MemoryEvent(0, clock(), EventSource.CHAT, content, ref))
     }

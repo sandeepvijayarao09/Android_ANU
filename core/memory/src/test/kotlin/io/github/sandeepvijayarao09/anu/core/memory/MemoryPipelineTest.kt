@@ -124,6 +124,19 @@ class MemoryPipelineTest {
     }
 
     @Test
+    fun `a fact said about a named person is kept, a request or question naming them isn't (ADR-146)`() = runTest {
+        assertNotNull(memory.captureChat("Priya moved to Pune last month", "a"))
+        assertNotNull(memory.captureChat("Arjun Mehta joined Tailspin as a designer", "b"))
+        assertNotNull(memory.captureChat("Leena's birthday is on 4 June", "c"))
+        assertNull(memory.captureChat("Did Rohan move to Delhi?", "d"))
+        assertNull(memory.captureChat("Text Jordan that the meeting moved", "e"))
+        assertNull(memory.captureChat("Schedule a call with Omar Khan, he is free Friday", "f"))
+        assertNull(memory.captureChat("The meeting is at noon", "g"))
+        assertNull(memory.captureChat("It is raining again", "h"))
+        assertNull(memory.captureChat("Rohan Gupta's password is hunter22", "i"))
+    }
+
+    @Test
     fun `learning keeps the facts a message states, with provenance, and saves a profile version`() = runTest {
         val event = learn(
             "My manager Maya wants the report by Friday, and I'm vegetarian",

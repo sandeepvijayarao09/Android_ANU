@@ -124,7 +124,8 @@ object MemoryEvalSet {
             "a fact said about someone else without I or my",
             listOf(Says("Priya moved to Pune last month", listOf(Gold("Priya", "lives_in", "Pune", "places")))),
             active = listOf(Gold("Priya", "lives_in", "Pune", "places")),
-            gap = "capture of facts about other people",
+            probes = listOf(Probe("Where does Priya live?", listOf(Gold("Priya", "lives_in", "Pune", "places")))),
+            // Closed by ADR-146: a fact about a named person is learned from without "I" or "my".
         ),
         MemoryScenario(
             "a coming move isn't where the user lives yet",

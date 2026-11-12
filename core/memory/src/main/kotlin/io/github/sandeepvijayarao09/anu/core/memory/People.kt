@@ -59,6 +59,40 @@ internal object People {
             .map { it.value.trim() }
     }
 
+    /**
+     * Whether [text] states something lasting about a named person, someone memory may not know yet (ADR-146): a
+     * capitalized name, then a verb of a life fact ("Priya moved to Pune", "Arjun Mehta joined Tailspin", "Leena's
+     * birthday is…"). A question, or a request ("Book lunch with Maya", "Text Jordan that…"), isn't a statement, and a
+     * pronoun or a word that starts a sentence ("The", "It") isn't a name. The extractor still decides what, if
+     * anything, is a fact; this only keeps the message to learn from.
+     */
+    fun statedAbout(text: String): Boolean {
+        val trimmed = text.trim()
+        if (trimmed.endsWith("?") || REQUEST.containsMatchIn(trimmed)) return false
+        return STATEMENT.findAll(trimmed).any { match -> match.groupValues[1].split(' ').none { it.lowercase() in NOT_NAMES } }
+    }
+
+    /** A name of one or two capitalized words, a possessive or not, then a verb of a life fact. */
+    private val STATEMENT = Regex(
+        "\\b(\\p{Lu}\\p{Ll}+(?: \\p{Lu}\\p{Ll}+)?)(?:'s (?:birthday|new job|new place|partner|wife|husband|son|daughter|dog|cat))?\\s+" +
+            "(?:just |finally |recently |now |also |has )?" +
+            "(?:moved|lives|lived|works|worked|joined|started|got|is|was|loves|likes|hates|married|graduated|turned|left|quit|switched|became|prefers|" +
+            "has|had|gets|plays|studies|teaches|runs|owns|retired|bought|adopted|transferred|relocated)\\b",
+    )
+
+    /** Words that start a request: the message asks for something, it doesn't say a fact. */
+    private val REQUEST = Regex(
+        "^(please |can you |could you |would you )?(book|schedule|text|call|email|send|remind|tell|ask|message|invite|add|set|find|show|open|draft|reply|write|plan|make|create|cancel|move|check)\\b",
+        RegexOption.IGNORE_CASE,
+    )
+
+    /** Capitalized words that aren't a person's name: pronouns and words that start sentences. */
+    private val NOT_NAMES = setOf(
+        "i", "he", "she", "they", "we", "it", "you", "the", "this", "that", "there", "here", "what", "who", "which", "my", "our", "his", "her",
+        "their", "today", "tomorrow", "yesterday", "everyone", "someone", "nobody", "everything", "nothing", "anu", "and", "but", "so", "also",
+        "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday", "mom", "dad",
+    )
+
     /** A name's words, lowercase, without titles such as Dr. or Mr. */
     private fun words(name: String): List<String> = Normalize.words(name).filter { it !in TITLES }
 
