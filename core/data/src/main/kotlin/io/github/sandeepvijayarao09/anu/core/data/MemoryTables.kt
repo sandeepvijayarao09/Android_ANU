@@ -25,6 +25,7 @@ import io.github.sandeepvijayarao09.anu.core.memory.ProfileVersion
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import java.time.Instant
+import java.time.LocalDate
 
 /** An append-only memory event (§8.1). */
 @Entity(tableName = "memory_events", indices = [Index("status")])
@@ -54,6 +55,8 @@ data class FactEntity(
     val firstSeenMillis: Long,
     val lastConfirmedMillis: Long,
     val supersededBy: Long?,
+    /** An upcoming fact's first day, as an epoch day (ADR-147). */
+    val startsOnEpochDay: Long? = null,
 )
 
 /** Which events a fact came from (I4). Deleting either side deletes the link, in code (I5). */
@@ -115,7 +118,12 @@ interface MemoryDao {
     suspend fun activeFacts(): List<FactWithSources>
 
     @Transaction
-    @Query("SELECT * FROM facts WHERE status = 'ACTIVE' ORDER BY id")
+    @Query("SELECT * FROM facts WHERE status = 'UPCOMING' ORDER BY id")
+    suspend fun upcomingFacts(): List<FactWithSources>
+
+    /** What the Memory tab lists: active facts, and upcoming ones so the user can see and delete them (P5). */
+    @Transaction
+    @Query("SELECT * FROM facts WHERE status IN ('ACTIVE', 'UPCOMING') ORDER BY id")
     fun observeActiveFacts(): Flow<List<FactWithSources>>
 
     @Transaction
@@ -202,6 +210,8 @@ class RoomMemoryStore(private val db: AnuDatabase, private val clock: () -> Long
 
     override suspend fun activeFacts() = dao.activeFacts().map(::fact)
 
+    override suspend fun upcomingFacts() = dao.upcomingFacts().map(::fact)
+
     override suspend fun factsFrom(eventId: Long) = dao.factsFrom(eventId).map(::fact)
 
     override suspend fun factsSupersededBy(factId: Long) = dao.supersededBy(factId).map(::fact)
@@ -266,7 +276,7 @@ class RoomMemoryStore(private val db: AnuDatabase, private val clock: () -> Long
             id = id, subject = subject, predicate = predicate, value = value, section = ProfileSection.valueOf(section),
             confidence = confidence, origin = FactOrigin.valueOf(origin), status = FactStatus.valueOf(status), sensitive = sensitive,
             evidence = evidence, firstSeen = Instant.ofEpochMilli(firstSeenMillis), lastConfirmed = Instant.ofEpochMilli(lastConfirmedMillis),
-            supersededBy = supersededBy, sources = row.sources.sorted(),
+            supersededBy = supersededBy, sources = row.sources.sorted(), startsOn = startsOnEpochDay?.let(LocalDate::ofEpochDay),
         )
     }
 
@@ -274,6 +284,6 @@ class RoomMemoryStore(private val db: AnuDatabase, private val clock: () -> Long
         id = fact.id, subject = fact.subject, predicate = fact.predicate, value = fact.value, section = fact.section.name,
         confidence = fact.confidence, origin = fact.origin.name, status = fact.status.name, sensitive = fact.sensitive,
         evidence = fact.evidence, firstSeenMillis = fact.firstSeen.toEpochMilli(), lastConfirmedMillis = fact.lastConfirmed.toEpochMilli(),
-        supersededBy = fact.supersededBy,
+        supersededBy = fact.supersededBy, startsOnEpochDay = fact.startsOn?.toEpochDay(),
     )
 }

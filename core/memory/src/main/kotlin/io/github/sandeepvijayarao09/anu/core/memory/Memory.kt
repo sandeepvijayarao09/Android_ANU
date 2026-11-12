@@ -3,6 +3,9 @@ package io.github.sandeepvijayarao09.anu.core.memory
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import java.time.Instant
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 /** The subject Anu uses for the user themself. */
 const val USER = "user"
@@ -48,7 +51,8 @@ data class MemoryEvent(
  */
 enum class FactOrigin { USER_STATED, INFERRED, NOTICED }
 
-enum class FactStatus { ACTIVE, SUPERSEDED }
+/** [UPCOMING]: true from [Fact.startsOn], not yet (ADR-147). It replaces nothing until that day comes. */
+enum class FactStatus { ACTIVE, SUPERSEDED, UPCOMING }
 
 /**
  * The living profile's sections (§8.1). The serial names are what the extraction model writes. [title]
@@ -86,9 +90,13 @@ data class Fact(
     val supersededBy: Long? = null,
     /** The events this fact came from (I4). */
     val sources: List<Long>,
+    /** The day an [FactStatus.UPCOMING] fact comes true (ADR-147), and kept once it has. */
+    val startsOn: LocalDate? = null,
 ) {
-    val text: String get() = factText(subject, predicate, value)
+    val text: String get() = factText(subject, predicate, value) + (if (status == FactStatus.UPCOMING && startsOn != null) " (from ${startsOn.format(DAY)})" else "")
 }
+
+private val DAY = DateTimeFormatter.ofPattern("d MMMM yyyy", Locale.ENGLISH)
 
 /** How a fact reads, for example "manager: Maya Chen", or "Maya Chen · birthday: 12 March". */
 fun factText(subject: String, predicate: String, value: String): String {

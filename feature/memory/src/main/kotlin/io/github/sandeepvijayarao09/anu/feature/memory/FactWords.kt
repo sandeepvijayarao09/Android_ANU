@@ -6,9 +6,12 @@ import io.github.sandeepvijayarao09.anu.core.memory.FactGrammar
 import io.github.sandeepvijayarao09.anu.core.memory.FactGrammar.PREPOSITIONS
 import io.github.sandeepvijayarao09.anu.core.memory.FactGrammar.VERBS
 import io.github.sandeepvijayarao09.anu.core.memory.FactOrigin
+import io.github.sandeepvijayarao09.anu.core.memory.FactStatus
 import io.github.sandeepvijayarao09.anu.core.memory.USER
 import io.github.sandeepvijayarao09.anu.core.memory.sentenceCase
 import java.time.Instant
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 /**
  * How a fact reads in the Memory list (DESIGN.md "Memory"): the fact is the label, and a second line
@@ -21,7 +24,15 @@ internal data class FactWords(
     val relationship: String?,
 )
 
-internal fun factWords(fact: Fact): FactWords = factWords(fact.subject, fact.predicate, fact.value)
+/** An upcoming fact says its day on the second line: "Your home · from 1 December 2026" (ADR-147). */
+internal fun factWords(fact: Fact): FactWords {
+    val words = factWords(fact.subject, fact.predicate, fact.value)
+    val day = fact.startsOn?.takeIf { fact.status == FactStatus.UPCOMING } ?: return words
+    val from = "from ${day.format(DAY)}"
+    return words.copy(relationship = words.relationship?.let { "$it · $from" } ?: sentenceCase(from))
+}
+
+private val DAY = DateTimeFormatter.ofPattern("d MMMM yyyy", Locale.ENGLISH)
 
 internal fun factWords(subject: String, predicate: String, value: String): FactWords {
     val relation = predicate.replace('_', ' ').trim()

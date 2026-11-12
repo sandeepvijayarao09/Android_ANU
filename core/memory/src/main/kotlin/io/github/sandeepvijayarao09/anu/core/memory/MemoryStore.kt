@@ -38,6 +38,9 @@ interface MemoryStore {
 
     suspend fun activeFacts(): List<Fact>
 
+    /** Facts that come true on a later day (ADR-147). */
+    suspend fun upcomingFacts(): List<Fact>
+
     /** Facts in any status that list [eventId] as a source. */
     suspend fun factsFrom(eventId: Long): List<Fact>
 
@@ -127,6 +130,8 @@ class InMemoryMemoryStore : MemoryStore {
 
     override suspend fun activeFacts() = state.value.facts.values.filter { it.status == FactStatus.ACTIVE }.sortedBy { it.id }
 
+    override suspend fun upcomingFacts() = state.value.facts.values.filter { it.status == FactStatus.UPCOMING }.sortedBy { it.id }
+
     override suspend fun factsFrom(eventId: Long) = state.value.facts.values.filter { eventId in it.sources }.sortedBy { it.id }
 
     override suspend fun factsSupersededBy(factId: Long) = state.value.facts.values.filter { it.supersededBy == factId }
@@ -158,7 +163,7 @@ class InMemoryMemoryStore : MemoryStore {
     }
 
     override fun observeFacts(): Flow<List<Fact>> =
-        state.map { s -> s.facts.values.filter { it.status == FactStatus.ACTIVE }.sortedBy { it.id } }
+        state.map { s -> s.facts.values.filter { it.status == FactStatus.ACTIVE || it.status == FactStatus.UPCOMING }.sortedBy { it.id } }
 
     override fun observePendingCount(): Flow<Int> = state.map { s -> s.events.values.count { it.status == EventStatus.PENDING } }
 

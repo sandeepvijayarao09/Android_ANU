@@ -33,6 +33,7 @@ data class ExtractedFact(
     @Description("The exact words in the message that say this") val quote: String,
     @Description("True for health, money, precise location, ID numbers or intimate details") val sensitive: Boolean = false,
     @Description("True when a person has only one at a time, such as an employer or a home city") val single: Boolean = false,
+    @Description("Only for a fact that isn't true yet: the day it starts, as YYYY-MM-DD") val starts: String? = null,
 )
 
 @Serializable
@@ -120,6 +121,7 @@ class FactExtractor(
             Skip requests to the assistant, questions, plans for today only, and anything the message doesn't say.
             Never include passwords, codes, or card or account numbers.
             Use "user" as the subject for the user. Copy the words that state each fact into quote.
+            A fact that starts later, such as a move next month or a new job in March, gets starts: the day it begins, as YYYY-MM-DD.
             Example message: "My manager Maya wants the report by Friday. I'm vegetarian, so pick somewhere veggie."
             Example answer: {"facts":[{"subject":"user","predicate":"manager","value":"Maya","section":"people","quote":"My manager Maya","single":true},{"subject":"user","predicate":"diet","value":"vegetarian","section":"preferences","quote":"I'm vegetarian","single":true}]}
             If nothing qualifies, answer {"facts":[]}.
@@ -167,6 +169,9 @@ class FactExtractor(
          * Keeps a fact only if the message really says it and it is safe to keep. Small models sometimes
          * invent facts; requiring the quote, or at least the value, to appear in the message catches most.
          */
+        private val CHANGE_DAY = Regex("(move|moving|relocation|start|starting|join|joining|new_job)_(date|day|on|time|when)")
+        private val VAGUE = setOf("new job", "a new job", "job", "new", "work", "unknown", "n a", "none", "soon", "next month", "next week")
+
         internal fun accept(fact: ExtractedFact, message: String): ExtractedFact? {
             val subject = Normalize.subject(fact.subject)
             val predicate = Normalize.predicate(fact.predicate)
@@ -174,6 +179,9 @@ class FactExtractor(
             if (subject.isEmpty() || predicate.isEmpty() || value.isEmpty()) return null
             if (subject.length > 60 || predicate.length > 40 || value.length > 120) return null
             if (!MemoryFilters.safeToKeep("$predicate $value")) return null
+            // A change's day is the fact's start, not a fact of its own ("move_date: 2026-12-01"), and "new job" says
+            // nothing to keep (ADR-147). On the Pixel, E4B wrote both beside "move: Porto".
+            if (CHANGE_DAY.matches(predicate) || Normalize.value(value) in VAGUE) return null
             val said = Normalize.words(message)
             val quoted = Normalize.words(fact.quote).isNotEmpty() && Normalize.words(fact.quote).all { it in said }
             val valueSaid = Normalize.words(value).all { it in said }

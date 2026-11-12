@@ -181,8 +181,9 @@ object MemoryEval {
                 is MemoryStep.Forget -> events[step.step]?.let { memory.forgetSource(it) }
                 is MemoryStep.Later -> now += Duration.ofDays(step.days)
             }
-            // Learning runs between messages, as it does while the phone is idle and charging.
-            if (step is MemoryStep.Says || step is MemoryStep.Notified) memory.processPending()
+            // Learning runs between messages, as it does while the phone is idle and charging, and every night: a day
+            // that passes brings its run, which is when upcoming facts come true (ADR-147).
+            if (step is MemoryStep.Says || step is MemoryStep.Notified || step is MemoryStep.Later) memory.processPending()
         }
         val active = store.activeFacts()
         val missing = scenario.active.filter { gold -> active.none(gold::matches) }

@@ -76,7 +76,9 @@ internal object Normalize {
      */
     private val CANONICAL: Map<String, String> = buildMap {
         fun to(canonical: String, vararg words: String) = words.forEach { put(it, canonical) }
-        to("lives_in", "residence", "resides_in", "location", "current_location", "current_city", "city", "home_city", "home", "lives", "lives_at", "based_in", "located_in")
+        to("lives_in", "residence", "resides_in", "location", "current_location", "current_city", "city", "home_city", "home", "lives", "lives_at", "based_in", "located_in",
+            // A move is where someone lives, now or from its day (ADR-147): E4B wrote move, moved_to and moving_to.
+            "move", "moves_to", "moved_to", "moving_to", "moving", "relocating_to", "relocated_to", "relocation", "new_city", "new_home")
         to("works_at", "workplace", "employer", "company", "works_for", "employed_at", "employed_by", "job_at", "organization", "workplace_name")
         to("job_title", "job", "occupation", "profession", "role", "position", "title")
         to("likes", "hobby", "hobbies", "enjoys", "interest", "interests", "likes_to", "loves", "passion")

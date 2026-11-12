@@ -160,6 +160,62 @@ class MemoryPipelineTest {
     }
 
     @Test
+    fun `a move next month is upcoming, replaces nothing, and comes true on its day (ADR-147)`() = runTest {
+        learn("I live in Austin", fact("user", "lives_in", "Austin", "places", "I live in Austin", single = true))
+        learn("I'm moving to Denver next month", fact("user", "lives_in", "Denver", "places", "I'm moving to Denver next month", single = true))
+        assertEquals(listOf("lives in: Austin"), store.activeFacts().map { it.text })
+        val plan = store.upcomingFacts().single()
+        assertEquals(LocalDate.of(2026, 10, 1), plan.startsOn)
+        assertEquals("lives in: Denver (from 1 October 2026)", plan.text)
+        assertTrue("the Memory tab lists it", memory.facts.value.any { it.id == plan.id })
+        assertTrue("a question brings it with its day", memory.relevant("When do I get to Denver?").any { it.id == plan.id })
+        assertEquals("the profile holds only what's true now", "- lives in: Austin", store.latestProfile().single { it.section == ProfileSection.PLACES }.text)
+
+        now = Instant.parse("2026-10-02T09:00:00Z")
+        memory.relevant("Where do I live?")
+        assertEquals(listOf("lives in: Denver"), store.activeFacts().map { it.text })
+        assertEquals(FactStatus.SUPERSEDED, store.allFacts().single { it.value == "Austin" }.status)
+        assertEquals("- lives in: Denver", store.latestProfile().single { it.section == ProfileSection.PLACES }.text)
+    }
+
+    @Test
+    fun `the model's words for a move are where the user will live, and its date and vague companions are dropped`() = runTest {
+        learn(
+            "I'm moving to Porto next month for a new job",
+            fact("user", "move", "Porto", "places", "I'm moving to Porto next month"),
+            fact("user", "move_date", "2026-11-05", "places", "next month"),
+            fact("user", "job_title", "new job", "work", "a new job"),
+        )
+        assertTrue(store.activeFacts().isEmpty())
+        val plan = store.upcomingFacts().single()
+        assertEquals("lives_in" to "Porto", plan.predicate to plan.value)
+        assertEquals(LocalDate.of(2026, 10, 1), plan.startsOn)
+    }
+
+    @Test
+    fun `a new plan replaces the old plan, and the user's own word still stands on the day`() = runTest {
+        memory.remember("user", "lives_in", "Austin", ProfileSection.PLACES, sensitive = false, ref = null)
+        learn("I'm moving to Denver next month", fact("user", "lives_in", "Denver", "places", "I'm moving to Denver next month", single = true))
+        learn("Actually I'm moving to Chicago next month", fact("user", "lives_in", "Chicago", "places", "I'm moving to Chicago next month", single = true))
+        assertEquals(listOf("Chicago"), store.upcomingFacts().map { it.value })
+
+        now = Instant.parse("2026-10-02T09:00:00Z")
+        memory.processPending()
+        assertEquals("an inferred plan doesn't replace what the user told Anu", listOf("Austin"), store.activeFacts().map { it.value })
+        assertTrue(store.upcomingFacts().isEmpty())
+    }
+
+    @Test
+    fun `an upcoming fact can be deleted, and forgetting its message removes it`() = runTest {
+        learn("I'm moving to Denver next month", fact("user", "lives_in", "Denver", "places", "I'm moving to Denver next month", single = true))
+        memory.delete(store.upcomingFacts().single().id)
+        assertTrue(store.upcomingFacts().isEmpty())
+        val event = learn("I'm moving to Porto next month", fact("user", "lives_in", "Porto", "places", "I'm moving to Porto next month", single = true))
+        memory.forgetSource(event)
+        assertTrue(store.allFacts().none { it.value == "Porto" })
+    }
+
+    @Test
     fun `facts the message doesn't say, and secrets, are dropped`() = runTest {
         learn(
             "I'm vegetarian these days",

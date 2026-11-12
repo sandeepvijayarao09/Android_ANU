@@ -86,6 +86,16 @@ object MemoryEvalSet {
             active = listOf(me("works_at", "Litware", "work")),
         ),
         MemoryScenario(
+            "a coming move comes true on its day",
+            listOf(
+                Says("I live in Lisbon", listOf(me("lives_in", "Lisbon", "places"))),
+                Says("I'm moving to Porto next month for a new job", listOf(me("lives_in", "Porto", "places"))),
+                Later(45),
+            ),
+            active = listOf(me("lives_in", "Porto", "places")),
+            probes = listOf(Probe("Where do I live?", listOf(me("lives_in", "Porto", "places")))),
+        ),
+        MemoryScenario(
             "small talk brings no facts",
             listOf(Says("I'm vegetarian and I live in Lisbon", listOf(me("diet", "vegetarian", "preferences"), me("lives_in", "Lisbon", "places")))),
             active = listOf(me("diet", "vegetarian", "preferences"), me("lives_in", "Lisbon", "places")),
@@ -134,7 +144,8 @@ object MemoryEvalSet {
                 Says("I'm moving to Denver next month", listOf(me("lives_in", "Denver", "places"))),
             ),
             active = listOf(me("lives_in", "Austin", "places")),
-            gap = "time: facts valid from a date",
+            probes = listOf(Probe("Where do I live?", listOf(me("lives_in", "Austin", "places")))),
+            // Closed by ADR-147: a fact that starts later is upcoming until its day.
         ),
         MemoryScenario(
             "a question about a person brings their facts, and not others'",

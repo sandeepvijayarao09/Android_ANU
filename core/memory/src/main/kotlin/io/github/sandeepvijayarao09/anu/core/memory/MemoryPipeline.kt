@@ -13,6 +13,7 @@ import kotlinx.coroutines.sync.Mutex
 import java.security.MessageDigest
 import java.time.Duration
 import java.time.Instant
+import java.time.LocalDate
 import java.time.ZoneId
 
 /** What the Memory tab shows (§8.4). */
@@ -102,7 +103,55 @@ class MemoryPipeline(
         }
 
     /** Loads the active facts. Call once at startup. */
-    suspend fun start() = reload()
+    suspend fun start() {
+        activateDue()
+        reload()
+    }
+
+    /** The user's own calendar day. */
+    private fun today(): LocalDate = LocalDate.ofInstant(clock(), zone())
+
+    /** The last day [activateDue] looked, so asking per message costs one comparison once it has. */
+    @Volatile private var checked: LocalDate? = null
+
+    /**
+     * Upcoming facts whose day has come become active (ADR-147), and replace what they were to replace, by the same
+     * rules as a new fact: a one-at-a-time relation's old value is superseded, but an inferred fact never replaces the
+     * user's own word (P5), and someone else's words never replace the user's (ADR-127). One that may not replace
+     * stays in history, superseded by the fact that stood. Runs at most once a day.
+     */
+    private suspend fun activateDue() {
+        val today = today()
+        if (checked == today) return
+        var changed = false
+        store.atomically {
+            for (fact in store.upcomingFacts().filter { it.startsOn == null || !it.startsOn.isAfter(today) }) {
+                val predicate = Normalize.predicate(fact.predicate)
+                val related = store.activeFacts().filter { it.subject.equals(fact.subject, ignoreCase = true) && Normalize.predicate(it.predicate) == predicate }
+                val same = related.firstOrNull { Normalize.value(it.value) == Normalize.value(fact.value) }
+                val replaced = if (predicate in Normalize.SINGLE_VALUED) related - setOfNotNull(same) else emptyList()
+                val blockedBy = when (fact.origin) {
+                    FactOrigin.INFERRED -> replaced.firstOrNull { it.origin == FactOrigin.USER_STATED }
+                    FactOrigin.NOTICED -> replaced.firstOrNull { it.origin != FactOrigin.NOTICED }
+                    FactOrigin.USER_STATED -> null
+                }
+                when {
+                    same != null -> {
+                        store.updateFact(same.copy(sources = (same.sources + fact.sources).distinct(), lastConfirmed = clock()))
+                        store.deleteFact(fact.id)
+                    }
+                    blockedBy != null -> store.updateFact(fact.copy(status = FactStatus.SUPERSEDED, supersededBy = blockedBy.id))
+                    else -> {
+                        store.updateFact(fact.copy(status = FactStatus.ACTIVE, lastConfirmed = clock()))
+                        replaced.forEach { store.updateFact(it.copy(status = FactStatus.SUPERSEDED, supersededBy = fact.id)) }
+                    }
+                }
+                changed = true
+            }
+        }
+        checked = today
+        if (changed) refreshProfile()
+    }
 
     /** 1. Capture: keeps a chat message to learn from later, if it is safe to keep and about someone. */
     suspend fun captureChat(text: String, ref: String): Long? {
@@ -180,6 +229,7 @@ class MemoryPipeline(
         var notifications = 0
         try {
             expireNotifications()
+            activateDue()
             loop@ while (shouldContinue()) {
                 val batch = store.pending(BATCH + tried.size).filter { it.id !in tried }
                 if (batch.isEmpty()) break
@@ -260,7 +310,7 @@ class MemoryPipeline(
             val event = MemoryEvent(0, clock(), EventSource.STATEMENT, statement, ref, EventStatus.DONE, 1)
             val id = store.addEvent(event)
             reconcile(event.copy(id = id), listOf(candidate.copy(quote = statement)), FactOrigin.USER_STATED)
-            store.activeFacts().first { it.subject.equals(candidate.subject, ignoreCase = true) && it.predicate == candidate.predicate && Normalize.value(it.value) == Normalize.value(candidate.value) }
+            shown().first { it.subject.equals(candidate.subject, ignoreCase = true) && it.predicate == candidate.predicate && Normalize.value(it.value) == Normalize.value(candidate.value) }
         }
         refreshProfile()
         return kept
@@ -272,7 +322,8 @@ class MemoryPipeline(
      * else wrote them (ADR-127).
      */
     suspend fun search(query: String, limit: Int = 10): List<Fact> {
-        val facts = store.activeFacts().filter { it.origin != FactOrigin.NOTICED }.sortedWith(IMPORTANCE)
+        activateDue()
+        val facts = shown().filter { it.origin != FactOrigin.NOTICED }.sortedWith(IMPORTANCE)
         val asked = Normalize.words(query).map { if (it in SELF_WORDS) USER else it }.filter { it !in STOP_WORDS }
         if (asked.isEmpty()) return facts.take(limit)
         // A word for a relation also finds its canonical one: "allergy" finds allergic_to, "job" works_at (ADR-144).
@@ -288,9 +339,12 @@ class MemoryPipeline(
             .map { (fact, _) -> fact }
     }
 
+    /** Active facts and upcoming ones: what the Memory tab shows, and what the user can confirm, correct or delete. */
+    private suspend fun shown(): List<Fact> = store.activeFacts() + store.upcomingFacts()
+
     override suspend fun delete(factId: Long) {
         store.atomically {
-            val fact = store.activeFacts().firstOrNull { it.id == factId } ?: return@atomically
+            val fact = shown().firstOrNull { it.id == factId } ?: return@atomically
             store.reject(Normalize.fingerprint(fact.subject, fact.predicate, fact.value))
             store.deleteFact(fact.id)
         }
@@ -299,7 +353,7 @@ class MemoryPipeline(
 
     override suspend fun confirm(factId: Long) {
         store.atomically {
-            val fact = store.activeFacts().firstOrNull { it.id == factId } ?: return@atomically
+            val fact = shown().firstOrNull { it.id == factId } ?: return@atomically
             val event = store.addEvent(MemoryEvent(0, clock(), EventSource.EDIT, "You confirmed: ${fact.text}", null, EventStatus.DONE, 1))
             store.updateFact(fact.copy(origin = FactOrigin.USER_STATED, confidence = 1.0, lastConfirmed = clock(), sources = fact.sources + event))
         }
@@ -311,7 +365,7 @@ class MemoryPipeline(
         require(newValue.isNotEmpty()) { "The new value is empty." }
         require(MemoryFilters.safeToKeep(newValue)) { "Anu doesn't keep passwords, codes, or card, bank or ID numbers in memory." }
         store.atomically {
-            val fact = store.activeFacts().firstOrNull { it.id == factId } ?: return@atomically
+            val fact = shown().firstOrNull { it.id == factId } ?: return@atomically
             val corrected = fact.copy(value = newValue)
             val event = MemoryEvent(0, clock(), EventSource.EDIT, "You corrected: ${corrected.text}", null, EventStatus.DONE, 1)
             val eventId = store.addEvent(event)
@@ -344,7 +398,11 @@ class MemoryPipeline(
                 }
                 store.deleteFact(fact.id)
                 // Re-derive: what this fact had replaced stands again, as if the message was never said (I5).
-                store.factsSupersededBy(fact.id).forEach { store.updateFact(it.copy(status = FactStatus.ACTIVE, supersededBy = null)) }
+                // A plan it had replaced is a plan again until its day (ADR-147).
+                store.factsSupersededBy(fact.id).forEach {
+                    val status = if (it.startsOn?.isAfter(today()) == true) FactStatus.UPCOMING else FactStatus.ACTIVE
+                    store.updateFact(it.copy(status = status, supersededBy = null))
+                }
             }
         }
         refreshProfile()
@@ -358,8 +416,9 @@ class MemoryPipeline(
      */
     suspend fun relevant(message: String, previous: String? = null): List<RelevantFact> {
         val said = if (previous != null && Relevance.pointsBack(message)) "$previous\n$message" else message
-        // "My manager's birthday" also asks about whoever the manager is (ADR-145).
-        val facts = store.activeFacts()
+        activateDue()
+        // "My manager's birthday" also asks about whoever the manager is (ADR-145). Upcoming facts come with their day.
+        val facts = shown()
         val about = People.pointedTo(said, facts).let { people -> if (people.isEmpty()) said else said + "\n" + people.joinToString(" ") }
         return Relevance.pick(about, facts, similarities(about)).map { RelevantFact(it.text, it.sensitive, it.id, noticed = it.origin == FactOrigin.NOTICED) }
     }
@@ -413,7 +472,8 @@ class MemoryPipeline(
      * the block goes with every turn, and they would taint them all (ADR-127). They come only with a message they bear on.
      */
     suspend fun memoryBlock(budgetChars: Int = 1_500): String? {
-        val facts = store.activeFacts().filter { it.origin != FactOrigin.NOTICED }.sortedWith(IMPORTANCE)
+        activateDue()
+        val facts = shown().filter { it.origin != FactOrigin.NOTICED }.sortedWith(IMPORTANCE)
         if (facts.isEmpty()) return null
         val kept = mutableListOf<Fact>()
         var used = HEADER.length
@@ -465,6 +525,13 @@ class MemoryPipeline(
                 if (origin != FactOrigin.USER_STATED) continue
                 store.forgive(fingerprint)
             }
+            // A fact that comes true later is kept as upcoming, and replaces nothing until its day (ADR-147).
+            val startsOn = Upcoming.start(candidate.starts, candidate.quote, LocalDate.ofInstant(now, zone()))
+            if (startsOn != null) {
+                upcoming(event, candidate, origin, subject, predicate, value, startsOn)
+                changed++
+                continue
+            }
             // Facts kept before ADR-144 may be under a synonym: compared under the canonical word.
             val related = store.activeFacts().filter { it.subject.equals(subject, ignoreCase = true) && Normalize.predicate(it.predicate) == predicate }
             val same = related.firstOrNull { Normalize.value(it.value) == Normalize.value(value) }
@@ -511,6 +578,48 @@ class MemoryPipeline(
         return changed
     }
 
+    /**
+     * Keeps [candidate] as upcoming from [startsOn]. The same upcoming fact said again is confirmed, and a new day for
+     * it moves it; a new upcoming value for a one-at-a-time relation replaces the old plan ("Actually, Chicago").
+     */
+    private suspend fun upcoming(
+        event: MemoryEvent,
+        candidate: ExtractedFact,
+        origin: FactOrigin,
+        subject: String,
+        predicate: String,
+        value: String,
+        startsOn: LocalDate,
+    ) {
+        val now = clock()
+        val planned = store.upcomingFacts().filter { it.subject.equals(subject, ignoreCase = true) && Normalize.predicate(it.predicate) == predicate }
+        val same = planned.firstOrNull { Normalize.value(it.value) == Normalize.value(value) }
+        if (same != null) {
+            store.updateFact(
+                same.copy(
+                    origin = minOf(origin, same.origin), startsOn = startsOn, lastConfirmed = now,
+                    sources = (same.sources + event.id).distinct(), sensitive = same.sensitive || candidate.sensitive,
+                ),
+            )
+            return
+        }
+        val id = store.insertFact(
+            Fact(
+                id = 0, subject = subject, predicate = predicate, value = value, section = candidate.section,
+                confidence = when (origin) {
+                    FactOrigin.USER_STATED -> 1.0
+                    FactOrigin.INFERRED -> INFERRED_CONFIDENCE
+                    FactOrigin.NOTICED -> NOTICED_CONFIDENCE
+                },
+                origin = origin, status = FactStatus.UPCOMING, sensitive = candidate.sensitive,
+                evidence = candidate.quote.ifEmpty { null }, firstSeen = now, lastConfirmed = now, sources = listOf(event.id), startsOn = startsOn,
+            ),
+        )
+        if (candidate.single || predicate in Normalize.SINGLE_VALUED) {
+            planned.forEach { store.updateFact(it.copy(status = FactStatus.SUPERSEDED, supersededBy = id)) }
+        }
+    }
+
     /** Step 4: renders each section from its facts, and saves a new version only when it changed. */
     private suspend fun refreshProfile() {
         val facts = store.activeFacts().sortedWith(IMPORTANCE)
@@ -535,7 +644,7 @@ class MemoryPipeline(
     }
 
     private suspend fun reload() {
-        current.value = store.activeFacts()
+        current.value = shown()
     }
 
     companion object {
