@@ -66,6 +66,9 @@ import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.border
 import androidx.compose.runtime.rememberCoroutineScope
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.core.content.ContextCompat
 import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -129,6 +132,11 @@ fun TalkScreen(
     onOpenMemory: (Long?) -> Unit = {},
     /** Opens live camera (ADR-111), whose "Ask Anu about this" comes back as a photo. Null hides its row. */
     onLiveCamera: (() -> Unit)? = null,
+    /**
+     * The back camera for live talk (ADR-137), as Gemini Live's: shown with the given modifier, and handing over a
+     * source of its newest frame while it's open. Null hides the live Camera button.
+     */
+    liveCamera: (@Composable (Modifier, ((() -> ByteArray?)?) -> Unit) -> Unit)? = null,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val colors = AnuTheme.colors
@@ -136,6 +144,13 @@ fun TalkScreen(
     // Leaving Anu ends a voice note (ADR-078); rotating or a theme change only rebuilds the screen.
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) { if (activity?.isChangingConfigurations != true) viewModel.leftAnu() }
     var input by rememberSaveable { mutableStateOf("") }
+    val cameraContext = LocalContext.current
+    // Live talk's camera asks for the camera the first time, as live camera does (MEDIA-4).
+    val askCamera = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted -> if (granted) viewModel.toggleLiveCamera() }
+    val toggleCamera = {
+        val allowed = ContextCompat.checkSelfPermission(cameraContext, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+        if (state.liveCamera || allowed) viewModel.toggleLiveCamera() else askCamera.launch(Manifest.permission.CAMERA)
+    }
     val typing = remember { FocusRequester() }
     val talk = { if (micGranted) viewModel.toggleListening() else onRequestMic(viewModel::toggleListening) }
     val list = rememberLazyListState()
@@ -191,7 +206,7 @@ fun TalkScreen(
         HorizontalDivider(thickness = 0.5.dp, color = if (showThread && scrolled) colors.separator else Color.Transparent)
         Box(Modifier.weight(1f).fillMaxWidth()) {
             when {
-                inLive -> Live(state)
+                inLive -> if (state.liveCamera && liveCamera != null) LiveWithCamera(state, liveCamera, viewModel::liveFrames) else Live(state)
                 state.bubbles.isEmpty() -> Welcome(state, awayPulse, onSuggestion = { viewModel.send(it) }, onTalk = talk)
                 else -> Thread(state, list, onRetry = viewModel::retryWithPro, onAskGemini = viewModel::askGemini, onAbout = viewModel::openAbout, loadPhoto = viewModel::photo)
             }
@@ -209,6 +224,8 @@ fun TalkScreen(
                     contentAlignment = Alignment.Center,
                 ) { Icon(AnuIcons.Stop, contentDescription = "End live talk", Modifier.size(22.dp), tint = colors.text) }
                 AnuTextButton(if (state.muted) "Unmute" else "Mute", onClick = viewModel::toggleMute, color = colors.textMuted)
+                // Gemini Live's camera (ADR-137): talk about what the back camera sees.
+                if (liveCamera != null) AnuTextButton(if (state.liveCamera) "Camera off" else "Camera", onClick = toggleCamera, color = if (state.liveCamera) colors.accent else colors.textMuted)
             }
         } else {
             VoiceProblem(state, onGetSpeech = viewModel::downloadLanguagePack)
@@ -334,6 +351,46 @@ private fun Live(state: ChatUiState) {
                 },
                 style = AnuTheme.type.callout,
                 color = colors.textMuted,
+            )
+        }
+    }
+}
+
+/**
+ * Live talk with the camera on (ADR-137): the back camera fills the screen, as on Gemini Live, dark whatever the theme,
+ * with the sphere small at the top and the caption over a scrim at the bottom. Each spoken question takes the camera's
+ * frame from that moment.
+ */
+@Composable
+private fun LiveWithCamera(
+    state: ChatUiState,
+    camera: @Composable (Modifier, ((() -> ByteArray?)?) -> Unit) -> Unit,
+    onFrames: ((() -> ByteArray?)?) -> Unit,
+) {
+    val asked = state.bubbles.lastOrNull { it.fromUser }?.text.orEmpty()
+    val answer = state.bubbles.lastOrNull()?.takeIf { !it.fromUser }?.text.orEmpty().replace("**", "").replace("*", "")
+    val caption = when (state.voice) {
+        VoicePhase.LISTENING -> state.heard.ifEmpty { "Ask about what you see…" }
+        VoicePhase.THINKING -> asked
+        else -> answer.ifEmpty { asked }
+    }
+    Box(Modifier.fillMaxSize().background(Color.Black)) {
+        camera(Modifier.fillMaxSize(), onFrames)
+        Sphere(state.voice.sphere(), 56.dp, Modifier.align(Alignment.TopCenter).padding(top = 16.dp), level = state.level, errorPulse = state.failures)
+        Column(
+            Modifier.align(Alignment.BottomCenter).fillMaxWidth().background(Color.Black.copy(alpha = 0.55f)).padding(horizontal = 24.dp, vertical = 18.dp),
+        ) {
+            Text(caption, style = AnuTheme.type.body, color = Color.White, maxLines = 6)
+            Text(
+                when (state.voice) {
+                    VoicePhase.LISTENING -> "Listening · the camera goes with your question"
+                    VoicePhase.THINKING -> THINKING
+                    VoicePhase.SPEAKING -> "Speaking"
+                    VoicePhase.IDLE -> "Live"
+                },
+                Modifier.padding(top = 10.dp),
+                style = AnuTheme.type.callout,
+                color = Color.White.copy(alpha = 0.7f),
             )
         }
     }

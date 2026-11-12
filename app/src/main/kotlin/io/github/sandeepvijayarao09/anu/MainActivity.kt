@@ -50,6 +50,7 @@ import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.sandeepvijayarao09.anu.feature.home.TalkScreen
 import io.github.sandeepvijayarao09.anu.feature.home.ChatViewModel
+import io.github.sandeepvijayarao09.anu.feature.camera.LiveTalkCamera
 import io.github.sandeepvijayarao09.anu.feature.memory.MemoryScreen
 import io.github.sandeepvijayarao09.anu.feature.memory.MemoryViewModel
 import io.github.sandeepvijayarao09.anu.feature.vault.VaultScreen
@@ -271,6 +272,8 @@ private fun AnuHome(graph: AppGraph, shared: MutableStateFlow<Shared?>) {
                             scope.launch { pager.animateScrollToPage(1) }
                         },
                         onLiveCamera = { liveCamera.launch(Intent(context, LiveCameraActivity::class.java)) },
+                        // Gemini Live's camera, on the phone (ADR-137).
+                        liveCamera = { cameraModifier, onFrames -> LiveTalkCamera(cameraModifier, onFrames) },
                     )
                     1 -> MemoryScreen(memory, sentToday, onOpenPrivacy = openPrivacy)
                     else -> SettingsScreen(

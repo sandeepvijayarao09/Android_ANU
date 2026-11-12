@@ -147,6 +147,23 @@ class VoiceChatViewModelTest {
     }
 
     @Test
+    fun `with the camera on, a spoken live question goes with the camera's frame, and a typed one doesn't (ADR-137)`() {
+        val frame = byteArrayOf(1, 2, 3)
+        chat.liveFrames { frame }
+        chat.toggleLiveCamera()
+        ears.events = listOf(SpeechEvent.Final("What is this?"))
+        base.enqueue(Step.Reply("A mug."), Step.Reply("Hello."))
+        chat.toggleListening()
+        val asked = state.bubbles.first { it.fromUser }
+        assertEquals(1, asked.photos.size)
+        assertTrue(asked.photos.single().bytes!!.contentEquals(frame))
+        chat.endLive()
+        assertFalse("ending live talk closes the camera", state.liveCamera)
+        chat.send("Hi")
+        assertTrue(state.bubbles.last { it.fromUser }.photos.isEmpty())
+    }
+
+    @Test
     fun `live talk listens again once Anu has spoken, and enough silent listens in a row end it (ADR-101)`() {
         ears.events = listOf(SpeechEvent.Final("What's the weather like?"))
         base.enqueue(Step.Reply("It's sunny today."), Step.Reply("You're welcome."))

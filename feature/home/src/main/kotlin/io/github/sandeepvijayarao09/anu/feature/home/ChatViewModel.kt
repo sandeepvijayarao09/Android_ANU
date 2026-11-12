@@ -186,6 +186,8 @@ data class ChatUiState(
     val level: Float = 0f,
     val speaking: Boolean = false,
     val muted: Boolean = false,
+    /** Live talk with the camera on (ADR-137): each spoken question goes with what the camera sees. */
+    val liveCamera: Boolean = false,
     /**
      * Live talk (ADR-101): after each spoken answer Anu listens again by itself, until the user ends it, leaves Anu
      * where it can't go on behind other apps (ADR-108), or [LIVE_MISSES] listens in a row hear nothing.
@@ -477,9 +479,20 @@ class ChatViewModel(
         if (mutable.value.busy) stop()
     }
 
-    /** Ends live talk: stops listening and speaking, and doesn't listen again. */
+    /** The camera in live talk (ADR-137), on or off. */
+    fun toggleLiveCamera() = mutable.update { it.copy(liveCamera = !it.liveCamera) }
+
+    /** The camera's newest frame as a JPEG, while live talk's camera is open; null once it closes. */
+    @Volatile
+    private var liveFrame: (() -> ByteArray?)? = null
+
+    fun liveFrames(source: (() -> ByteArray?)?) {
+        liveFrame = source
+    }
+
+    /** Ends live talk: stops listening and speaking, and doesn't listen again. The camera closes with it. */
     fun endLive() {
-        mutable.update { it.copy(live = false) }
+        mutable.update { it.copy(live = false, liveCamera = false) }
         listening?.cancel()
         speechOut?.stop()
     }
@@ -535,7 +548,9 @@ class ChatViewModel(
     fun send(text: String, spoken: Boolean = false) {
         val trimmed = text.trim()
         val state = mutable.value
-        val picked = state.attachments
+        // In live talk with the camera on, a spoken question goes with what the camera sees now (ADR-137).
+        val seen = if (spoken && state.live && state.liveCamera && state.attachments.isEmpty()) liveFrame?.invoke() else null
+        val picked = state.attachments + listOfNotNull(seen)
         val voice = state.recording
         val pdf = state.pdf
         if ((trimmed.isEmpty() && picked.isEmpty() && voice == null && pdf == null) || state.busy || state.recordingSeconds != null) return
