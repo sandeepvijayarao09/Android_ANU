@@ -52,6 +52,8 @@ import io.github.sandeepvijayarao09.anu.feature.home.TalkScreen
 import io.github.sandeepvijayarao09.anu.feature.home.ChatViewModel
 import io.github.sandeepvijayarao09.anu.feature.memory.MemoryScreen
 import io.github.sandeepvijayarao09.anu.feature.memory.MemoryViewModel
+import io.github.sandeepvijayarao09.anu.feature.vault.VaultScreen
+import io.github.sandeepvijayarao09.anu.feature.vault.VaultViewModel
 import io.github.sandeepvijayarao09.anu.feature.memory.NoteShelf
 import io.github.sandeepvijayarao09.anu.feature.memory.ShelfNote
 import kotlinx.coroutines.flow.map
@@ -137,6 +139,9 @@ private fun AnuHome(graph: AppGraph, shared: MutableStateFlow<Shared?>) {
             behind = graph.liveTalk, bargeIn = graph.bargeIn,
         ).also(graph.liveTalk::attach)
     }
+    // The Vault page (ADR-135): Settings → Privacy → Vault.
+    val vault = viewModel { VaultViewModel(graph.vaultShelf) }
+    val vaultState by vault.state.collectAsStateWithLifecycle()
     val memory = viewModel {
         MemoryViewModel(graph.memory, noteShelf = object : NoteShelf {
             override val notes = graph.notes.observe().map { list -> list.map { ShelfNote(it.id, it.title, it.text, it.updatedAtMillis) } }
@@ -220,6 +225,8 @@ private fun AnuHome(graph: AppGraph, shared: MutableStateFlow<Shared?>) {
     val awayPulse = ledger.count { it.at.isAfter(opened) }
     var privacyOpen by rememberSaveable { mutableStateOf(false) }
     var settingsPage by rememberSaveable { mutableStateOf(SettingsPage.MAIN) }
+    // The Vault row's count, read again each time Settings shows its home (ADR-135).
+    LaunchedEffect(pager.currentPage, settingsPage) { if (pager.currentPage == SETTINGS && settingsPage == SettingsPage.MAIN) vault.refresh() }
     val openPrivacy: () -> Unit = { privacyOpen = true }
     val reducedMotion = rememberReducedMotion()
     // The assistant overlay shares this conversation, so show what was said there.
@@ -266,7 +273,11 @@ private fun AnuHome(graph: AppGraph, shared: MutableStateFlow<Shared?>) {
                         onLiveCamera = { liveCamera.launch(Intent(context, LiveCameraActivity::class.java)) },
                     )
                     1 -> MemoryScreen(memory, sentToday, onOpenPrivacy = openPrivacy)
-                    else -> SettingsScreen(settings, sentToday, onOpenPrivacy = openPrivacy, page = settingsPage, onPage = { settingsPage = it }, lab = lab)
+                    else -> SettingsScreen(
+                        settings, sentToday, onOpenPrivacy = openPrivacy, page = settingsPage, onPage = { settingsPage = it }, lab = lab,
+                        vaultCount = vaultState.items.size,
+                        vaultPage = { onBack, onOpenActivity -> VaultScreen(vault, sentToday, openPrivacy, onOpenActivity = onOpenActivity, onBack = onBack) },
+                    )
                 }
             }
             AnimatedVisibility(

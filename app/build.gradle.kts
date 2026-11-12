@@ -72,6 +72,7 @@ dependencies {
     implementation(project(":core:ui"))
     implementation(project(":feature:settings"))
     implementation(project(":feature:memory"))
+    implementation(project(":feature:vault"))
     implementation(project(":feature:writing"))
     implementation(project(":feature:keyboard"))
     implementation(project(":feature:camera")) // live camera (ADR-111)

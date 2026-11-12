@@ -191,6 +191,8 @@ class AppGraph(private val context: Context) {
     val vault = Vault(File(context.noBackupFilesDir, "vault"), KeystoreKeyProtector(), audit = { ref, caller, host, at ->
         vaultAudit.used(ref, caller, host, at)
     })
+    /** The Vault page's view of the vault (ADR-135). */
+    val vaultShelf by lazy { VaultShelfImpl(vault) }
     val ledger: PrivacyLedger by lazy { RoomPrivacyLedger(db.ledger(), scope) }
     private val egress by lazy { EgressGate(ledger) }
 

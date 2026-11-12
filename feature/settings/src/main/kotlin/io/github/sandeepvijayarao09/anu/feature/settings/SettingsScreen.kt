@@ -55,6 +55,7 @@ enum class SettingsPage(val title: String) {
     MODELS("Models"),
     ACTIVITY("Activity"),
     VAULT("Vault activity"),
+    VAULT_KEYS("Vault"),
     LAB("Prompt lab"),
     SKILLS("Skills"),
     NOTIFICATIONS("Learn from notifications"),
@@ -75,11 +76,20 @@ fun SettingsScreen(
     modifier: Modifier = Modifier,
     /** The prompt lab (G7, ADR-080), when the phone can run models. */
     lab: LabViewModel? = null,
+    /** How many items the vault holds, for its row. */
+    vaultCount: Int = 0,
+    /**
+     * The Vault page (ADR-135), which `app` fills from `feature:vault`: features don't depend on each other (§4.2).
+     * Without it, Settings shows only Vault activity.
+     */
+    vaultPage: (@Composable (onBack: () -> Unit, onOpenActivity: () -> Unit) -> Unit)? = null,
 ) {
     val home = rememberLazyListState()
     val reducedMotion = rememberReducedMotion()
     val back = { onPage(SettingsPage.MAIN) }
-    BackHandler(enabled = page != SettingsPage.MAIN, onBack = back)
+    // Vault activity opened from the Vault page goes back there (ADR-135).
+    val up = { if (page == SettingsPage.VAULT && vaultPage != null) onPage(SettingsPage.VAULT_KEYS) else back() }
+    BackHandler(enabled = page != SettingsPage.MAIN, onBack = up)
     AnimatedContent(
         targetState = page,
         modifier = modifier,
@@ -87,12 +97,14 @@ fun SettingsScreen(
         label = "settings page",
     ) { shown ->
         when (shown) {
-            SettingsPage.MAIN -> SettingsHome(viewModel, sentToday, onOpenPrivacy, onPage, home, hasLab = lab != null)
+            SettingsPage.MAIN -> SettingsHome(viewModel, sentToday, onOpenPrivacy, onPage, home, hasLab = lab != null, vault = if (vaultPage != null) vaultCount else null)
             SettingsPage.SERVICES -> ServicesPage(viewModel, sentToday, onOpenPrivacy, back)
             SettingsPage.STORES -> StoresPage(viewModel, sentToday, onOpenPrivacy, back)
             SettingsPage.MODELS -> ModelsPage(viewModel, sentToday, onOpenPrivacy, back)
             SettingsPage.ACTIVITY -> ActivityPage(viewModel, sentToday, onOpenPrivacy, back)
-            SettingsPage.VAULT -> VaultPage(viewModel, sentToday, onOpenPrivacy, back)
+            // Vault activity opens from the Vault page, so Back goes there.
+            SettingsPage.VAULT -> VaultPage(viewModel, sentToday, onOpenPrivacy, if (vaultPage != null) ({ onPage(SettingsPage.VAULT_KEYS) }) else back)
+            SettingsPage.VAULT_KEYS -> if (vaultPage != null) vaultPage(back) { onPage(SettingsPage.VAULT) } else back()
             SettingsPage.SKILLS -> SkillsPage(viewModel, sentToday, onOpenPrivacy, back)
             SettingsPage.NOTIFICATIONS -> NotificationLearningPage(viewModel, sentToday, onOpenPrivacy, back)
             SettingsPage.LAB -> if (lab != null) LabPage(lab, sentToday, onOpenPrivacy, back, onOpenModels = { onPage(SettingsPage.MODELS) }) else back()
@@ -108,6 +120,8 @@ private fun SettingsHome(
     onPage: (SettingsPage) -> Unit,
     list: LazyListState,
     hasLab: Boolean = false,
+    /** The vault's item count, or null where there's no Vault page. */
+    vault: Int? = null,
 ) {
     val message by viewModel.message.collectAsStateWithLifecycle()
     AnuPage("Settings", sentToday, onOpenPrivacy, listState = list) {
@@ -116,7 +130,7 @@ private fun SettingsHome(
         item(key = "keyboard") { KeyboardGroup() }
         item(key = "connections") { ConnectionsGroup(viewModel, onPage) }
         item(key = "intelligence") { IntelligenceGroup(viewModel, onPage, hasLab) }
-        item(key = "privacy") { PrivacyGroup(viewModel, sentToday, onOpenPrivacy, onPage) }
+        item(key = "privacy") { PrivacyGroup(viewModel, sentToday, onOpenPrivacy, onPage, vault) }
     }
 }
 
@@ -467,7 +481,7 @@ private fun IntelligenceGroup(viewModel: SettingsViewModel, onPage: (SettingsPag
 
 /** The records Anu keeps on the phone: what left it, what Anu did, and when a saved key was used. */
 @Composable
-private fun PrivacyGroup(viewModel: SettingsViewModel, sentToday: Int, onOpenPrivacy: () -> Unit, onPage: (SettingsPage) -> Unit) {
+private fun PrivacyGroup(viewModel: SettingsViewModel, sentToday: Int, onOpenPrivacy: () -> Unit, onPage: (SettingsPage) -> Unit, vault: Int? = null) {
     val actions by viewModel.toolActions.collectAsStateWithLifecycle()
     val zone = ZoneId.systemDefault()
     val today = LocalDate.now(zone)
@@ -485,7 +499,12 @@ private fun PrivacyGroup(viewModel: SettingsViewModel, sentToday: Int, onOpenPri
             GroupDivider()
             GroupRow("Activity", value = if (actionsToday > 0) "$actionsToday today" else null, chevron = true, onClick = { onPage(SettingsPage.ACTIVITY) })
             GroupDivider()
-            GroupRow("Vault activity", chevron = true, onClick = { onPage(SettingsPage.VAULT) })
+            if (vault != null) {
+                // The saved keys, with Vault activity inside (ADR-135).
+                GroupRow("Vault", value = if (vault == 1) "1 item" else if (vault == 0) "Empty" else "$vault items", chevron = true, onClick = { onPage(SettingsPage.VAULT_KEYS) })
+            } else {
+                GroupRow("Vault activity", chevron = true, onClick = { onPage(SettingsPage.VAULT) })
+            }
         }
         GroupFooter("These records stay on this phone. They say what happened and where, never the content.")
     }

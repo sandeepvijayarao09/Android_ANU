@@ -1,6 +1,6 @@
 # Anu for Android: Architecture
 
-Version 1.90.0 · Draft · 2026-11-11
+Version 1.91.0 · Draft · 2026-11-11
 Status: proposed. OD-1 to OD-4 were resolved on 2026-09-25 (§16).
 Product intent lives in [VISION.md](VISION.md).
 
@@ -226,7 +226,7 @@ sequenceDiagram
 | `feature:email` | Priority inbox, summaries, drafts | yes |
 | `feature:scheduling` | Scheduling assistant | yes |
 | `feature:memory` | Memory Inspector: facts grouped by section, search, a sheet per fact, and adding a memory in the user's own words | yes |
-| `feature:vault` | Vault UI | yes |
+| `feature:vault` | The Vault page (ADR-135): saved items without their secrets, a sheet per item, Show behind the system's biometric or screen-lock prompt, and Delete. It sees the vault only through its own `VaultShelf` contract, which `app` backs with `core:vault`; Settings shows the page through a slot `app` fills, since features don't depend on each other | yes |
 | `feature:settings` | Settings in four groups: voice (the assistant, "Hey Anu"), connections, models and the Gemini key, and the records. Services, Stores, Models, Activity and Vault activity are its pages. Also the Privacy report, which `app` opens over any page (ADR-050) | yes |
 | `eval` | JVM harness: router, tools, memory, injection, performance scripts | no |
 
@@ -959,6 +959,12 @@ Outlook / Microsoft 365 is not in v1 (OD-2). The connector contract allows addin
   - **Binding.** Each item is encrypted with associated data that binds its id, type, level, bound hosts and allowed users. Editing the stored metadata to point a secret elsewhere makes decryption fail.
   - **Errors.** An expired session surfaces as `VaultLockedException`: the UI prompts, then retries.
   - **Revealing** a secret on the vault screen always shows a biometric prompt first, whatever the level.
+- **The Vault page (ADR-135).** Settings → Privacy → Vault ("2 items") opens a page listing each item by label, with "Sent only to <host>" (or "Never sent") and when it was last used, then a "Vault activity" row. An item's sheet gives its kind, where it goes, which parts of Anu may use it ("Gemini", "Your Mac", "Services"), how it unlocks, and its dates.
+  - **Show** first asks `BiometricManager` whether the phone can prove it's the owner (a strong biometric or the screen lock), then runs the framework's `BiometricPrompt` with `BIOMETRIC_STRONG | DEVICE_CREDENTIAL`: it needs no Fragment, so it works from the app's `ComponentActivity`. Passing it calls `revealForUser`; a `VaultLockedException` (a screen-lock item whose session had ended) asks once more. A phone with neither says how to show values ("Set a screen lock…") in the sheet.
+  - **While a value is on screen** the sheet and the activity carry `FLAG_SECURE`, so no screenshot or recent-apps picture holds it. The value lives only in the page's state until the sheet closes; `VaultUiState` and `Revealed` print without it (I1).
+  - **Delete** asks first and says what stops working.
+  - The app declares `USE_BIOMETRIC` (a normal permission), from `feature:vault`'s manifest.
+  - Debug builds' `DebugVault` receiver adds a made-up item for testing: a fake API key, "test-key-not-real", bound to no host, or a secure note where the phone has a screen lock.
 - **Recovery (Planned):** an optional recovery passphrase (Argon2id-derived key) that also wraps the keysets. Until it exists:
   - Keys are created with `setInvalidatedByBiometricEnrollment(false)`, so a new fingerprint doesn't wipe the vault. The device credential already guards access.
   - If the device key is lost anyway, the vault resets and the user must re-enter secrets. This is warned about at setup.
@@ -1086,7 +1092,7 @@ Recommend a **paid** Gemini tier for personal data. Google's terms for unpaid Ge
 | Writing everywhere | `ACTION_PROCESS_TEXT` actions in the text-selection toolbar; share target. **As built (ADR-042):** "Anu" in any app's text-selection menu opens a sheet over that app, with six actions and a field for the user's own instruction. The result streams in, and Replace sends it back, or Copy when the other app marked the text read-only. The share target is Planned |
 | Keyboard (ADR-109, ADR-122) | Anu Keyboard, turned on in Android's keyboard settings: plain QWERTY typing in any app with the AI strip above the keys (Ask Anu, a field for the user's own instruction; Fix grammar, Expand and Emoji; the rest of AI Writing's actions; Continue; and Reply in a chat's field), on the phone only. A result is a preview until the user taps Replace or Insert. Password and incognito fields get no AI, and the keyboard reads nothing from them (§10) |
 | Notifications | Approvals with the exact payload, suggested replies, brief, follow-ups |
-| Management | Memory (grouped facts, search, a sheet per fact); Settings (connections, models, the Gemini key, services, stores, activity and vault activity); the Privacy report, over any page (ADR-050). A vault page of its own (`feature:vault`) is Planned |
+| Management | Memory (grouped facts, search, a sheet per fact); Settings (connections, models, the Gemini key, services, stores, activity and vault activity); the Privacy report, over any page (ADR-050). The Vault page (`feature:vault`, ADR-135) lists the saved keys, from Settings → Privacy |
 
 ## 14. Data storage
 
@@ -1732,6 +1738,7 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 | 090 | 2026-09-30 | A turn with nothing to answer isn't a failure: a recording with no words ends with `AgentEvent.NothingToAnswer`, shown as a quiet note that doesn't grey the sphere, and `AgentEvent.Failed` loses its `retry` flag, which only that case used. `markdown()` moves to `core:ui`, so the prompt lab's answer and reasoning, and the chat's reasoning, render Markdown as answers do | On the emulator, silence showed in red and greyed the sphere as if something broke, and the lab showed a model's "* " bullets and "**bold**" as written. The owner chose both on 2026-09-30 (DESIGN.md). One renderer keeps the chat and the lab alike; Copy still gives what the model wrote |
 | 091 | 2026-09-30 | A photo is kept, encrypted, only while its message is in the model's window; once the window passes it, the photo is deleted, and its bubble says "Photo no longer kept". Settles MEDIA-3 | The window only moves forward (§7.3), so the model never sees such a photo again, and keeping it would only hold personal data on the phone for nothing (P1). The user's original stays in their gallery or in the app that shared it, and the bubble keeps its place (design review D19). The answer about it stays in the chat, and routing by saved ids still keeps turns that show it on the phone (MEDIA-2). This was the plan's proposed default; the user asked Claude to decide without further questions, so it's Claude's call |
 | 092 | 2026-10-01 | "Reply to this" on the assistant card: the model writes only the reply, or "No message to reply to."; the card shows it as a draft for the chat on the screen, found from the screen's texts among the chats seen in notifications, with Copy first and Send… only while that chat's reply button exists; Send… is a no-model step through `messages_reply`, so the approval sheet shows the exact reply and the chat. Completes EXP-2 | The plan's design (D15) makes Copy the default, because apps often clear a chat's notification once it's open and Anu then loses its reply button (ADR-031). Finding the chat from the screen's own texts needs no new permission and stays in memory, and requiring exactly one match keeps a list of chats from guessing. A step with no model can't change the words between the draft and the sheet, and the broker still asks for the exact payload (I2). Asking for a fixed answer when there's nothing to reply to keeps a refusal from being offered as a reply; on the emulator, a settings page first got "I'm sorry, I don't have enough context…" in the draft panel. On anu_api36 with E4B, a made-up chat screen got only the reply in 3 of 3 runs, and a made-up settings screen "No message to reply to." in 3 of 3. The user asked Claude to decide the details without further questions |
+| 135 | 2026-11-11 | The Vault page, in a new `feature:vault` module: Settings → Privacy → Vault lists the saved items without their secrets; an item's sheet says where it goes and who may use it, Show runs the system's biometric or screen-lock prompt before `revealForUser`, and Delete asks first. Settings shows it through a slot `app` fills (§4.2), and Vault activity is a row inside it. On anu_api36, Show without a screen lock had crashed for want of `USE_BIOMETRIC`, so the module's manifest declares it. | `androidx.biometric`: it needs a `FragmentActivity`, and the app's is a `ComponentActivity`. Putting the page in `feature:settings`: it would see vault types beside everything else there. Showing values without a prompt when the phone has no screen lock: nothing would prove it's the owner. |
 | 134 | 2026-11-11 | The Notes page becomes Anu's notes app: "+" for a new note, a search, and an editor where the title and text are edited in place and saved half a second after the last change (`NoteDao.update`, no schema change). A new note exists once it has words. Talk's notes tools read and add to the same notes. | Connecting Obsidian or Google Keep instead: proposed first (Keep has no API for other apps), and the owner chose a notes app in Anu. A Save button: notes apps save as you type. |
 | 133 | 2026-11-11 | A Notes page, from a "Notes" row in the Memory tab: notes newest first, a sheet with the text, Copy and Delete. `feature:memory` reads them through `NoteShelf`, which the app backs with `RoomNoteStore`. Notes were kept but nowhere to be seen. | A fourth tab: DESIGN.md keeps three. Settings: notes are the user's own content, beside what Anu learned. Editing a note in place: notes are made and added to by asking in Talk, and Undo is still Planned. |
 | 132 | 2026-11-11 | A fact from notifications is kept only if it isn't sensitive, doesn't place the user (location, home, address, city) and holds no street address (`MemoryPipeline.noticeable`); the prompt says a notification's address is where something happens and an invitation isn't attendance. On the Pixel's first real Learn now (55 items, 2 learned), a Partiful invitation's venue became "Your location: Notion HQ, 685 Market St". | Prompt alone: the model had marked the address not sensitive. |
@@ -1817,7 +1824,7 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 | Cascade (Stage C: validate, repair, escalate, consent stop) in `core:agent` | 1 | Implemented, with 9 unit tests using `ScriptedBrain` |
 | Direct tier (deterministic handlers) | 2 | Planned. Needs connectors |
 | `core:vault`: store, Keystore protector, `SecretInjector` | 1 | Implemented. 10 JVM tests, plus 2 device tests with the real Keystore on the Anu emulator. The device tests found and fixed a hidden screen-lock error. Recovery passphrase Planned |
-| Vault UI and biometric prompt (`feature:vault`) | 1 | Planned |
+| Vault UI and biometric prompt (`feature:vault`, ADR-135) | 1 | Implemented. 8 JVM tests of the view model (listing, Show after the prompt, a locked vault asking again, a dismissed prompt, a phone with no screen lock, Delete, and no secret in printed state). On anu_api36 (no screen lock): the Settings row's count, the page, an item's sheet, Show saying a screen lock is needed, Delete, and Back from Vault activity. A real prompt and a revealed value wait for a phone with a screen lock |
 | Encrypted database (`core:data`): Room 2.8 + SQLCipher 4.19, key wrapping, transcript, ledger, audit, memory, connector and answer stores; schema v6 | 1 | **Verified on the Anu emulator**: the encryption-at-rest and migration device tests pass (no plain header, no canary, wrong key refused; v1→v2 through v5→v6 keep data). The personal build's real database migrated to v6 with its chat and memory intact. Plus 15 JVM tests |
 | Persistence wired: chat history restored at launch, ledger persisted, vault activity shown in Settings | 1 | Implemented, with a ViewModel test for restore. Not yet run on a device |
 | App shell: Talk, Memory and Settings pages (ADR-043) | 1 | Implemented. Runs on the Anu emulator |
@@ -1866,6 +1873,7 @@ Retention: raw connector content is kept for a configurable window, 90 days by d
 
 ### Changelog
 
+- **1.91.0** (2026-11-11): the Vault page, with Show behind the biometric or screen-lock prompt (ADR-135).
 - **1.90.0** (2026-11-11): Anu's notes app: new notes, search and editing in place (ADR-134).
 - **1.89.0** (2026-11-11): a Notes page in the Memory tab (ADR-133).
 - **1.88.2** (2026-11-11): ADR-129 seen on the Pixel 10 Pro (status).
