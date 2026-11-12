@@ -87,6 +87,9 @@ class LiteRtLmBrain(
      */
     private val cached = ArrayDeque<CachedConversation>()
 
+    /** How many conversations this engine may keep: one on the TPU, whose compiled model holds one's state (ADR-131). */
+    private val kept: Int = keptFor(backend)
+
     override fun stream(request: BrainRequest): Flow<BrainEvent> = callbackFlow {
         generation.lock()
         // Completes when the runtime has finished the turn: true on success, false on error or cancel.
@@ -332,13 +335,13 @@ class LiteRtLmBrain(
         val system = request.onDeviceSystem
         val key = ConversationKey(system, request.tools, request.sampling, request.thinking)
         val history = request.transcript.dropLast(1)
-        cached.firstOrNull { it.key == key && it.history == history }?.let { kept ->
-            cached.remove(kept)
-            return kept.also { it.why = "kept" }
+        cached.firstOrNull { it.key == key && it.history == history }?.let { hit ->
+            cached.remove(hit)
+            return hit.also { it.why = "kept" }
         }
         val previous = cached.lastOrNull()
-        // The new one and the kept ones stay within [KEPT]; S6 showed the engine keeps two open.
-        while (cached.size >= KEPT) cached.removeFirst().conversation.close()
+        // The new one and the kept ones stay within [kept]; S6 showed the engine keeps two open, the TPU one.
+        while (cached.size >= kept) cached.removeFirst().conversation.close()
         val config = ConversationConfig(
             systemInstruction = system?.let { Contents.of(it) },
             initialMessages = history.indices.map(request::messageAt),
@@ -428,7 +431,7 @@ class LiteRtLmBrain(
         when (withTimeoutOrNull(CANCEL_GRACE_MS) { finished.await() }) {
             true -> {
                 cached.addLast(session)
-                while (cached.size > KEPT) cached.removeFirst().conversation.close()
+                while (cached.size > kept) cached.removeFirst().conversation.close()
             }
             false -> session.conversation.close()
             // The runtime hasn't confirmed the cancel yet. Close once it does, never mid-decode.
@@ -471,6 +474,7 @@ class LiteRtLmBrain(
         /** How many conversations stay cached per model ([cached]). */
         const val KEPT = 2
 
+
         /**
          * How long the runtime may say nothing before the turn fails. Well past a whole window's reading on a phone's
          * CPU (about 70 s for 4,096 tokens), and past LiteRT-LM's own two-minute task deadline, which it can miss silently.
@@ -498,3 +502,9 @@ class LiteRtLmBrain(
 
 /** The runtime went quiet in the middle of a turn, so the turn was given up (see [LiteRtLmBrain]). */
 class ModelStalled : IllegalStateException("the model stopped responding, so this turn was stopped. Try again")
+
+/**
+ * How many conversations an engine on [backend] may keep cached: one on an NPU backend, where a second (Writing's, or
+ * memory's) disturbed the chat's as Base's opinion did (ADR-131); two elsewhere (ADR-097).
+ */
+internal fun keptFor(backend: String?): Int = if (backend?.startsWith("NPU") == true) 1 else 2

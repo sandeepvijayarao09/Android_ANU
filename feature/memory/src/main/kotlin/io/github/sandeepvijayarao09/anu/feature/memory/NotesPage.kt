@@ -12,10 +12,10 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -43,6 +43,9 @@ import io.github.sandeepvijayarao09.anu.core.ui.WhereLine
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import androidx.lifecycle.viewModelScope
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -63,13 +66,6 @@ interface NoteShelf {
     suspend fun update(id: Long, title: String, text: String)
 }
 
-/** Which note the editor shows: one already kept, or a new one, which exists only once it has words. */
-private sealed interface Editing {
-    data class Kept(val id: Long) : Editing
-
-    data object New : Editing
-}
-
 /**
  * Anu's notes app (ADR-133, ADR-134; DESIGN.md "Notes"), from the Memory tab: the notes newest first, a search, "+"
  * for a new one, and an editor that saves as you type. Talk makes and adds to the same notes ("Add oat milk to my
@@ -77,27 +73,24 @@ private sealed interface Editing {
  */
 @Composable
 internal fun NotesPage(viewModel: MemoryViewModel, notes: List<ShelfNote>, sentToday: Int, onOpenPrivacy: () -> Unit, onBack: () -> Unit) {
+    // The editor's session: a new key each time a note opens, so its state survives a new note getting its id.
+    var editorKey by rememberSaveable { mutableStateOf<Long?>(null) }
     var editingId by rememberSaveable { mutableStateOf<Long?>(null) }
-    var editingNew by rememberSaveable { mutableStateOf(false) }
-    val editing = when {
-        editingNew -> Editing.New
-        editingId != null -> Editing.Kept(editingId!!)
-        else -> null
-    }
-    if (editing != null) {
+    val key = editorKey
+    if (key != null) {
         // The editor handles BACK itself, so it saves first.
-        val close = { editingId = null; editingNew = false }
         NoteEditor(
             viewModel,
-            note = (editing as? Editing.Kept)?.let { kept -> notes.find { it.id == kept.id } },
-            new = editing == Editing.New,
+            key = key,
+            startId = editingId,
+            notes = notes,
             sentToday = sentToday,
             onOpenPrivacy = onOpenPrivacy,
-            onCreated = { id -> editingNew = false; editingId = id },
-            onClose = close,
+            onClose = { editorKey = null; editingId = null },
         )
         return
     }
+    val open = { id: Long? -> editingId = id; editorKey = System.nanoTime() }
 
     var query by rememberSaveable { mutableStateOf("") }
     val shown = remember(notes, query) { notes.filter { matches(it, query) } }
@@ -108,7 +101,7 @@ internal fun NotesPage(viewModel: MemoryViewModel, notes: List<ShelfNote>, sentT
         back = "Memory",
         onBack = onBack,
         subtitle = "Kept on this phone, encrypted. Write one here, or ask Anu to.",
-        actions = { AnuRoundButton(AnuIcons.Plus, "New note", onClick = { editingNew = true }) },
+        actions = { AnuRoundButton(AnuIcons.Plus, "New note", onClick = { open(null) }) },
     ) {
         if (notes.isNotEmpty()) {
             item(key = "search") { AnuSearchField(query, { query = it }, Modifier.padding(horizontal = AnuSpacing.xl, vertical = 4.dp)) }
@@ -142,7 +135,7 @@ internal fun NotesPage(viewModel: MemoryViewModel, notes: List<ShelfNote>, sentT
                                 subtitle = if (note.title.isBlank()) null else preview(note.text),
                                 value = whenChanged(note.updatedAtMillis),
                                 chevron = true,
-                                onClick = { editingId = note.id },
+                                onClick = { open(note.id) },
                             )
                         }
                     }
@@ -155,46 +148,48 @@ internal fun NotesPage(viewModel: MemoryViewModel, notes: List<ShelfNote>, sentT
 
 /**
  * One note, editable in place: a large title and the text, saved half a second after the last change and again on
- * the way out. Copy and Delete sit in the bar.
+ * the way out. Copy and Delete sit in the bar. The editor keeps its own id and words for its whole session ([key]), so
+ * a new note's first save neither closes it nor resets what's being typed (ADR-134). Saves run one at a time in the
+ * view model's scope, so a keystroke can't cancel one halfway, and each records a new note's id before the next.
  */
 @Composable
 private fun NoteEditor(
     viewModel: MemoryViewModel,
-    note: ShelfNote?,
-    new: Boolean,
+    key: Long,
+    startId: Long?,
+    notes: List<ShelfNote>,
     sentToday: Int,
     onOpenPrivacy: () -> Unit,
-    onCreated: (Long) -> Unit,
     onClose: () -> Unit,
 ) {
     val colors = AnuTheme.colors
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    // A kept note that was deleted (here, or by Talk) is gone: close.
-    LaunchedEffect(new, note == null) { if (!new && note == null) onClose() }
-    if (!new && note == null) return
-
-    var title by rememberSaveable(note?.id) { mutableStateOf(note?.title.orEmpty()) }
-    var text by rememberSaveable(note?.id) { mutableStateOf(note?.text.orEmpty()) }
-    var saved by remember(note?.id) { mutableStateOf(true) }
+    val start = remember(key) { startId?.let { id -> notes.find { it.id == id } } }
+    val draft = remember(key) { NoteDraft(viewModel::saveNote, startId, start?.title.orEmpty(), start?.text.orEmpty()) }
+    var title by rememberSaveable(key) { mutableStateOf(start?.title.orEmpty()) }
+    var text by rememberSaveable(key) { mutableStateOf(start?.text.orEmpty()) }
     var deleting by remember { mutableStateOf(false) }
-    val save: suspend () -> Unit = {
-        val id = viewModel.saveNote(note?.id, title, text)
-        if (note == null && id != null) onCreated(id)
-        saved = true
-    }
-    // Saved half a second after the last change.
+    val saved by draft.saved(title, text)
+    val note = draft.id?.let { kept -> notes.find { it.id == kept } }
+
+    // A note deleted while open (here, or by Talk) closes the editor, but only once the list has shown it: a new
+    // note's id comes before the list has it.
+    var listed by remember(key) { mutableStateOf(false) }
+    LaunchedEffect(note != null) { if (note != null) listed = true else if (listed) onClose() }
+
+    // Saved half a second after the last change. The save itself runs in the view model's scope, so a keystroke
+    // can't cancel it halfway.
     LaunchedEffect(title, text) {
-        if (title == note?.title.orEmpty() && text == note?.text.orEmpty()) return@LaunchedEffect
-        saved = false
+        if (draft.holds(title, text)) return@LaunchedEffect
         delay(SAVE_AFTER_MS)
-        save()
+        val (t, x) = title to text
+        viewModel.viewModelScope.launch { draft.save(t, x) }
     }
-    val leave = { scope.launch { if (!saved) save(); onClose() }; Unit }
+    val leave = { val (t, x) = title to text; viewModel.viewModelScope.launch { draft.save(t, x) }; onClose() }
     BackHandler(onBack = leave)
 
     val focus = remember { FocusRequester() }
-    if (new) LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
+    if (startId == null) LaunchedEffect(key) { runCatching { focus.requestFocus() } }
 
     AnuPage(
         title = "",
@@ -261,6 +256,38 @@ private fun NoteEditor(
 }
 
 private const val SAVE_AFTER_MS = 500L
+
+/**
+ * A note being edited (ADR-134): its id, which a new note gets on its first save, and the words the store holds.
+ * Saves run one at a time, and each records a new note's id before the next, so a note is never made twice.
+ */
+internal class NoteDraft(
+    private val store: suspend (id: Long?, title: String, text: String) -> Long?,
+    id: Long?,
+    title: String,
+    text: String,
+) {
+    private val lock = Mutex()
+
+    @Volatile
+    var id: Long? = id
+        private set
+
+    private val kept = mutableStateOf(title to text)
+
+    /** Whether the store already holds these words. */
+    fun holds(title: String, text: String) = kept.value == title to text
+
+    /** Whether [title] and [text] are saved, as a state the editor shows. */
+    @Composable
+    fun saved(title: String, text: String) = remember(title, text) { derivedStateOf { kept.value == title to text } }
+
+    suspend fun save(title: String, text: String) = lock.withLock {
+        if (kept.value == title to text) return@withLock
+        id = store(id, title, text)
+        kept.value = title to text
+    }
+}
 
 /** Whether [note] holds every word of [query], in its title or text. */
 internal fun matches(note: ShelfNote, query: String): Boolean {

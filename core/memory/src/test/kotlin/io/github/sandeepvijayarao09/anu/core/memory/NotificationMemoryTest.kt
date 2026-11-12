@@ -167,4 +167,23 @@ class NotificationMemoryTest {
         assertTrue(MemoryPipeline.noticeable(fact("works_at", "Acme")))
         assertTrue(MemoryPipeline.noticeable(fact("lives_in", "Lisbon", subject = "Maya Chen")))
     }
+
+    @Test
+    fun `a line that arrives while learning runs is read on the next run, not marked done unread`() = runTest {
+        var arriving: String? = "Maya Chen: I moved to Lisbon last week!"
+        // The brain is asked for after the event's words were read: a notification comes in just then.
+        val racing = MemoryPipeline(store, FactExtractor({
+            arriving?.let { line -> arriving = null; kotlinx.coroutines.runBlocking { notice(line) } }
+            brain
+        }, { LocalDate.of(2026, 10, 29) }), clock = { now }, zone = { ZoneOffset.UTC })
+        notice("Maya Chen: Congrats on the new job at Acme!")
+        brain.enqueue(reply(fact("user", "works_at", "Acme", "work", "the new job at Acme", single = true)))
+        assertEquals(1, racing.processPending().learned)
+        val event = store.pending(10).single()
+        assertTrue("the new line waits for the next run", event.content.contains("Lisbon"))
+        assertEquals("this run doesn't count as a failed try", 0, event.attempts)
+        brain.enqueue(reply(fact("Maya Chen", "lives_in", "Lisbon", "people", "I moved to Lisbon", single = true)))
+        racing.processPending()
+        assertTrue(store.pending(10).isEmpty())
+    }
 }

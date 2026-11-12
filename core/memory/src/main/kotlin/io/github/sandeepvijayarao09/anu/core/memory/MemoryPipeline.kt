@@ -195,7 +195,12 @@ class MemoryPipeline(
                         }
                         is FactExtractor.Result.Facts -> {
                             val learned = store.atomically {
-                                reconcile(event, if (noticed) extracted.facts.filter(::noticeable) else extracted.facts, if (noticed) FactOrigin.NOTICED else FactOrigin.INFERRED).also { store.setStatus(event.id, EventStatus.DONE, attempts) }
+                                reconcile(event, if (noticed) extracted.facts.filter(::noticeable) else extracted.facts, if (noticed) FactOrigin.NOTICED else FactOrigin.INFERRED).also {
+                                    // Lines a notification added while this ran weren't read: the event waits for the
+                                    // next run, without counting this as a failed try (ADR-132).
+                                    val grew = store.events(listOf(event.id)).firstOrNull()?.let { it.content != event.content } == true
+                                    store.setStatus(event.id, if (grew) EventStatus.PENDING else EventStatus.DONE, if (grew) event.attempts else attempts)
+                                }
                             }
                             result = result.copy(processed = result.processed + 1, learned = result.learned + learned)
                         }

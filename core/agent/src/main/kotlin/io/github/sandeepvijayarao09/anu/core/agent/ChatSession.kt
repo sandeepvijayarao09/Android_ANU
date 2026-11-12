@@ -104,6 +104,15 @@ class ChatSession(
     /** Where the model's view started last turn. It stays put until the chat outgrows the window. */
     private var windowStart = 0
 
+    /**
+     * Where in the chat the last message that carried a fact noticed in notifications is (ADR-127), or -1. While it's
+     * in the model's view, its turns stay tainted: a kept conversation still holds that text (ADR-132). Callers hold [lock].
+     */
+    private var noticedAt = -1
+
+    /** The noticed facts that message carried: once each comes back confirmed, the user has vouched for them. */
+    private var noticedFacts = emptySet<String>()
+
     /** How far into the chat photos have been let go this session (MEDIA-3), so each is deleted once. Callers hold [lock]. */
     private var photosLetGoTo = 0
 
@@ -276,7 +285,7 @@ class ChatSession(
                 route, device, system, turn, tools, turnKey = turnKey, sentAt = sentAt(now, asking.allWords), dates = dates, memory = memoryBlock,
                 relevant = relevantBlock, sharedFacts = if (cloudConsented) sharedFacts else emptyList(), consentFacts = consentFacts,
                 // A fact noticed in a notification is someone else's words, so the turn it goes with is tainted (ADR-127).
-                inView = untrustedIn(shown + message) + listOfNotNull(UntrustedContent.NOTICED.takeIf { relevantFacts.any { it.noticed } }),
+                inView = untrustedIn(shown + message) + listOfNotNull(UntrustedContent.NOTICED.takeIf { noticedInView(transcript.size, relevantFacts) }),
                 thinking = thinking(),
             )
             events.collect { raw ->
@@ -473,6 +482,22 @@ class ChatSession(
             return null
         }
         return done(Document(pdf.name, pdf.pages, read, Documents.notes(notes), whole = false))
+    }
+
+    /**
+     * Whether a noticed fact is in the model's view this turn: with the new message at [here], or with an earlier one
+     * still inside the window (ADR-132).
+     */
+    private fun noticedInView(here: Int, facts: List<RelevantFact>): Boolean {
+        val noticed = facts.filter { it.noticed }.map { it.text }.toSet()
+        if (noticed.isNotEmpty()) {
+            noticedAt = here
+            noticedFacts = noticed
+        } else if (noticedFacts.isNotEmpty() && noticedFacts.all { text -> facts.any { it.text == text && !it.noticed } }) {
+            noticedAt = -1 // the user confirmed them
+        }
+        if (noticedAt > here) noticedAt = -1 // the chat was cleared
+        return noticedAt >= 0 && noticedAt >= windowStart
     }
 
     /**

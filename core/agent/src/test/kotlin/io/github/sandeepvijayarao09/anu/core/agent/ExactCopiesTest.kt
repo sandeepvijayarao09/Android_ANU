@@ -20,4 +20,11 @@ class ExactCopiesTest {
         assertEquals("Supercalifragilistic words stay.", ExactCopies.fix("Supercalifragilistic words stay.", returned))
         assertEquals("Nothing to fix.", ExactCopies.fix("Nothing to fix.", emptyList()))
     }
+
+    @Test
+    fun `a code the user gave is never rewritten`() {
+        val theirs = sha.dropLast(1) + "5"
+        val asked = "Is the SHA-256 of hello $theirs?"
+        assertEquals("No: it's $sha, not $theirs.", ExactCopies.fix("No: it's $sha, not $theirs.", returned, said = listOf(asked)))
+    }
 }

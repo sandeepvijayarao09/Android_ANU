@@ -12,6 +12,7 @@ import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.yield
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -80,5 +81,31 @@ class NotesTest {
         assertTrue(matches(note, ""))
         assertFalse(matches(note, "socks"))
         assertEquals("passport · charger", preview("passport\n\n charger "))
+    }
+
+    @Test
+    fun `saves overlapping a new note's first save make one note, and keep the last words`() = runTest {
+        val gate = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val made = mutableListOf<Pair<String, String>>()
+        val updated = mutableListOf<Pair<String, String>>()
+        val draft = NoteDraft({ id, title, text ->
+            if (id == null) {
+                gate.await() // Room's insert, still running when the next save comes
+                made += title to text
+                7L
+            } else {
+                updated += title to text
+                id
+            }
+        }, id = null, title = "", text = "")
+        val first = launch { draft.save("Packing", "pass") }
+        val second = launch { draft.save("Packing", "passport") } // a keystroke, or BACK
+        gate.complete(Unit)
+        first.join()
+        second.join()
+        assertEquals(listOf("Packing" to "pass"), made)
+        assertEquals(listOf("Packing" to "passport"), updated)
+        assertEquals(7L, draft.id)
+        assertTrue(draft.holds("Packing", "passport"))
     }
 }

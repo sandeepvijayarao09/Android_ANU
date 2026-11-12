@@ -157,9 +157,12 @@ class AppendNoteTool(store: NoteStore, now: () -> Long = System::currentTimeMill
     override fun describe(input: AppendNoteInput) = "Add to your note \"${input.title.trim()}\""
 
     override suspend fun invoke(input: AppendNoteInput, context: ToolContext): NoteSaved {
+        // The title as given wins first: "Shopping list" is the note "Shopping list", not "Shopping" (ADR-131).
+        val raw = input.title.trim()
+        val exact = store.search(raw, MAX_FOUND).singleOrNull { it.title.equals(raw, ignoreCase = true) }
         val asked = searchable(input.title)
         val found = store.search(asked, MAX_FOUND).filter { it.title.contains(asked, ignoreCase = true) }
-        val note = found.singleOrNull { it.title.equals(asked, ignoreCase = true) } ?: found.singleOrNull()
+        val note = exact ?: found.singleOrNull { it.title.equals(asked, ignoreCase = true) } ?: found.singleOrNull()
             ?: error(
                 if (found.isEmpty()) {
                     val titles = store.search("", MAX_FOUND).joinToString { "\"${it.title}\"" }

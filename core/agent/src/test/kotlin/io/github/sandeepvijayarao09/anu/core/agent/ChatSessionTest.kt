@@ -451,6 +451,25 @@ class ChatSessionTest {
     }
 
     @Test
+    fun `a noticed fact still in view taints a follow-up that brings no facts`() = runTest {
+        val create = FakeCreateEvent()
+        val gate = RecordingGate()
+        var facts = listOf(RelevantFact("dentist: Dr. Patel", sensitive = false, noticed = true))
+        val chat = ChatSession(
+            agent(mapOf(Tier.BASE to base, Tier.PRO to base), ToolBroker(listOf(create), gate)),
+            toolsFor = { _, _ -> listOf(create.name) },
+            relevant = { _, _ -> facts },
+        )
+        base.enqueue(Step.Reply("Want me to add it?"))
+        chat.send("When is my dentist visit?", onPhone).toList()
+        // "OK, do it" brings no facts, but the kept conversation still shows the noticed one.
+        facts = emptyList()
+        base.enqueue(Step.Reply(listOf(""), toolCalls = listOf(addLunch)), Step.Reply("Added."))
+        chat.send("OK, do it", onPhone).toList()
+        assertEquals(1, gate.requests.size)
+    }
+
+    @Test
     fun `a fact noticed in a notification taints the turn it goes with, and never reaches the consent sheet`() = runTest {
         val create = FakeCreateEvent()
         val gate = RecordingGate()

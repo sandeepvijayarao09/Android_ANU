@@ -6,6 +6,7 @@ import io.github.sandeepvijayarao09.anu.core.model.BrainId
 import io.github.sandeepvijayarao09.anu.core.model.BrainLocation
 import io.github.sandeepvijayarao09.anu.core.model.BrainRequest
 import io.github.sandeepvijayarao09.anu.core.model.ChatMessage
+import io.github.sandeepvijayarao09.anu.core.model.allWords
 import io.github.sandeepvijayarao09.anu.core.model.DataClass
 import io.github.sandeepvijayarao09.anu.core.model.Document
 import io.github.sandeepvijayarao09.anu.core.model.echoesFraming
@@ -425,7 +426,12 @@ class Agent(
                     )
                 }
                 // A long code a tool returned goes back exactly as the tool gave it (ADR-136).
-                val answer = ExactCopies.fix(text.toString(), added.filterIsInstance<ChatMessage.Tool>().flatMap { m -> m.results.map { it.result.toString() } })
+                // Only trusted tools' results, and never a code the chat already holds.
+                val answer = ExactCopies.fix(
+                    text.toString(),
+                    returned = added.filterIsInstance<ChatMessage.Tool>().flatMap { m -> m.results.filter { it.untrusted == null }.map { it.result.toString() } },
+                    said = (history + added).mapNotNull { m -> (m as? ChatMessage.User)?.allWords ?: (m as? ChatMessage.Model)?.text },
+                )
                 added += ChatMessage.Model(answer)
                 return@flow emit(
                     AgentEvent.Completed(

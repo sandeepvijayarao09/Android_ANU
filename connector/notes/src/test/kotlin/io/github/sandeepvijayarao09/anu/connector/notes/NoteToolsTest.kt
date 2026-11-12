@@ -74,6 +74,15 @@ class NoteToolsTest {
     }
 
     @Test
+    fun `the title as given wins before list and note words are dropped`() = runTest {
+        create.invoke(CreateNoteInput("milk", title = "Shopping"), ctx)
+        create.invoke(CreateNoteInput("rope", title = "Shopping list"), ctx)
+        append.invoke(AppendNoteInput("Shopping list", "eggs"), ctx)
+        assertEquals("rope\neggs", store.notes.single { it.title == "Shopping list" }.text)
+        assertEquals("milk", store.notes.single { it.title == "Shopping" }.text)
+    }
+
+    @Test
     fun `a title that matches none or several says which notes there are`() = runTest {
         create.invoke(CreateNoteInput("a", title = "Trip to Pune"), ctx)
         create.invoke(CreateNoteInput("b", title = "Trip to Goa"), ctx)

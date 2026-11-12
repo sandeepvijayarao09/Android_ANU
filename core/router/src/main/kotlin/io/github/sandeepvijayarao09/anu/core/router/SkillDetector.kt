@@ -29,8 +29,14 @@ object SkillDetector {
     fun asksOnly(text: String): Boolean = QUESTION.containsMatchIn(text.trim()) &&
         !KEEP.containsMatchIn(text)
 
-    /** Asking to keep something, anywhere in a message: "Can you remember that my sister is Ana?" still saves. */
-    private val KEEP = Regex("^\\W*(please\\s+)?(remember|don'?t forget|note that|keep in mind)\\b|\\b(remember that|note that|keep in mind|don'?t forget)\\b", RegexOption.IGNORE_CASE)
+    /**
+     * Asking to keep something, anywhere in a message: "Can you remember my sister is Ana?" and "Will is my brother's
+     * name. Remember it." still save. "Remember" in "Do you remember…", "did I…" or "I can't remember" asks instead.
+     */
+    private val KEEP = Regex(
+        "(?<!\\bdo you |\\bdid i |\\bcan't |\\bcannot |\\bdon't |\\bdo i )\\bremember\\b|\\b(note that|keep in mind|don'?t forget)\\b",
+        RegexOption.IGNORE_CASE,
+    )
 
     /** Words that only mean email. */
     private val EMAIL = Regex(

@@ -47,7 +47,9 @@ declined() {
   local shown; shown="$(screen)"
   echo "$shown" | grep -q "Nothing happens until you tap" || return 1
   asked="$(echo "$shown" | grep -m1 -vE '^(Anu|On device|Close sheet|Drag handle|Talk|Memory|Settings|[0-9]+ sent today|Everything stayed on this phone)$' | head -1)"
-  tap "Don't allow" || true; tap "Don't" || true
+  # The decline button: "Don't", "Don't allow", "Don't save", "Don't add"…
+  local label; label="$(echo "$shown" | grep -m1 -E "^Don.t( [a-z]+)?$")"
+  [ -n "$label" ] && tap "$label"
   return 0
 }
 

@@ -29,6 +29,10 @@ class RouterTest {
         assertFalse(SkillDetector.asksOnly("Remember that my favorite color is teal."))
         assertFalse(SkillDetector.asksOnly("Can you remember that my sister is Ana?"))
         assertFalse(SkillDetector.asksOnly("Maya Chen"))
+        assertFalse(SkillDetector.asksOnly("Can you remember my sister is Ana?"))
+        assertFalse(SkillDetector.asksOnly("Will is my brother's name. Remember it."))
+        assertTrue(SkillDetector.asksOnly("Do you remember my sister's name?"))
+        assertTrue(SkillDetector.asksOnly("I can't remember, where did I park?"))
     }
 
     @Test
