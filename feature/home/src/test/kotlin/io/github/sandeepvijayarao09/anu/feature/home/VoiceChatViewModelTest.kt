@@ -11,13 +11,17 @@ import io.github.sandeepvijayarao09.anu.core.model.ScriptedBrain.Step
 import io.github.sandeepvijayarao09.anu.core.router.DeviceState
 import io.github.sandeepvijayarao09.anu.core.router.Router
 import io.github.sandeepvijayarao09.anu.core.router.Tier
+import io.github.sandeepvijayarao09.anu.core.voice.BargeIn
 import io.github.sandeepvijayarao09.anu.core.voice.SpeechEvent
 import io.github.sandeepvijayarao09.anu.core.voice.SpeechInput
 import io.github.sandeepvijayarao09.anu.core.voice.SpeechOutput
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.test.TestCoroutineScheduler
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -223,5 +227,40 @@ class VoiceChatViewModelTest {
         answerEnds()
         assertEquals(1, ears.listens)
         assertFalse(state.live)
+    }
+
+    @Test
+    fun `talking over Anu in live talk stops its speech and listens at once (ADR-129)`() {
+        val talked = MutableSharedFlow<Unit>()
+        var watching = 0
+        val ears2 = BargeIn { flow { watching++; talked.first(); emit(Unit) } }
+        val session = ChatSession(Agent(Router(), BrainProvider { if (it == Tier.BASE) base else null }, ToolBroker(emptyList(), ApprovalCenter())))
+        chat = ChatViewModel(session, device = { device }, speechIn = ears, speechOut = mouth, bargeIn = ears2)
+        ears.events = listOf(SpeechEvent.Final("Tell me about the weather"))
+        base.enqueue(Step.Reply("It's sunny today. Highs of twenty. Lows of ten."), Step.Reply("Okay."))
+        chat.toggleListening()
+        assertEquals(VoicePhase.SPEAKING, state.voice)
+        assertEquals(1, watching)
+        val stops = mouth.stops
+
+        ears.events = listOf(SpeechEvent.Final("Stop, what about tomorrow?"))
+        clock.runCurrent()
+        runBlocking { talked.emit(Unit) }
+        clock.runCurrent()
+        assertTrue(mouth.stops > stops)
+        assertEquals("it listened without the pause", 2, ears.listens)
+        assertEquals("Okay.", state.bubbles.last().text)
+    }
+
+    @Test
+    fun `barge-in only listens in live talk, not on the assistant card`() {
+        var watching = 0
+        val session = ChatSession(Agent(Router(), BrainProvider { if (it == Tier.BASE) base else null }, ToolBroker(emptyList(), ApprovalCenter())))
+        chat = ChatViewModel(session, device = { device }, speechIn = ears, speechOut = mouth, bargeIn = BargeIn { flow { watching++ } })
+        ears.events = listOf(SpeechEvent.Final("What's on today?"))
+        base.enqueue(Step.Reply("Your day is clear."))
+        chat.listenWhenReady()
+        assertEquals(VoicePhase.SPEAKING, state.voice)
+        assertEquals(0, watching)
     }
 }

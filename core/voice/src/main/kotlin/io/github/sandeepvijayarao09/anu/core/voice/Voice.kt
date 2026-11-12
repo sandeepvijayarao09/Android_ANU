@@ -93,21 +93,48 @@ object WakePhrase {
  * they are noise.
  */
 object Sentences {
-    private val END = Regex("[.!?…](?=\\s|$)|\\n")
+    /**
+     * A sentence's end: a full stop, question or exclamation mark before a space, as in English, Hindi's danda and
+     * Arabic's question mark too, or the full-width marks of Chinese and Japanese, which need no space after them.
+     */
+    private val END = Regex("[.!?…।؟](?=\\s|$)|[。！？]|\\n")
     private val MARKUP = Regex("[*_`#>]+")
     private val LINK = Regex("\\[([^\\]]+)]\\([^)]+\\)")
 
+    /** A clause's end, where the first piece of an answer may be spoken before its sentence ends (ADR-129). */
+    private val CLAUSE = Regex("[,;:—–،](?=\\s)|[、，；：]")
+
+    /** Words a full stop follows without ending a sentence. */
+    private val ABBREVIATIONS = setOf("mr", "mrs", "ms", "dr", "st", "vs", "e.g", "i.e", "jr", "sr", "prof", "approx")
+
+    /** A clause must have this many words before it's spoken on its own; in Chinese or Japanese, twice as many characters. */
+    const val FIRST_CLAUSE_WORDS = 5
+
     /**
      * The complete sentences in [text] after [from], and where the next call should start. With
-     * [final], whatever is left is a sentence too.
+     * [final], whatever is left is a sentence too. With [first], nothing has been spoken yet this turn, so a long first
+     * sentence's opening clause is spoken as soon as it's complete: the answer starts sounding sooner (ADR-129).
      */
-    fun next(text: String, from: Int, final: Boolean): Pair<List<String>, Int> {
+    fun next(text: String, from: Int, final: Boolean, first: Boolean = false): Pair<List<String>, Int> {
         var start = from.coerceIn(0, text.length)
         val sentences = mutableListOf<String>()
+        var search = start
         while (true) {
-            val end = END.find(text, start) ?: break
+            val end = END.find(text, search) ?: break
+            if (!endsSentence(text, end.range.first)) {
+                search = end.range.last + 1
+                continue
+            }
             sentences += text.substring(start, end.range.last + 1)
             start = end.range.last + 1
+            search = start
+        }
+        if (first && sentences.isEmpty() && !final) {
+            val clause = CLAUSE.find(text, start)
+            if (clause != null && words(text.substring(start, clause.range.first)) >= FIRST_CLAUSE_WORDS) {
+                sentences += text.substring(start, clause.range.last + 1)
+                start = clause.range.last + 1
+            }
         }
         if (final && start < text.length) {
             sentences += text.substring(start)
@@ -115,6 +142,26 @@ object Sentences {
         }
         return sentences.map(::speakable).filter(String::isNotBlank) to start
     }
+
+    /** A full stop after a list's number ("1. Milk") or a title ("Dr. Chen") doesn't end a sentence. */
+    private fun endsSentence(text: String, at: Int): Boolean {
+        if (text[at] != '.') return true
+        var k = at
+        while (k > 0 && !text[k - 1].isWhitespace()) k--
+        val word = text.substring(k, at)
+        if (word.lowercase() in ABBREVIATIONS) return false
+        val lineStart = k == 0 || text[k - 1] == '\n'
+        return !(lineStart && word.length in 1..2 && word.all(Char::isDigit))
+    }
+
+    private fun words(text: String): Int {
+        val spoken = speakable(text)
+        val wide = spoken.count(::wide)
+        return spoken.filterNot(::wide).split(' ').count(String::isNotBlank) + wide / 2
+    }
+
+    /** Chinese characters and Japanese kana, which are written without spaces. */
+    private fun wide(c: Char): Boolean = c in '\u3040'..'\u30ff' || c in '\u3400'..'\u9fff' || c in '\uf900'..'\ufaff'
 
     fun speakable(text: String): String = MARKUP.replace(LINK.replace(text, "$1"), "").replace(Regex("\\s+"), " ").trim()
 }
