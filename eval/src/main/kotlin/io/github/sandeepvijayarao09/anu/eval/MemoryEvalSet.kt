@@ -82,8 +82,8 @@ object MemoryEvalSet {
                 Later(90),
                 Says("My employer is Litware now", listOf(me("employer", "Litware", "work"))),
             ),
-            active = listOf(me("employer", "Litware", "work")),
-            gap = "relation synonyms",
+            // Closed by ADR-144: one word for each relation.
+            active = listOf(me("works_at", "Litware", "work")),
         ),
         MemoryScenario(
             "small talk brings no facts",

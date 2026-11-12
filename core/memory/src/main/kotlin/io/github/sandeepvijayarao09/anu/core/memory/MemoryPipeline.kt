@@ -268,10 +268,15 @@ class MemoryPipeline(
      */
     suspend fun search(query: String, limit: Int = 10): List<Fact> {
         val facts = store.activeFacts().filter { it.origin != FactOrigin.NOTICED }.sortedWith(IMPORTANCE)
-        val words = Normalize.words(query).map { if (it in SELF_WORDS) USER else it }.filter { it !in STOP_WORDS }
-        if (words.isEmpty()) return facts.take(limit)
+        val asked = Normalize.words(query).map { if (it in SELF_WORDS) USER else it }.filter { it !in STOP_WORDS }
+        if (asked.isEmpty()) return facts.take(limit)
+        // A word for a relation also finds its canonical one: "allergy" finds allergic_to, "job" works_at (ADR-144).
+        val words = asked.map { word -> setOf(word) + Normalize.predicate(word).split('_') }
         return facts
-            .map { fact -> fact to words.count { word -> word in Normalize.words("${fact.subject} ${fact.predicate.replace('_', ' ')} ${fact.value}") } }
+            .map { fact ->
+                val text = Normalize.words("${fact.subject} ${fact.predicate.replace('_', ' ')} ${fact.value}")
+                fact to words.count { forms -> forms.any { it in text } }
+            }
             .filter { (_, hits) -> hits > 0 }
             .sortedByDescending { (_, hits) -> hits }
             .take(limit)
@@ -432,7 +437,8 @@ class MemoryPipeline(
                 if (origin != FactOrigin.USER_STATED) continue
                 store.forgive(fingerprint)
             }
-            val related = store.activeFacts().filter { it.subject.equals(subject, ignoreCase = true) && it.predicate == predicate }
+            // Facts kept before ADR-144 may be under a synonym: compared under the canonical word.
+            val related = store.activeFacts().filter { it.subject.equals(subject, ignoreCase = true) && Normalize.predicate(it.predicate) == predicate }
             val same = related.firstOrNull { Normalize.value(it.value) == Normalize.value(value) }
             if (same != null) {
                 store.updateFact(

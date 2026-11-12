@@ -164,7 +164,11 @@ class ForgetMemoryTool(private val memory: MemoryPipeline) : Tool<ForgetInput, F
     private fun resolve(input: ForgetInput): List<Fact> {
         val facts = memory.facts.value
         if (input.ids.isNotEmpty()) return facts.filter { it.id in input.ids }
-        val words = Normalize.words(input.query)
-        return facts.filter { fact -> words.all { it in Normalize.words("${fact.subject} ${fact.predicate.replace('_', ' ')} ${fact.value}") } }
+        // A word for a relation also matches its canonical one, as memory_search does (ADR-144).
+        val words = Normalize.words(input.query).map { word -> setOf(word) + Normalize.predicate(word).split('_') }
+        return facts.filter { fact ->
+            val text = Normalize.words("${fact.subject} ${fact.predicate.replace('_', ' ')} ${fact.value}")
+            words.all { forms -> forms.any { it in text } }
+        }
     }
 }

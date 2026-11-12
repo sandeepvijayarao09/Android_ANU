@@ -279,6 +279,14 @@ class MemoryPipelineTest {
         assertEquals(listOf("diet: vegetarian"), store.activeFacts().map { it.text })
     }
 
+    @Test
+    fun `the model's own word for a relation is stored under one word, so a move replaces the old home (ADR-144)`() = runTest {
+        learn("I live in Seattle", fact("user", "residence", "Seattle", "places", "I live in Seattle"))
+        learn("I just moved to Boston", fact("user", "location", "Boston", "places", "I just moved to Boston"))
+        learn("I work at Northwind", fact("user", "workplace", "Northwind", "work", "I work at Northwind"))
+        assertEquals(setOf("lives_in: Boston", "works_at: Northwind"), store.activeFacts().map { "${it.predicate}: ${it.value}" }.toSet())
+    }
+
     /** Every piece of text memory keeps: facts (with superseded ones and their quotes), events and profile versions. */
     private fun everything(): String = (
         store.allFacts().flatMap { listOf(it.value, it.evidence.orEmpty()) } + store.allEvents().map { it.content } +

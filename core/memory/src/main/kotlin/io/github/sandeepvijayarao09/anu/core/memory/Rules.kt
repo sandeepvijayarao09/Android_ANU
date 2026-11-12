@@ -66,6 +66,27 @@ internal object Normalize {
 
     fun predicate(raw: String): String =
         raw.trim().lowercase().replace(Regex("[\\s-]+"), "_").replace(Regex("[^a-z0-9_]"), "").replace(Regex("_+"), "_").trim('_')
+            .let { CANONICAL[it] ?: it }
+
+    /**
+     * One word for each relation (ADR-144). On the Pixel, the memory eval found E4B writing "residence", "location",
+     * "workplace" and "hobby" where the extractor's examples say lives_in, works_at and likes: a move then left two
+     * homes, and a question about where someone lives missed. Every fact is stored and compared under its canonical
+     * word, so a one-at-a-time relation is replaced whatever word the model chose.
+     */
+    private val CANONICAL: Map<String, String> = buildMap {
+        fun to(canonical: String, vararg words: String) = words.forEach { put(it, canonical) }
+        to("lives_in", "residence", "resides_in", "location", "current_location", "current_city", "city", "home_city", "home", "lives", "lives_at", "based_in", "located_in")
+        to("works_at", "workplace", "employer", "company", "works_for", "employed_at", "employed_by", "job_at", "organization", "workplace_name")
+        to("job_title", "job", "occupation", "profession", "role", "position", "title")
+        to("likes", "hobby", "hobbies", "enjoys", "interest", "interests", "likes_to", "loves", "passion")
+        to("dislikes", "hates", "doesnt_like")
+        to("birthday", "birth_date", "date_of_birth", "born_on", "dob")
+        to("diet", "dietary_preference", "dietary_restriction")
+        to("partner", "spouse", "wife", "husband", "girlfriend", "boyfriend", "significant_other")
+        to("allergic_to", "allergy", "allergies", "allergic")
+        to("manager", "boss", "supervisor")
+    }
 
     fun value(raw: String): String = words(raw).joinToString(" ")
 
@@ -79,8 +100,5 @@ internal object Normalize {
     }
 
     /** Relations a person has one of at a time. A new value replaces the old one (§8.2, step 3). */
-    val SINGLE_VALUED = setOf(
-        "name", "age", "birthday", "pronouns", "works_at", "employer", "company", "job_title", "role", "manager",
-        "lives_in", "home_city", "city", "hometown", "timezone", "diet", "partner", "spouse", "wife", "husband",
-    )
+    val SINGLE_VALUED = setOf("name", "age", "birthday", "pronouns", "works_at", "job_title", "manager", "lives_in", "hometown", "timezone", "diet", "partner")
 }

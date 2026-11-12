@@ -119,11 +119,11 @@ class MemoryToolsTest {
         val tool = RememberTool(memory)
         assertEquals(
             "the subject and relation are normalized as the pipeline stores them",
-            listOf(PayloadRow("Fact", "Your home city is Boston"), PayloadRow("Kept in", "Places")),
+            listOf(PayloadRow("Fact", "You live in Boston"), PayloadRow("Kept in", "Places")),
             tool.rows(RememberInput(about = "me", what = "Home City", value = " Boston ", section = ProfileSection.PLACES)),
         )
         assertEquals(
-            listOf(PayloadRow("Fact", "Your allergy is penicillin"), PayloadRow("Kept in", "About you"), PayloadRow("Sensitive", "Yes")),
+            listOf(PayloadRow("Fact", "You are allergic to penicillin"), PayloadRow("Kept in", "About you"), PayloadRow("Sensitive", "Yes")),
             tool.rows(RememberInput(what = "allergy", value = "penicillin", section = ProfileSection.IDENTITY, sensitive = true)),
         )
     }

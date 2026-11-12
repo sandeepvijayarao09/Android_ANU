@@ -125,6 +125,7 @@ data class MemoryScore(val scenarios: List<ScenarioScore>) {
             s.scenario.gap?.let { append(" [gap: $it]") }
             appendLine()
             s.missing.forEach { appendLine("      missing $it") }
+            if (s.missing.isNotEmpty()) s.extra.forEach { appendLine("      kept instead $it") }
             s.contradictions.forEach { appendLine("      contradiction $it") }
             s.leaks.forEach { appendLine("      left behind \"$it\"") }
             s.probeMisses.forEach { appendLine("      question $it") }
