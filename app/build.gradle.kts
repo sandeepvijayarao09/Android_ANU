@@ -16,6 +16,8 @@ android {
         versionCode = 1
         versionName = "0.0.1"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        // Anu's phones and its emulator are arm64 (ADR-025): the x86_64 libraries were about 40 MB of every APK.
+        ndk { abiFilters += "arm64-v8a" }
     }
 
     // ADR-012: `personal` is the owner's build (SMS, own Gemini key, sideloaded models).

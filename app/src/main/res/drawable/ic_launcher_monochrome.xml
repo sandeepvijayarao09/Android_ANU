@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The themed icon: the Talk tab's concentric circles (DESIGN.md, Tab bar), sized for the adaptive icon's safe zone. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path android:pathData="M54 54m-24 0a24 24 0 1 0 48 0a24 24 0 1 0 -48 0" android:strokeWidth="5" android:strokeColor="#FF000000" />
+    <path android:pathData="M54 54m-8 0a8 8 0 1 0 16 0a8 8 0 1 0 -16 0" android:strokeWidth="5" android:strokeColor="#FF000000" />
+</vector>
