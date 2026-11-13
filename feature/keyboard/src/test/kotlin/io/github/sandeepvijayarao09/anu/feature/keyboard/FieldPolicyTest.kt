@@ -48,14 +48,11 @@ class FieldPolicyTest {
     }
 
     @Test
-    fun `addresses, links, numbers and raw fields get no AI but aren't private`() {
+    fun `number, phone and date pads get no AI but aren't private`() {
         listOf(
-            text or InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS,
-            text or InputType.TYPE_TEXT_VARIATION_WEB_EMAIL_ADDRESS,
-            text or InputType.TYPE_TEXT_VARIATION_URI,
             InputType.TYPE_CLASS_NUMBER,
             InputType.TYPE_CLASS_PHONE,
-            InputType.TYPE_NULL,
+            InputType.TYPE_CLASS_DATETIME,
         ).forEach { type ->
             val policy = FieldPolicy.of(type, 0)
             assertFalse("$type has no AI", policy.ai)
@@ -65,6 +62,23 @@ class FieldPolicyTest {
         assertEquals(KeyLayout.NUMBERS, FieldPolicy.of(InputType.TYPE_CLASS_DATETIME, 0).layout)
         assertEquals(KeyLayout.PHONE, FieldPolicy.of(InputType.TYPE_CLASS_PHONE, 0).layout)
         assertEquals(KeyLayout.LETTERS, FieldPolicy.of(text or InputType.TYPE_TEXT_VARIATION_URI, 0).layout)
+    }
+
+    @Test
+    fun `addresses, links and untyped fields get AI, as a browser's address bar and apps' own editors need`() {
+        listOf(
+            text or InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS,
+            text or InputType.TYPE_TEXT_VARIATION_WEB_EMAIL_ADDRESS,
+            text or InputType.TYPE_TEXT_VARIATION_URI,
+            InputType.TYPE_NULL,
+        ).forEach { type ->
+            val policy = FieldPolicy.of(type, 0)
+            assertTrue("$type has AI", policy.ai)
+            assertFalse(policy.private)
+        }
+        // A password stays private wherever it is, so it never gets AI.
+        assertFalse(FieldPolicy.of(text or InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD, 0).ai)
+        assertFalse(FieldPolicy.of(text, EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING).ai)
     }
 
     @Test

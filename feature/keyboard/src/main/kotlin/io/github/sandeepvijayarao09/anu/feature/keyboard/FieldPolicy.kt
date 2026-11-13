@@ -20,8 +20,9 @@ enum class EnterKey(val label: String, val actionId: Int) {
  * What Anu's keyboard may do in one field (ADR-109), from the field's own [EditorInfo] alone: nothing typed is read to decide.
  * - [private]: a password, or a field whose app asked keyboards not to learn from it, as incognito tabs do
  *   (`IME_FLAG_NO_PERSONALIZED_LEARNING`). Anu then reads nothing from it, not even the caps mode, and offers no AI.
- * - [ai]: the AI strip is offered. Only in ordinary text fields: not in private, number, address or link fields, nor in
- *   fields that take raw key events.
+ * - [ai]: the AI strip is offered. In every field but private ones and number, phone and date pads (ADR-149): addresses
+ *   and links too, since a browser's address bar is also its search box, and fields that declare no type, as many apps'
+ *   own editors do (Samsung Notes, Chrome's pages, the launcher's search).
  * - [chat]: the field looks like a chat's, so Reply is offered first.
  */
 data class FieldPolicy(
@@ -38,11 +39,6 @@ data class FieldPolicy(
             InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD,
             InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD,
         )
-        private val ADDRESSES = setOf(
-            InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS,
-            InputType.TYPE_TEXT_VARIATION_WEB_EMAIL_ADDRESS,
-            InputType.TYPE_TEXT_VARIATION_URI,
-        )
         private const val CAPS = InputType.TYPE_TEXT_FLAG_CAP_SENTENCES or InputType.TYPE_TEXT_FLAG_CAP_WORDS or InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS
 
         /** [knownChat]: Anu has seen a chat from this field's app in its notifications (ADR-031). */
@@ -53,7 +49,8 @@ data class FieldPolicy(
                 (kind == InputType.TYPE_CLASS_NUMBER && variation == InputType.TYPE_NUMBER_VARIATION_PASSWORD)
             val private = password || imeOptions and EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING != 0
             val text = kind == InputType.TYPE_CLASS_TEXT
-            val ai = !private && text && variation !in ADDRESSES
+            val pad = kind == InputType.TYPE_CLASS_NUMBER || kind == InputType.TYPE_CLASS_PHONE || kind == InputType.TYPE_CLASS_DATETIME
+            val ai = !private && !pad
             val action = imeOptions and EditorInfo.IME_MASK_ACTION
             return FieldPolicy(
                 layout = when (kind) {
