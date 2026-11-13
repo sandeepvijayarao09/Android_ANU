@@ -26,6 +26,11 @@ class AnuVoiceInteractionService : VoiceInteractionService() {
         current = this
     }
 
+    override fun onPrepareToShowSession(args: Bundle, showFlags: Int) {
+        super.onPrepareToShowSession(args, showFlags)
+        if (BuildConfig.DEBUG) Log.d("Anu", "Assistant: preparing, flags 0x${Integer.toHexString(showFlags)}")
+    }
+
     override fun onShutdown() {
         current = null
         super.onShutdown()
@@ -36,6 +41,10 @@ class AnuVoiceInteractionService : VoiceInteractionService() {
 
         /** The Quick Settings tile asked about the screen: the card's next question uses it (ADR-108). */
         const val EXTRA_USE_SCREEN = "io.github.sandeepvijayarao09.anu.USE_SCREEN"
+
+        /** Android 17's `SHOW_WITH_ASSIST_STRUCTURE_SCREEN_CONTENT`: without it the structure carries no screen text. */
+        private val SCREEN_CONTENT =
+            if (android.os.Build.VERSION.SDK_INT >= 37) VoiceInteractionSession.SHOW_WITH_ASSIST_STRUCTURE_SCREEN_CONTENT else 0
 
         @Volatile
         private var current: AnuVoiceInteractionService? = null
@@ -55,7 +64,7 @@ class AnuVoiceInteractionService : VoiceInteractionService() {
                     query?.let { putString(EXTRA_QUERY, it) }
                     if (useScreen) putBoolean(EXTRA_USE_SCREEN, true)
                 },
-                VoiceInteractionSession.SHOW_WITH_ASSIST or VoiceInteractionSession.SHOW_WITH_SCREENSHOT,
+                VoiceInteractionSession.SHOW_WITH_ASSIST or VoiceInteractionSession.SHOW_WITH_SCREENSHOT or SCREEN_CONTENT,
             )
             return true
         }
@@ -97,7 +106,7 @@ class AnuSession(context: Context) : VoiceInteractionSession(context) {
         if (args?.getBoolean(AnuVoiceInteractionService.EXTRA_USE_SCREEN) == true) intent.putExtra(AnuVoiceInteractionService.EXTRA_USE_SCREEN, true)
         startAssistantActivity(intent)
         if (BuildConfig.DEBUG) {
-            Log.d("Anu", "Assistant: shown, text ${showFlags and SHOW_WITH_ASSIST != 0}, screenshot ${showFlags and SHOW_WITH_SCREENSHOT != 0}")
+            Log.d("Anu", "Assistant: shown, flags 0x${Integer.toHexString(showFlags)}, text ${showFlags and SHOW_WITH_ASSIST != 0}, screenshot ${showFlags and SHOW_WITH_SCREENSHOT != 0}")
         }
         handler.postDelayed(hideLater, HANDOFF_WAIT_MS)
     }

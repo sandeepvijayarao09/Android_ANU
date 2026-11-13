@@ -20,6 +20,13 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <!--
+        Questions about the screen as the assistant (ADR-083, ADR-148). Android 17 hands the assistant the screen's
+        text only with this permission (a normal one, granted at install), and on the Pixel nothing of the screen
+        without it. The screen is still read only when the user asks about it.
+    -->
+    <uses-permission android:name="android.permission.READ_ASSIST_STRUCTURE_SCREEN_CONTENT" />
+
     <queries>
         <!-- The phone's text-to-speech engine and speech recognizers (package visibility, API 30+). -->
         <intent>
