@@ -123,6 +123,9 @@ internal interface TileReader {
     /** Whether the user has app control on. */
     val on: Boolean
 
-    /** The screen below, masked, once the panel and [ownPackage]'s screens are gone; or why it can't be used. */
-    suspend fun read(ownPackage: String): ScreenLook
+    /**
+     * The screen below, masked, once the panel and [ownPackage]'s screens are gone; or why it can't be used. With
+     * [afterPanel] false it reads at once, for the assistant's fallback (ADR-148).
+     */
+    suspend fun read(ownPackage: String, afterPanel: Boolean = true): ScreenLook
 }

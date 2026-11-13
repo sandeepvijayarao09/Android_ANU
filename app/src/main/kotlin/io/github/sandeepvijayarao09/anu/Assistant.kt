@@ -9,6 +9,8 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
+import io.github.sandeepvijayarao09.anu.feature.home.ScreenLook
+import kotlinx.coroutines.launch
 import android.service.voice.VoiceInteractionService
 import android.service.voice.VoiceInteractionSession
 import android.service.voice.VoiceInteractionSessionService
@@ -104,9 +106,25 @@ class AnuSession(context: Context) : VoiceInteractionSession(context) {
         val intent = Intent(context, AssistantActivity::class.java)
         args?.getString(AnuVoiceInteractionService.EXTRA_QUERY)?.let { intent.putExtra(AnuVoiceInteractionService.EXTRA_QUERY, it) }
         if (args?.getBoolean(AnuVoiceInteractionService.EXTRA_USE_SCREEN) == true) intent.putExtra(AnuVoiceInteractionService.EXTRA_USE_SCREEN, true)
-        startAssistantActivity(intent)
         if (BuildConfig.DEBUG) {
             Log.d("Anu", "Assistant: shown, flags 0x${Integer.toHexString(showFlags)}, text ${showFlags and SHOW_WITH_ASSIST != 0}, screenshot ${showFlags and SHOW_WITH_SCREENSHOT != 0}")
+        }
+        val reader = Flavor.tileReader
+        if (showFlags and (SHOW_WITH_ASSIST or SHOW_WITH_SCREENSHOT) == 0 && reader?.on == true && screenAllowed()) {
+            // Android handed over nothing (the Pixel's Android 17 withholds the screen from assistants that aren't
+            // Google's, ADR-148): app control reads it before the card covers it, held in memory like the hand-over
+            // and used only if the user asks about the screen. A read that fails leaves the card's usual note.
+            (context.applicationContext as AnuApp).graph.scope.launch {
+                val started = SystemClock.elapsedRealtime()
+                val look = runCatching { reader.read(context.packageName, afterPanel = false) }.getOrNull()
+                if (look is ScreenLook.Ready || look is ScreenLook.Unavailable && look.reason == ScreenHandoff.PRIVATE) ScreenHandoff.give(look)
+                if (BuildConfig.DEBUG) {
+                    Log.d("Anu", "Assistant: app control ${if (look is ScreenLook.Ready) "read ${look.screen.app}" else "didn't read"} in ${SystemClock.elapsedRealtime() - started} ms")
+                }
+                handler.post { startAssistantActivity(intent) }
+            }
+        } else {
+            startAssistantActivity(intent)
         }
         handler.postDelayed(hideLater, HANDOFF_WAIT_MS)
     }
@@ -145,6 +163,13 @@ class AnuSession(context: Context) : VoiceInteractionSession(context) {
             handler.removeCallbacks(hideLater)
             hide()
         }
+    }
+
+    /** The user's own choice for the assistant: Android's "Use text from screen" and "Use screenshot" are both on. */
+    private fun screenAllowed(): Boolean {
+        val resolver = context.contentResolver
+        return android.provider.Settings.Secure.getInt(resolver, "assist_structure_enabled", 1) != 0 &&
+            android.provider.Settings.Secure.getInt(resolver, "assist_screenshot_enabled", 1) != 0
     }
 
     /** How many nodes under [node] show text. Counts only. */

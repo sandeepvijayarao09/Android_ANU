@@ -31,7 +31,7 @@ internal object Flavor {
     val tileReader: TileReader? = object : TileReader {
         override val on: Boolean get() = TileScreen.ready
 
-        override suspend fun read(ownPackage: String): ScreenLook = when (val look = TileScreen.read(ownPackage)) {
+        override suspend fun read(ownPackage: String, afterPanel: Boolean): ScreenLook = when (val look = TileScreen.read(ownPackage, afterPanel)) {
             is TileScreen.Look.Read -> {
                 if (BuildConfig.DEBUG) Log.d("Anu", "Screen tile: the panel went in ${look.waitedMs} ms")
                 ScreenHandoff.fromTile(look.packageName, look.texts, look.secrets, look.screenshot)

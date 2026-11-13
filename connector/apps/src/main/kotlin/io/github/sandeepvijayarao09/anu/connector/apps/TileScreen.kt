@@ -39,9 +39,10 @@ object TileScreen {
 
     /**
      * Waits for the Quick Settings panel and [ownPackage]'s own windows to leave the screen (at most 2 s), so the picture
-     * shows the app, then reads it.
+     * shows the app, then reads it. With [afterPanel] false it reads at once: the assistant's fallback reads before the
+     * card opens, so nothing of Anu's covers the app yet (ADR-148).
      */
-    suspend fun read(ownPackage: String): Look {
+    suspend fun read(ownPackage: String, afterPanel: Boolean = true): Look {
         val service = AnuAccessibilityService.instance ?: return Look.Unavailable
         // The service keeps the windows and nodes it last saw until an event says they changed, and it asks for none
         // between tasks: on the emulator the panel's window was still listed, alone, long after it closed. So the cache
@@ -49,6 +50,7 @@ object TileScreen {
         val hearing = Build.VERSION.SDK_INT < 34 && service.hearWindows(true)
         try {
             val started = SystemClock.uptimeMillis()
+            if (!afterPanel) return look(fresh(service), 0)
             while (SystemClock.uptimeMillis() - started < CLEAR_MAX_MS && !clear(fresh(service), ownPackage)) delay(50)
             val waited = SystemClock.uptimeMillis() - started
             // The panel's closing animation runs a little after its window goes.
